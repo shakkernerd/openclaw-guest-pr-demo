@@ -10,11 +10,12 @@ documents existing behavior; it does not change the implementation or tests.
 - [ ] Confirm that `parcelLabel(count)` uses singular `item` only when
   `count === 1`, and plural `items` otherwise.
 
-The existing one- and three-item examples are:
+The existing zero-, one-, and three-item examples are:
 
 ```js
 const { parcelLabel } = require("./parcel-label.js");
 
+parcelLabel(0); // "0 items": an empty parcel uses the plural noun.
 parcelLabel(1); // "1 item": one item uses the singular noun.
 parcelLabel(3); // "3 items": three items use the plural noun.
 ```
