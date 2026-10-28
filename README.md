@@ -170,6 +170,12 @@ scripts. Shipment IDs, SKUs within messages, and all issue fields are escaped as
 plain text—even if they contain markup. The self-contained document contains only
 inline CSS and local section links: no external assets, scripts, or services.
 
+Print styles reveal every shipment's details, including closed disclosures, without
+changing which disclosures are open on screen. Keyboard instructions are omitted
+from print; input entry numbers and issue paths remain. This requires a browser
+that supports the CSS `::details-content` pseudo-element; check print preview in
+older browsers.
+
 This is a static snapshot, not a dispatch control. Apply corrections to the batch
 and regenerate it; opening or expanding the report does not revalidate data.
 

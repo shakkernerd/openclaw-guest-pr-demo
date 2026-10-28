@@ -46,7 +46,7 @@
     .issue-code { font-weight: 700; color: #933b1a; }
     footer { border-top: 1px solid #ced8d7; margin-top: 36px; padding-top: 20px; color: #49616b; font-size: .8125rem; }
     @media (max-width: 540px) { main { padding: 24px 16px; } .stats { gap: 8px; } .stats > div { padding: 12px; } summary { padding: 16px; } .shipment-body { padding: 4px 16px 16px; } }
-    @media print { :root { background: white; } main { max-width: none; padding: 0; } nav, .skip-link, .disclosure-label { display: none; } details { break-inside: avoid; } }
+    @media print { :root { background: white; } main { max-width: none; padding: 0; } nav, .skip-link, .disclosure-label, .keyboard-help { display: none; } details { break-inside: avoid; } .shipment::details-content { content-visibility: visible; } }
   </style>
 </head>
 <body>
@@ -66,7 +66,7 @@
 
   <div id="shipments">
     <nav aria-label="Shipment status sections"><a href="#blocked">Blocked (1)</a><a href="#ready">Ready (1)</a></nav>
-    <p class="entry-label">Blocked details start expanded. Tab to a shipment summary; press Enter or Space to toggle its details.</p>
+    <p class="entry-label keyboard-help">Blocked details start expanded. Tab to a shipment summary; press Enter or Space to toggle its details.</p>
     <section id="blocked" aria-labelledby="blocked-heading">
     <h2 id="blocked-heading">Blocked shipments <span class="section-count">1</span></h2>
     <details id="shipment-1" class="shipment blocked" open>

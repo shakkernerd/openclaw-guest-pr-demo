@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Reveal closed shipment details in print styles using `::details-content`, while
+  preserving on-screen disclosure defaults and keyboard controls. Omit keyboard
+  instructions from print without hiding entry numbers or issue paths.
+
 - Report stdout write failures (including full devices and closed pipes) as exit 2
   with a diagnostic in every format; preserve complete successful output flushing.
 - Accept deeply nested ignored metadata without recursive JSON revival, retaining

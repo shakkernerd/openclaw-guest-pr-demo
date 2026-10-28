@@ -88,7 +88,7 @@ function formatHtmlReport(batch) {
     .issue-code { font-weight: 700; color: #933b1a; }
     footer { border-top: 1px solid #ced8d7; margin-top: 36px; padding-top: 20px; color: #49616b; font-size: .8125rem; }
     @media (max-width: 540px) { main { padding: 24px 16px; } .stats { gap: 8px; } .stats > div { padding: 12px; } summary { padding: 16px; } .shipment-body { padding: 4px 16px 16px; } }
-    @media print { :root { background: white; } main { max-width: none; padding: 0; } nav, .skip-link, .disclosure-label { display: none; } details { break-inside: avoid; } }
+    @media print { :root { background: white; } main { max-width: none; padding: 0; } nav, .skip-link, .disclosure-label, .keyboard-help { display: none; } details { break-inside: avoid; } .shipment::details-content { content-visibility: visible; } }
   </style>
 </head>
 <body>
@@ -108,7 +108,7 @@ ${entries.length === 0 && batch.errors.length ? `<section aria-labelledby="batch
 ${entries.length === 0 && batch.valid ? "<p>No shipments in this batch.</p>" : ""}
   <div id="shipments">
     <nav aria-label="Shipment status sections"><a href="#blocked">Blocked (${blocked.length})</a><a href="#ready">Ready (${ready.length})</a></nav>
-    <p class="entry-label">Blocked details start expanded. Tab to a shipment summary; press Enter or Space to toggle its details.</p>
+    <p class="entry-label keyboard-help">Blocked details start expanded. Tab to a shipment summary; press Enter or Space to toggle its details.</p>
     ${section("blocked", "Blocked shipments", blocked, "No blocked shipment entries. Check the overall result and any batch issues above.")}
     ${section("ready", "Ready shipments", ready, "No ready shipments.")}
   </div>
