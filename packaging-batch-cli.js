@@ -8,13 +8,15 @@ const { parseOrder } = require("./order-json.js");
 const { summarizePackaging } = require("./packaging.js");
 
 const USAGE = [
-  "Usage: node packaging-batch-cli.js [FILE|-]",
+  "Usage: node packaging-batch-cli.js [--diagnostics=jsonl] [FILE|-]",
   "       node packaging-batch-cli.js --help",
   "",
   "Read one order per LF-delimited line; omit FILE or use - for standard input.",
   "Skip only empty lines or lines containing spaces, tabs, and CR characters.",
   "Write compact JSON lines with physical line, mixed, and single-sku summaries.",
   "Invalid records: diagnose on stderr, omit the result, and continue.",
+  "--diagnostics=jsonl  Replace human batch stderr with versioned JSONL events.",
+  "                    Use once, before --; stdout and exit codes are unchanged.",
   "--help, -h   Show this help (use alone).",
   "--           End options, allowing filenames that begin with a dash.",
   "",
@@ -23,6 +25,7 @@ const USAGE = [
 
 function parseArguments(args) {
   let file;
+  let diagnostics;
   let options = true;
   for (const arg of args) {
     if (options && (arg === "--help" || arg === "-h")) {
@@ -31,6 +34,10 @@ function parseArguments(args) {
     }
     if (options && arg === "--") {
       options = false;
+    } else if (options && arg.startsWith("--diagnostics=")) {
+      if (diagnostics !== undefined) throw new Error("repeated option --diagnostics");
+      if (arg !== "--diagnostics=jsonl") throw new Error("--diagnostics requires jsonl");
+      diagnostics = "jsonl";
     } else if (options && arg.startsWith("-") && arg !== "-") {
       throw new Error("unknown option " + JSON.stringify(arg));
     } else {
@@ -38,7 +45,7 @@ function parseArguments(args) {
       file = arg;
     }
   }
-  return { file, help: false };
+  return { file, diagnostics, help: false };
 }
 
 // Only LF delimits records. StringDecoder matches Node's replacement decoding,
@@ -93,8 +100,10 @@ function writeText(stream, text, signal) {
  * Consume a byte Readable and write JSONL to a Writable, ending output on success.
  * Owns input/output for this run (pipeline destroys them on fatal errors), but
  * leaves diagnostics open. Returns the batch exit status; no process globals.
+ * The optional fifth argument selects { diagnostics: "jsonl" }; text is the default.
  */
-async function runBatch(input, output, diagnostics, source = "standard input") {
+async function runBatch(input, output, diagnostics, source = "standard input", options = {}) {
+  const jsonl = options.diagnostics === "jsonl";
   let invalid = false;
   let recordsComplete = false;
   let outputFinished = false;
@@ -125,6 +134,15 @@ async function runBatch(input, output, diagnostics, source = "standard input") {
     input.destroy();
   };
   const onDiagnosticClose = () => onDiagnosticError(streamError("ERR_STREAM_PREMATURE_CLOSE"));
+  const writeEvent = async (event, signal) => {
+    try {
+      await writeText(diagnostics, JSON.stringify(event) + "\n", signal);
+    } catch (error) {
+      // Also retain ownership when a write rejects before an error event arrives.
+      onDiagnosticError(error);
+      throw error;
+    }
+  };
   input.on("error", onInputError);
   input.on("close", onInputClose);
   output.on("error", onOutputError);
@@ -150,7 +168,11 @@ async function runBatch(input, output, diagnostics, source = "standard input") {
           };
         } catch (error) {
           invalid = true;
-          await writeText(diagnostics, "packaging-batch: " + source + ": line " + line + ": " + error.message + "\n", signal);
+          if (jsonl) {
+            await writeEvent({ version: 1, type: "record-error", line, message: error.message }, signal);
+          } else {
+            await writeText(diagnostics, "packaging-batch: " + source + ": line " + line + ": " + error.message + "\n", signal);
+          }
           continue;
         }
         // I/O is outside the record-validation catch. Pipeline supplies output
@@ -159,13 +181,25 @@ async function runBatch(input, output, diagnostics, source = "standard input") {
       }
       recordsComplete = true;
     }, output, { signal: controller.signal });
-    return invalid ? 1 : 0;
+    const exitCode = invalid ? 1 : 0;
+    if (jsonl) {
+      // Pipeline has exhausted input and finalized output. Never retry completion:
+      // even a failed write may already have delivered some or all of its bytes.
+      if (failure) throw failure.error;
+      await writeEvent({ version: 1, type: "complete", exitCode }, controller.signal);
+      // A late input error can arrive while the completion write is draining.
+      if (failure) throw failure.error;
+    }
+    return exitCode;
   } catch (error) {
     remember("read input", error);
     const code = /^[A-Z0-9_]+$/.test(failure.error.code) ? failure.error.code : "IO_ERROR";
     if (!diagnostics.destroyed && !diagnostics.writableEnded) {
       try {
-        await writeText(diagnostics, "packaging-batch: " + source + ": cannot " + failure.operation + " (" + code + ")\n");
+        const diagnostic = jsonl
+          ? JSON.stringify({ version: 1, type: "fatal-error", operation: failure.operation.replace(" ", "-"), code: String(code) }) + "\n"
+          : "packaging-batch: " + source + ": cannot " + failure.operation + " (" + code + ")\n";
+        await writeText(diagnostics, diagnostic);
       } catch { /* A failed diagnostic sink cannot report its own failure. */ }
     }
     return 1;
@@ -199,7 +233,7 @@ async function main() {
   const stdin = options.file === undefined || options.file === "-";
   const source = stdin ? "standard input" : JSON.stringify(options.file);
   const input = stdin ? process.stdin : createReadStream(options.file);
-  process.exitCode = await runBatch(input, process.stdout, process.stderr, source);
+  process.exitCode = await runBatch(input, process.stdout, process.stderr, source, { diagnostics: options.diagnostics });
 }
 
 if (require.main === module) main().catch(() => { process.exitCode = 1; });

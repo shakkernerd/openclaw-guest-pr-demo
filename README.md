@@ -623,7 +623,9 @@ node packaging-batch-cli.js --help
 
 Only one optional FILE is accepted. Omit it or use `-` for stdin; `--` ends option
 parsing, and `--help` / `-h` must be used alone. Arguments are checked before
-opening input. There are no `--json`, `--csv`, `--check`, `--mode`, `--summary`, or `--compare` flags:
+opening input. Optional `--diagnostics=jsonl` replaces human batch stderr with
+[machine-readable diagnostics](#machine-readable-batch-diagnostics-opt-in); place it
+before `--`, either before or after FILE. There are no `--json`, `--csv`, `--check`, `--mode`, `--summary`, or `--compare` flags:
 every valid record always produces both policy summaries.
 
 ### Records and results
@@ -654,7 +656,7 @@ numeric-token checks, escaped keys, ignored fields and last-property-wins behavi
 
 ### Continue on invalid records; fail on transport errors
 
-Invalid JSON, an invalid top-level shape, or invalid order fields produce one
+By default, invalid JSON, an invalid top-level shape, or invalid order fields produce one
 controlled stderr diagnostic with the source (quoted filename or `standard input`)
 and physical line. They produce no result for that line and **do not stop later
 records**. Input contents and stack traces are not echoed. For example:
@@ -677,6 +679,79 @@ nonempty stdout does not imply that every record succeeded. Output writes are no
 transactional; if a sink fails during a write, a trailing incomplete JSON line may
 remain at that sink. Consumers must not treat such a fragment as a complete result.
 A failed stderr sink is also fatal and cannot reliably report its own failure.
+
+### Machine-readable batch diagnostics (opt-in)
+
+Use the exact selector `--diagnostics=jsonl` once, before `--`:
+
+```sh
+node packaging-batch-cli.js --diagnostics=jsonl orders.jsonl > summaries.jsonl 2> diagnostics.jsonl
+cat orders.jsonl | node packaging-batch-cli.js --diagnostics=jsonl -
+node packaging-batch-cli.js --diagnostics=jsonl -- --orders.jsonl
+```
+
+For an admitted batch, stderr contains only compact UTF-8 JSON objects, each
+followed by LF. Human diagnostics are replaced, not duplicated. Successful stdout
+is byte-for-byte unchanged: the same physical-line wrapper and both existing
+summaries, in the same order and framing. Without the selector, admitted-batch
+stdout, human stderr, and exit behavior remain unchanged.
+
+Version 1 has exactly these three shapes (the examples are separate event types,
+not a single successful stream):
+
+```json
+{"version":1,"type":"record-error","line":7,"message":"maxItemsPerBox must be a positive safe integer"}
+{"version":1,"type":"fatal-error","operation":"read-input","code":"EIO"}
+{"version":1,"type":"complete","exitCode":1}
+```
+
+- **Record error:** `line` is the positive, one-based physical input line,
+  including skipped blank lines. One event carries the existing first parser or
+  validator message for a rejected record; processing continues. Blank and valid
+  records emit no record-error event. `message` is informational text, not a
+  stable error taxonomy to parse or branch on.
+- **Fatal error:** `operation` is `read-input`, `write-output`, or
+  `write-diagnostics`. `code` is the existing sanitized I/O code as a string
+  (uppercase letters, digits, and underscores), or `IO_ERROR`. The first fatal
+  failure retains ownership. No rejected-order line is invented, and a read-error
+  tail is never promoted to a record. A failed diagnostic sink may prevent this
+  event from being delivered.
+- **Completion:** exactly one write is attempted only after clean input exhaustion
+  and successful result-output finalization, with `exitCode` 0 for no invalid
+  records or 1 for record rejection. No completion is attempted after a known
+  input/output failure. Empty and blank-only input also emit completion with 0.
+  Completion is not retried if its write fails. Thus clean opted-in success has
+  one completion event on stderr, while default success remains silent there.
+
+Events contain no source filename/path/hash, producer-generated input identifier,
+raw order, SKU or quantity value, stack, or parser excerpt. The caller owns
+input-attempt correlation. Physical lines refer to that attempt's input, not
+stable order identities across edited or reordered files.
+
+**Completion is stream evidence, not a transaction, durable receipt, or claim
+that physical work occurred.** A write can deliver partial or full bytes before
+failing; this includes a complete-looking completion event. Consumers must drain
+both streams, accept only complete LF-framed events of the supported version and
+shape, observe a matching normal process exit, and reject later fatal or
+invalid-stream evidence. Missing/truncated data or abnormal termination leaves
+completeness unproved. Known record errors remain useful, but are not necessarily
+the full rejection list. Result-output fragments remain unusable as complete
+results. A diagnostic failure is unsuccessful and may prevent usable fatal or
+completion output; no human fallback is mixed into opted-in batch stderr.
+
+Exit codes remain 0, 1, and 2 as above. Repeated selectors, unknown formats
+(including `--diagnostics=text`), and other argument misuse produce human-readable
+stderr and exit 2 **before input consumption**, even if a JSONL selector was
+present. JSONL applies only after argument admission. Help remains standalone,
+human-readable, and exit 0. After `--`, the selector text is a filename.
+
+Direct CommonJS callers can use
+`runBatch(input, output, diagnostics, source, { diagnostics: "jsonl" })`.
+Existing four-argument calls keep text diagnostics and integer status returns;
+JSONL mode also returns an integer and leaves the diagnostics stream open. The
+source argument is not included in JSONL events. Both modes reuse the existing
+parser, validation, summaries, awaited diagnostic writes, and stream backpressure;
+neither accumulates a rejection list in the producer.
 
 ### Memory and streaming limits
 
@@ -749,8 +824,11 @@ Batch coverage adds real CLI file/stdin runs and real `Readable`/`Writable` stre
 contracts: mixed-validity continuation, physical line numbers, exact whitespace
 and LF rules, byte-split UTF-8/CRLF, replacement decoding/BOM handling, clean versus
 failed EOF, bounded read-ahead under backpressure, broken pipes with open input,
-and write/finalization errors. No test-only production flags or global patches
-are used. Run the focused batch tests with:
+and write/finalization errors. JSONL diagnostics coverage pins exact version-1
+event keys, physical rejection lines, unchanged stdout, pre-input option errors,
+completion ordering, fatal failures, diagnostic backpressure, and partial/full
+diagnostic delivery on failure without assuming atomic writes. No test-only
+production flags or global patches are used. Run the focused batch tests with:
 
 ```sh
 node --test packaging-batch.test.js
