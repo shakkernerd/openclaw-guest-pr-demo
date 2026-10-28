@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Harbor · Volunteer rota</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="core.js" defer></script>
+  <script src="storage.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to schedule</a>
+  <header class="masthead">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">⚓</span><div><strong>Harbor</strong><span>VOLUNTEER ROTA</span></div></div>
+    <nav aria-label="Main navigation"><button type="button" id="nav-schedule" data-action="schedule" aria-current="page">Weekly schedule</button><button type="button" id="nav-volunteers" data-action="volunteers">Volunteers <span id="crew-count"></span></button></nav>
+    <span class="local-badge">● Local &amp; offline</span>
+  </header>
+  <main id="main" tabindex="-1">
+    <div id="storage-warning" class="notice warning" role="alert" hidden></div>
+    <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true">Loading the local rota…</p>
+    <section id="schedule-view" aria-labelledby="schedule-heading">
+      <div class="page-heading"><div><p class="eyebrow">GOOD CREW. SAFE HARBOR.</p><h1 id="schedule-heading">The week on the water</h1><p class="subtle">A clear plan for every pair of helping hands.</p></div><button class="primary" type="button" id="add-shift" data-action="new-shift">+ Add shift</button></div>
+      <div class="week-toolbar"><div class="week-nav"><button type="button" data-action="prev-week" aria-label="Previous week">←</button><h2 id="week-label"></h2><button type="button" data-action="next-week" aria-label="Next week">→</button></div><div class="week-picker"><label for="week-date">Week of</label><input id="week-date" type="date" min="1900-01-08" max="9999-12-20"><button type="button" data-action="demo-week">Demo week</button></div></div>
+      <div id="metrics" class="metrics" aria-label="Whole-week coverage"></div>
+      <div class="schedule-tools"><div><label for="role-filter">Show role</label><select id="role-filter"><option value="">All roles</option></select></div><label class="check-label"><input id="open-filter" type="checkbox">Only shifts needing crew</label><p id="filter-summary" class="subtle"></p></div>
+      <div class="safety-note"><span aria-hidden="true">↔</span><p><strong>Room to breathe, not to overlap.</strong> Back-to-back shifts are fine. Overlaps, unavailable times, and ineligible roles are blocked.</p></div>
+      <div id="schedule"></div>
+    </section>
+    <section id="volunteers-view" aria-labelledby="volunteers-heading" hidden>
+      <div class="page-heading"><div><p class="eyebrow">THE PEOPLE BEHIND THE PLAN</p><h1 id="volunteers-heading">Your harbor crew</h1><p class="subtle">Roles and repeating weekly availability. An unchecked day means unavailable.</p></div><button class="primary" id="add-volunteer" type="button" data-action="new-volunteer">+ Add volunteer</button></div>
+      <div class="crew-tools"><label for="crew-search">Find a volunteer</label><input id="crew-search" type="search" placeholder="Search by name" maxlength="80"></div>
+      <div id="volunteers" class="crew-grid"></div>
+    </section>
+    <footer><strong>Made for a small crew.</strong><span>No accounts. No cloud. Browser-local storage only.</span><span>Schedule times are harbor-local, in 24-hour format.</span></footer>
+  </main>
+  <dialog id="editor" aria-labelledby="dialog-title">
+    <div class="dialog-header"><h2 id="dialog-title"></h2><button type="button" data-action="close-dialog" aria-label="Close editor">✕</button></div>
+    <p id="dialog-error" class="notice warning" role="alert" tabindex="-1" hidden></p>
+    <p id="dialog-status" class="dialog-status" role="status" aria-live="polite" aria-atomic="true"></p>
+    <div id="dialog-content"></div>
+  </dialog>
+  <noscript><p class="notice warning">Enable JavaScript to use the rota. No internet connection is required.</p></noscript>
+</body>
+</html>
