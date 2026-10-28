@@ -2,6 +2,7 @@
 "use strict";
 
 const { readFileSync } = require("node:fs");
+const { isUtf8 } = require("node:buffer");
 const { parseManifest } = require("./parcel-manifest.js");
 const { parcelLabel } = require("./parcel-label.js");
 
@@ -17,6 +18,8 @@ const USAGE = [
   "",
   "Exit codes: 0 = compared/help (even with differences), 1 = invalid manifest,",
   "            2 = usage or read error.",
+  "Input must be valid UTF-8; malformed bytes are a read error (2).",
+  "Exit 3 = stdout write error (including a closed pipe), also for help.",
   "",
 ].join("\n");
 
@@ -48,7 +51,13 @@ function parseArguments(args) {
 function loadInput(file) {
   let source;
   try {
-    source = readFileSync(file === "-" ? 0 : file, "utf8");
+    const bytes = readFileSync(file === "-" ? 0 : file);
+    if (!isUtf8(bytes)) {
+      const error = new Error("Invalid UTF-8");
+      error.code = "invalid UTF-8; supply a UTF-8 encoded manifest";
+      throw error;
+    }
+    source = bytes.toString("utf8");
   } catch (error) {
     return {
       file,
@@ -184,6 +193,19 @@ function main(args) {
 }
 
 if (require.main === module) {
+  // A pipe can fail asynchronously after main returns. Let pending writes flush
+  // naturally, but never report success for a known stdout write failure.
+  process.stdout.once("error", (error) => {
+    process.exitCode = 3;
+    // stderr may share the failed pipe (2>&1). Reporting is best-effort: never
+    // recursively report a diagnostic failure or lose the output-failure status.
+    process.stderr.on("error", () => { process.exitCode = 3; });
+    try {
+      process.stderr.write("Error: cannot write stdout (" + (error.code || "write failed") + ").\n");
+    } catch {
+      // A synchronous diagnostic write failure must also leave exit 3 intact.
+    }
+  });
   process.exitCode = main(process.argv.slice(2));
 }
 

@@ -2,8 +2,9 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { spawnSync } = require("node:child_process");
-const { mkdtempSync, writeFileSync, rmSync } = require("node:fs");
+const { spawn, spawnSync } = require("node:child_process");
+const { mkdtempSync, writeFileSync, readFileSync, rmSync } = require("node:fs");
+const { once } = require("node:events");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 
@@ -640,3 +641,208 @@ test("CLI malformed JSON cannot inject terminal escape sequences into diagnostic
   assert.equal(json.stderr, "");
   assert.doesNotMatch(JSON.parse(json.stdout).errors[0].message, /[\u0000-\u001f\u007f-\u009f]/);
 });
+
+const MALFORMED_UTF8 = [
+  ["isolated continuation 80", [0x80]], ["isolated continuation 81", [0x81]],
+  ["invalid lead ff", [0xff]], ["invalid lead fe", [0xfe]],
+  ["overlong two-byte", [0xc0, 0xaf]], ["overlong three-byte", [0xe0, 0x80, 0xaf]],
+  ["truncated two-byte", [0xc2]], ["truncated three-byte", [0xe2, 0x82]],
+  ["truncated four-byte", [0xf0, 0x9f, 0x92]],
+  ["bad continuation", [0xe2, 0x28, 0xa1]],
+  ["encoded surrogate", [0xed, 0xa0, 0x80]],
+  ["above Unicode maximum", [0xf4, 0x90, 0x80, 0x80]],
+];
+
+function malformedManifest(bytes) {
+  const source = Buffer.from(JSON.stringify([{ ...PARCEL, id: "QBAD" }]));
+  const position = source.indexOf("QBAD") + 1;
+  return Buffer.concat([source.subarray(0, position), Buffer.from(bytes), source.subarray(position + 1)]);
+}
+
+for (const [name, bytes] of MALFORMED_UTF8) {
+  test("CLI rejects " + name + " in files and stdin, in both formats", (t) => {
+    const path = join(tempDirectory(t), "invalid-utf8.json");
+    const input = malformedManifest(bytes);
+    writeFileSync(path, input);
+    for (const source of [path, "-"]) {
+      for (const mode of [[], ["--json"]]) {
+        const result = run([...mode, source], input);
+        assert.equal(result.status, 2);
+        assert.equal(result.stdout, "", "read errors must not produce a JSON report");
+        assert.equal(result.stderr, "Error: cannot read " + JSON.stringify(source) +
+          " (invalid UTF-8; supply a UTF-8 encoded manifest).\n");
+      }
+    }
+  });
+}
+
+test("CLI preserves valid replacement characters and international UTF-8", (t) => {
+  const path = join(tempDirectory(t), "valid-utf8.json");
+  const service = "réexpédition-東京-🚚-�";
+  const rows = [{ ...PARCEL, id: "Q�AD", recipient: "Zoë 東京 🚚 �", service }];
+  const input = Buffer.from(JSON.stringify(rows));
+  writeFileSync(path, input);
+  for (const source of [path, "-"]) {
+    const result = run(["--json", source], input);
+    assert.equal(result.status, 0);
+    assert.equal(result.stderr, "");
+    assert.equal(JSON.parse(result.stdout).valid, true);
+    assert.deepEqual(JSON.parse(result.stdout).summary.byService, [{ service, parcels: 1 }]);
+    const text = run([source], input);
+    assert.equal(text.status, 0);
+    assert.equal(text.stderr, "");
+    assert.ok(text.stdout.includes(JSON.stringify(service)));
+  }
+});
+
+test("CLI keeps a UTF-8 BOM as a JSON error, not a decoding error", () => {
+  const result = run(["--json", "-"], Buffer.from("\ufeff[]"));
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr, "");
+  assert.match(JSON.parse(result.stdout).errors[0].message, /^Invalid JSON:/);
+});
+
+// Read precisely one 64 KiB prefix, then close the pipe while a larger write is
+// pending. No shell pipeline: close/status belong to the actual CLI producer.
+async function closeAfterPrefix(t, args, expected) {
+  const child = spawn(process.execPath, [CLI, ...args], {
+    stdio: ["ignore", "pipe", "pipe"], timeout: 10000,
+  });
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill(); });
+  const closed = once(child, "close");
+  let prefix = null;
+  let stderr = "";
+  child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+  child.stdout.on("readable", () => {
+    if (prefix !== null) return;
+    const chunk = child.stdout.read(65536);
+    if (chunk !== null) {
+      prefix = chunk;
+      child.stdout.destroy();
+    }
+  });
+  const [status, signal] = await closed;
+  assert.equal(signal, null, "producer must exit without a timeout or signal");
+  assert.equal(status, 3, "truncated output must never report producer success");
+  assert.equal(stderr, "Error: cannot write stdout (EPIPE).\n");
+  assert.ok(prefix);
+  assert.equal(prefix.length, 65536);
+  assert.ok(Buffer.byteLength(expected) > prefix.length);
+  assert.deepEqual(prefix, Buffer.from(expected).subarray(0, 65536));
+}
+
+test("help handles an already-closed stdout pipe without an unhandled error", async (t) => {
+  // Gate startup over IPC: the read end is closed before the actual CLI starts,
+  // so a short help write cannot win a timing race against the test reader.
+  const bootstrap = 'process.once("message", () => {' +
+    'process.disconnect(); process.argv = [process.execPath, ...process.argv.slice(1)];' +
+    'require("node:module").runMain(); });';
+  const child = spawn(process.execPath, ["-e", bootstrap, CLI, "--help"], {
+    stdio: ["ignore", "pipe", "pipe", "ipc"], timeout: 10000,
+  });
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill(); });
+  const closed = once(child, "close");
+  let stderr = "";
+  child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+  child.stdout.destroy();
+  await once(child.stdout, "close");
+  child.send("start");
+  const [status, signal] = await closed;
+  assert.equal(signal, null);
+  assert.equal(status, 3);
+  assert.equal(stderr, "Error: cannot write stdout (EPIPE).\n");
+});
+
+
+// Give both producer streams the same real reader pipe, equivalent to 2>&1.
+// The consumer exits after exactly 64 KiB; inspect BOTH subprocess statuses.
+async function closeMergedAfterPrefix(t, args, expected, synchronousDiagnosticFailure) {
+  const directory = mkdtempSync(join(tmpdir(), "parcel-merged-test-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const observed = join(directory, "uncaught.jsonl");
+  const monitor = join(directory, "monitor.cjs");
+  writeFileSync(monitor, [
+    'const fs = require("node:fs");',
+    'const observed = ' + JSON.stringify(observed) + ';',
+    'fs.writeFileSync(observed, "ready\\n");',
+    'process.on("uncaughtExceptionMonitor", (error) => {',
+    '  fs.appendFileSync(observed, JSON.stringify({ code: error.code, exitCode: process.exitCode }) + "\\n");',
+    '});',
+    ...(synchronousDiagnosticFailure ? [
+      // Inject only diagnostic transport failure; stdout still fails for real.
+      'process.stderr.write = () => { throw Object.assign(new Error("diagnostic write failed"), { code: "EPIPE" }); };',
+    ] : []),
+  ].join("\n"));
+  const reader = [
+    'process.stdin.on("readable", () => {',
+    '  const prefix = process.stdin.read(65536);',
+    '  if (prefix !== null) {',
+    '    process.stdin.removeAllListeners("readable");',
+    '    process.stdout.write(prefix);',
+    '    process.stdin.destroy();',
+    '  }',
+    '});',
+  ].join("\n");
+  const consumer = spawn(process.execPath, ["-e", reader], {
+    stdio: ["pipe", "pipe", "pipe"], timeout: 10000,
+  });
+  const producer = spawn(process.execPath, ["--require", monitor, CLI, ...args], {
+    stdio: ["ignore", consumer.stdin, consumer.stdin], timeout: 10000,
+  });
+  for (const child of [producer, consumer]) {
+    t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill(); });
+  }
+  const closedProducer = once(producer, "close");
+  const closedConsumer = once(consumer, "close");
+  // The producer owns its duplicated descriptors; close the parent's copy.
+  consumer.stdin.destroy();
+  const chunks = [];
+  let stderr = "";
+  consumer.stdout.on("data", (chunk) => { chunks.push(chunk); });
+  consumer.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+  const [[producerStatus, producerSignal], [consumerStatus, consumerSignal]] =
+    await Promise.all([closedProducer, closedConsumer]);
+  assert.equal(producerSignal, null);
+  assert.equal(consumerSignal, null);
+  assert.equal(consumerStatus, 0, "reader status alone does not prove producer success");
+  assert.equal(producerStatus, 3, "failed diagnostic must not replace output-failure status");
+  assert.equal(stderr, "");
+  const prefix = Buffer.concat(chunks);
+  assert.equal(prefix.length, 65536);
+  assert.ok(Buffer.byteLength(expected) > prefix.length);
+  assert.deepEqual(prefix, Buffer.from(expected).subarray(0, 65536));
+  assert.equal(readFileSync(observed, "utf8"), "ready\n", "monitor must load and observe no uncaught exception");
+}
+
+for (const json of [false, true]) {
+  test("CLI " + (json ? "JSON" : "text") + " reports early-close failure and fully drains large output", async (t) => {
+    const path = join(tempDirectory(t), "large.json");
+    const service = "x".repeat(1024 * 1024);
+    writeFileSync(path, JSON.stringify([{ ...PARCEL, service }]));
+    const expected = json ? JSON.stringify({
+      valid: true, totalRows: 1, validRows: 1, invalidRows: 0, errors: [],
+      summary: {
+        byDestination: [{ destination: "GB", parcels: 1 }],
+        byService: [{ service, parcels: 1 }],
+        byDestinationAndService: [{ destination: "GB", service, parcels: 1 }],
+      },
+    }, null, 2) + "\n" : [
+      "Parcels: 1 total, 1 valid, 0 invalid.", "Summary (valid parcels only):",
+      "By destination:", '  "GB": 1', "By service:", "  " + JSON.stringify(service) + ": 1",
+      "By destination and service:", '  "GB" / ' + JSON.stringify(service) + ": 1", "",
+    ].join("\n");
+    const args = [...(json ? ["--json"] : []), path];
+    await closeAfterPrefix(t, args, expected);
+    await t.test("merged stdout/stderr retains exit 3 without a secondary exception", async (t) => {
+      await closeMergedAfterPrefix(t, args, expected, false);
+    });
+    await t.test("synchronous diagnostic failure retains exit 3 without a secondary exception", async (t) => {
+      await closeMergedAfterPrefix(t, args, expected, true);
+    });
+    const drained = run(args, "", { maxBuffer: 8 * 1024 * 1024 });
+    assert.equal(drained.status, 0);
+    assert.equal(drained.stderr, "");
+    assert.equal(Buffer.byteLength(drained.stdout), Buffer.byteLength(expected));
+    assert.equal(drained.stdout, expected, "draining reader must receive the entire exact report");
+  });
+}

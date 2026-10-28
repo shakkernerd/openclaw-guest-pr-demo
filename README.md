@@ -17,8 +17,11 @@ cat examples/manifest.json | node parcel-manifest-cli.js --json -
 node parcel-manifest-cli.js --help
 ```
 
-Use `--` before a filename beginning with a dash. Files are read as UTF-8; `-`
-explicitly selects stdin. The CLI reads the entire manifest into memory.
+Use `--` before a filename beginning with a dash. Files and stdin must contain
+valid UTF-8; `-` explicitly selects stdin. Malformed byte sequences are rejected
+before JSON parsing, not silently replaced. Valid encoded U+FFFD (the replacement
+character) and international text are accepted. A UTF-8 BOM is not stripped and
+remains invalid JSON, as before. The CLI reads the entire manifest into memory.
 
 ### Manifest format
 
@@ -92,7 +95,9 @@ Exit statuses:
 - **1**: invalid JSON, invalid root, or one or more invalid rows. Valid rows still
   contribute to the summary when the root is an array.
 - **2**: usage or file/stdin read failure. These errors go to stderr with no
-  stdout report, even with `--json`.
+  stdout report, even with `--json`. Malformed UTF-8 is a read failure, with an
+  `invalid UTF-8; supply a UTF-8 encoded manifest` diagnostic.
+- **3**: stdout write failure, including a closed pipe (see Output failures below).
 
 ### Filter summaries
 
@@ -153,6 +158,11 @@ const { validateManifest, parseManifest } = require("./parcel-manifest.js");
 const report = validateManifest(require("./examples/manifest.json"));
 const emptyReport = parseManifest("[]"); // Same report shape, including parse errors.
 ```
+
+`validateManifest(data)` accepts already-parsed JSON data, whereas
+`parseManifest(text)` accepts JSON text. Neither is a byte-decoding API; callers
+reading bytes should check their encoding before converting to text. The CLIs
+perform this check with Node's built-in UTF-8 validation.
 
 ## Compare two manifests
 
@@ -220,7 +230,10 @@ one report to stdout, with no validation/read diagnostics on stderr:
 
 Exit **0** means a completed comparison (even with differences), or help;
 **1** means invalid input; **2** means usage/read failure (read failures take
-precedence over validation errors). Read failures still produce a JSON report
+precedence over validation errors). **3** means a stdout write failure. Malformed
+UTF-8 is a read failure (2), not a JSON/row validation error: it has a document
+diagnostic and null row counts, and blocks comparison. Both inputs are still
+inspected. Read failures still produce a JSON report
 with `--json`; usage errors produce only stderr. Each argument may name a UTF-8 file, read fully into memory. Use `-` for
 exactly one argument to read that manifest from standard input; two `-` arguments
 must produce a usage error. Invalid-input diagnostics must identify the before
@@ -230,6 +243,25 @@ beginning with a dash. Comparison does not apply summary filters.
 Two `-` operands are rejected before reading stdin, with exit 2 and a message to
 provide a filename for one input. `-` still selects stdin after `--`; use `./-`
 to read a literal file named `-`. Without a `-` operand, stdin is ignored.
+
+## Output failures
+
+Both commands handle stdout write errors, including asynchronous `EPIPE` when a
+reader closes early. They attempt a controlled `Error: cannot write stdout (CODE).`
+diagnostic to stderr and exit **3**, overriding any validation/read status. The
+diagnostic is best-effort: if stderr is also broken (for example, `2>&1` merges
+it into the closed stdout pipe), no diagnostic delivery is guaranteed. A failed
+diagnostic does not trigger recursive reporting or replace exit 3 with an
+uncaught exception, whether its write fails asynchronously or synchronously. This
+also applies to `--json` and help; an output-failure diagnostic cannot reliably
+be sent through the failed stdout stream. No abrupt `process.exit()` is used:
+pending writes are allowed to finish naturally for a reader that drains stdout.
+
+A failure may occur after a prefix has already been delivered. That prefix
+cannot be retracted and is not a complete report (particularly for JSON). Check
+the producer's exit status, not just the last command in a pipeline. Conversely,
+producer exit 0 means no output failure was reported to it; it does not prove
+that a downstream reader consumed, accepted, or durably saved the output.
 
 ## Tests
 
@@ -249,3 +281,11 @@ tests exercise real commands, deterministic diffs, old/new field values, unchang
 counts, per-field casing/whitespace rules, ignored metadata, and diagnostics from
 both invalid inputs, including piped input on either side and early rejection
 of two stdin operands.
+Encoding regressions cover malformed UTF-8 categories in files and stdin on
+either comparison side, plus valid replacement characters and international
+text. Output regressions close a real subprocess pipe after 65,536 bytes and
+require producer exit 3, and separately check the complete large report with a
+draining reader. Merged stdout/stderr regressions check the producer and consumer
+statuses separately and observe uncaught exceptions without suppressing them;
+synchronous diagnostic failures are also covered. Help is checked against a pipe
+closed before it writes.
