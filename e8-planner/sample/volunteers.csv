@@ -1,0 +1,9 @@
+name,skills,available_from,available_to,max_hours
+Amira Patel,electronics,2026-10-31T09:00:00+00:00,2026-10-31T14:00:00+00:00,4
+Ben Hughes,bicycles,2026-10-31T09:00:00+00:00,2026-10-31T12:00:00+00:00,3
+Chloe Martin,textiles,2026-10-31T09:30:00+00:00,2026-10-31T14:00:00+00:00,3.5
+Diego Santos,electronics,2026-10-31T10:00:00+00:00,2026-10-31T14:00:00+00:00,2
+Evelyn Chen,intake;cafe,2026-10-31T09:00:00+00:00,2026-10-31T13:00:00+00:00,3
+Farah Khan,bicycles;intake,2026-10-31T10:00:00+00:00,2026-10-31T14:00:00+00:00,3
+Grace Wilson,cafe,2026-10-31T09:00:00+00:00,2026-10-31T12:00:00+00:00,2
+Hassan Ali,textiles;electronics,2026-10-31T11:00:00+00:00,2026-10-31T14:00:00+00:00,2
