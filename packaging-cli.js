@@ -6,12 +6,13 @@ const { planPackaging } = require("./packaging.js");
 const { parcelLabel } = require("./parcel-label.js");
 
 const USAGE = [
-  "Usage: node packaging-cli.js [--json] [FILE|-]",
+  "Usage: node packaging-cli.js [--json] [--mode mixed|single-sku] [FILE|-]",
   "       node packaging-cli.js --help",
   "",
   "Read an order JSON object with items and maxItemsPerBox.",
   "Omit FILE or use - to read standard input. Text output is the default.",
   "--json       Write the packing plan as JSON instead of text.",
+  "--mode MODE  mixed (default) or single-sku (one SKU per box).",
   "--help, -h   Show this help (use alone).",
   "--           End options, allowing filenames that begin with a dash.",
   "",
@@ -21,8 +22,10 @@ const USAGE = [
 function parseArguments(args) {
   let file;
   let json = false;
+  let mode;
   let options = true;
-  for (const arg of args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
     if (options && (arg === "--help" || arg === "-h")) {
       if (args.length !== 1) throw new Error("help option must be used alone");
       return { help: true };
@@ -32,6 +35,14 @@ function parseArguments(args) {
     } else if (options && arg === "--json") {
       if (json) throw new Error("repeated option --json");
       json = true;
+    } else if (options && arg === "--mode") {
+      if (mode !== undefined) throw new Error("repeated option --mode");
+      const value = args[index + 1];
+      if (value !== "mixed" && value !== "single-sku") {
+        throw new Error("--mode requires mixed or single-sku");
+      }
+      mode = value;
+      index += 1;
     } else if (options && arg.startsWith("-") && arg !== "-") {
       throw new Error("unknown option " + JSON.stringify(arg));
     } else {
@@ -39,7 +50,7 @@ function parseArguments(args) {
       file = arg;
     }
   }
-  return { file, json, help: false };
+  return { file, json, mode: mode === undefined ? "mixed" : mode, help: false };
 }
 
 function readOrder(file) {
@@ -66,6 +77,7 @@ function textReport(plan) {
   const count = plan.boxes.length;
   const lines = ["Packing plan: " + parcelLabel(plan.totalItems) + " in " + count +
     (count === 1 ? " box" : " boxes") + " (capacity: " + parcelLabel(plan.maxItemsPerBox) + " per box)"];
+  if (plan.mode === "single-sku") lines.push("Mode: single-sku (one SKU per box)");
   if (count === 0) lines.push("No boxes needed.");
   for (const [index, box] of plan.boxes.entries()) {
     lines.push("Box " + (index + 1) + ": " + parcelLabel(box.totalItems));
@@ -99,7 +111,7 @@ function main() {
   }
   try {
     const order = readOrder(options.file);
-    const plan = planPackaging(order.items, order.maxItemsPerBox);
+    const plan = planPackaging(order.items, order.maxItemsPerBox, { mode: options.mode });
     process.stdout.write(options.json ? JSON.stringify(plan, null, 2) + "\n" : textReport(plan));
   } catch (error) {
     process.stderr.write("packaging: " + error.message + "\n");

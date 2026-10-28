@@ -129,3 +129,121 @@ test("small generated orders conserve counts, ordering, and box capacity", () =>
     }
   }
 });
+
+
+const singleSku = Object.freeze({ mode: "single-sku" });
+
+test("single-SKU mode keeps partially filled boxes separate", () => {
+  assert.deepEqual(planPackaging([row("A", 2), row("B", 2)], 3, singleSku), {
+    maxItemsPerBox: 3, totalItems: 4,
+    boxes: [box([row("A", 2)], 2), box([row("B", 2)], 2)],
+    mode: "single-sku",
+  });
+});
+
+test("single-SKU mode aggregates first, preserving first appearance including zero rows", () => {
+  const items = [row("B", 0), row("A", 3), row("B", 2), row("A", 2), row("B", 4), row("C", 0)];
+  assert.deepEqual(planPackaging(items, 4, singleSku).boxes, [
+    box([row("B", 4)], 4), box([row("B", 2)], 2),
+    box([row("A", 4)], 4), box([row("A", 1)], 1),
+  ]);
+  assert.deepEqual(planPackaging([row("A", 3), row("B", 6)], 3, singleSku).boxes,
+    [box([row("A", 3)], 3), box([row("B", 3)], 3), box([row("B", 3)], 3)]);
+});
+
+test("single-SKU mode labels empty plans and never allocates boxes for zero quantities", () => {
+  for (const items of [[], [row("A", 0), row("B", -0)]]) {
+    assert.deepEqual(planPackaging(items, 1, singleSku), {
+      maxItemsPerBox: 1, totalItems: 0, boxes: [], mode: "single-sku",
+    });
+  }
+});
+
+test("legacy two-argument calls and explicit mixed mode have identical output", () => {
+  const items = [row("A", 2), row("B", 2)];
+  const legacy = planPackaging(items, 3);
+  for (const options of [undefined, {}, { mode: undefined }, { mode: "mixed" }]) {
+    const plan = planPackaging(items, 3, options);
+    assert.deepEqual(plan, legacy);
+    assert.equal(JSON.stringify(plan), JSON.stringify(legacy));
+    assert.equal(Object.hasOwn(plan, "mode"), false);
+  }
+});
+
+test("invalid options and mode values fail clearly even on empty orders", () => {
+  for (const options of [null, false, 1, "single-sku", [], () => {}]) {
+    assert.throws(() => planPackaging([], 3, options), { name: "TypeError", message: /options must be an object/ });
+  }
+  for (const mode of [null, false, 0, "", "single", "SINGLE-SKU", "mixed ", [], {}, 1n, Symbol("single-sku")]) {
+    assert.throws(() => planPackaging([], 3, { mode }), { name: "TypeError", message: /mode.*mixed.*single-sku/ });
+  }
+});
+
+test("single-SKU mode retains numeric validation and safe-integer boundaries", () => {
+  const max = Number.MAX_SAFE_INTEGER;
+  assert.deepEqual(planPackaging([row("A", max - 2), row("B", 1), row("A", 1)], max, singleSku).boxes,
+    [box([row("A", max - 1)], max - 1), box([row("B", 1)], 1)]);
+  assert.deepEqual(planPackaging([row("A", max)], max - 1, singleSku).boxes,
+    [box([row("A", max - 1)], max - 1), box([row("A", 1)], 1)]);
+  for (const quantity of [-1, 0.5, NaN, Infinity, "1", max + 1]) {
+    assert.throws(() => planPackaging([row("A", quantity)], 3, singleSku), /quantity.*safe integer/);
+  }
+  for (const capacity of [0, -1, 0.5, NaN, Infinity, "1", max + 1]) {
+    assert.throws(() => planPackaging([], capacity, singleSku), /maxItemsPerBox.*safe integer/);
+  }
+  assert.throws(() => planPackaging([row("A", max), row("B", 1)], max, singleSku), /total.*safe integer/);
+  assert.throws(() => planPackaging([row("A", max)], 1, singleSku), /100000 boxes/);
+});
+
+test("single-SKU box limit uses combined per-SKU counts and rejects before box allocation", () => {
+  const items = Array.from({ length: MAX_BOXES + 1 }, (_, index) => row("SKU-" + index, 1));
+  const capacity = Number.MAX_SAFE_INTEGER;
+  assert.equal(planPackaging(items, capacity).boxes.length, 1);
+  let allocatedBoxes = 0;
+  const originalPush = Array.prototype.push;
+  // Observe output box allocation, without changing input aggregation or errors.
+  Array.prototype.push = function (...values) {
+    for (const value of values) {
+      if (value && Array.isArray(value.contents) && value.totalItems === 0) allocatedBoxes += 1;
+    }
+    return Reflect.apply(originalPush, this, values);
+  };
+  try {
+    assert.throws(() => planPackaging(items, capacity, singleSku), /100000 boxes/);
+  } finally {
+    Array.prototype.push = originalPush;
+  }
+  assert.equal(allocatedBoxes, 0);
+  assert.equal(planPackaging(items.slice(0, MAX_BOXES), capacity, singleSku).boxes.length, MAX_BOXES);
+  assert.equal(planPackaging(items.map(() => row("same", 1)), capacity, singleSku).boxes.length, 1);
+  assert.equal(planPackaging(items.map(item => row(item.sku, 0)), capacity, singleSku).boxes.length, 0);
+  // Mixed mode needs exactly 100,000 boxes; single-SKU mode needs 100,001.
+  assert.throws(() => planPackaging([row("A", 149999), row("B", 149999), row("C", 2)], 3, singleSku), /100000 boxes/);
+});
+
+test("single-SKU plans are deterministic, isolated, and conserve generated orders", () => {
+  const items = Object.freeze([Object.freeze(row("A", 5)), Object.freeze(row("B", 2))]);
+  const first = planPackaging(items, 3, singleSku);
+  assert.deepEqual(first, planPackaging(items, 3, singleSku));
+  first.boxes[0].contents[0].quantity = 99;
+  assert.equal(first.boxes[1].contents[0].quantity, 2);
+  assert.equal(items[0].quantity, 5);
+  for (let seed = 0; seed < 30; seed += 1) {
+    const rows = Array.from({ length: 12 }, (_, index) => row(["10", "2", "__proto__"][(seed + index) % 3], (seed + index * 7) % 9));
+    const totals = new Map();
+    for (const item of rows) totals.set(item.sku, (totals.get(item.sku) || 0) + item.quantity);
+    for (let capacity = 1; capacity <= 7; capacity += 1) {
+      const expectedBoxes = [];
+      for (const [sku, total] of totals) {
+        for (let remaining = total; remaining > 0; remaining -= capacity) {
+          const count = Math.min(remaining, capacity);
+          expectedBoxes.push(box([row(sku, count)], count));
+        }
+      }
+      const plan = planPackaging(rows, capacity, singleSku);
+      assert.deepEqual(plan.boxes, expectedBoxes);
+      assert.equal(plan.totalItems, rows.reduce((sum, item) => sum + item.quantity, 0));
+      assert.equal(plan.mode, "single-sku");
+    }
+  }
+});
