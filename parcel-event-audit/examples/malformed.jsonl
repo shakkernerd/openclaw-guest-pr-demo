@@ -1,0 +1,2 @@
+{"eventId":"ok","parcelId":"PKG-C","type":"created","occurredAt":"2026-10-28T08:00:00Z"}
+{"eventId":"bad-date","parcelId":"PKG-C","type":"delivered","occurredAt":"2026-02-30T10:00:00Z"}

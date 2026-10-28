@@ -1,0 +1,11 @@
+{"eventId":"clean-created","parcelId":"CLEAN","type":"created","occurredAt":"2026-10-28T08:00:00Z"}
+{"eventId":"retry-created","parcelId":"RETRY-ONLY","type":"created","occurredAt":"2026-10-28T08:00:00Z"}
+{"eventId":"retry-created","parcelId":"RETRY-ONLY","type":"created","occurredAt":"2026-10-28T09:00:00+01:00"}
+{"eventId":"shared-id","parcelId":"X-LEFT","type":"in_transit","occurredAt":"2026-10-28T09:00:00Z"}
+{"eventId":"right-created","parcelId":"X-RIGHT","type":"created","occurredAt":"2026-10-28T08:00:00Z"}
+{"eventId":"left-created","parcelId":"X-LEFT","type":"created","occurredAt":"2026-10-28T08:00:00Z"}
+{"eventId":"shared-id","parcelId":"X-RIGHT","type":"in_transit","occurredAt":"2026-10-28T09:00:00Z"}
+{"eventId":"left-created","parcelId":"X-LEFT","type":"created","occurredAt":"2026-10-28T08:00:00.000Z"}
+{"eventId":"terminal-delivered","parcelId":"TERMINAL","type":"delivered","occurredAt":"2026-10-28T10:00:00Z"}
+{"eventId":"terminal-created","parcelId":"TERMINAL","type":"created","occurredAt":"2026-10-28T08:00:00Z"}
+{"eventId":"terminal-cancelled","parcelId":"TERMINAL","type":"cancelled","occurredAt":"2026-10-28T09:30:00Z"}
