@@ -35,6 +35,12 @@ Exactly integer-valued decimal and exponent forms such as `1.0`, `1e0`, and `100
 are accepted when the value is in range. Fractional values are reported as
 `INVALID_QUANTITY` with exit 1, not as JSON syntax errors.
 
+Syntax is checked by native `JSON.parse`, without a recursive reviver. The precision
+check uses an iterative token scan and, when needed, an iterative traversal, so
+deeply nested ignored metadata does not fail because of JavaScript recursion depth.
+No application nesting limit is imposed; the buffered input and parsing structures
+must fit in memory.
+
 Repeated SKU lines are added together, and an order can be split across parcels.
 Validation compares **each SKU**, not just the overall count: missing quantities
 must be packed, excess quantities (including unordered products) must be removed.
@@ -115,22 +121,71 @@ stdout, with no human summary mixed in. Its fields are:
 Do not infer success from zero blocked shipments alone: check `valid` and the
 exit status. Usage, input-read, and JSON syntax errors still exit 2, write only
 a diagnostic to stderr, and leave stdout empty, even with `--json`. Help is human
-text and exits 0. Consumers should inspect the exit code before parsing stdout.
+text and exits 0 when written successfully. Output-write failures also exit 2, but
+stdout may then be empty or partial. Consumers must check the exit code and discard
+any incomplete report after a write failure.
 
 Use `--` to end option parsing for dash-prefixed filenames, for example
 `node fulfill.js --json -- -export.json`. A lone `-` always means stdin; use `./-`
-for an actual file named dash. Missing input, unknown options, repeated `--json`,
-and extra filenames are usage errors. No dependencies or shell-specific pipeline
-features are required by the Node command.
+for an actual file named dash. Missing input, unknown options, repeated output
+options, combining `--json` with `--html`, and extra filenames are usage errors.
+No dependencies or shell-specific pipeline features are required by the Node command.
+
+### Offline HTML packing reports
+
+Open the saved [sample HTML report](examples/shipments.report.html) directly in a
+browser—no server, installation, network connection, or JavaScript is needed.
+It shows the same tea-and-mug batch: one ready shipment and one blocked shipment
+with equal overall counts but a missing mug and excess tea. Open the HTML file
+itself to try the interactions.
+
+Generate a fresh report with `--html` (before or after the filename):
+
+```sh
+node fulfill.js --html examples/shipments.json > packing-report.html
+cat examples/shipments.json | node fulfill.js --html - > packing-report.html
+```
+
+Both commands intentionally exit **1** for this example **and still produce a
+complete report**. Open `packing-report.html` in a browser. Exit 0 means validation
+passed. Command/read/syntax errors exit 2 with empty stdout and a stderr diagnostic.
+Output-write errors also exit 2; discard the possibly partial report and correct
+the output destination before retrying. Do not combine `--html` and `--json`.
+Text remains the default.
+The shell redirection creates or overwrites the report file; never redirect to
+your input JSON file. The command itself does not change the shipment data.
+
+The report shows overall validity, total/ready/blocked counts, ordered and packed
+quantities, parcel counts, and every actionable error code, input path, and message.
+Blocked shipments come first with their details expanded; ready shipments follow
+with collapsed details. Original input indexes are retained in all error paths.
+Unknown quantities are labeled **Unknown**, and invalid batch roots show batch
+issues rather than a misleading successful empty report.
+
+Use the **Blocked** and **Ready** section links to navigate. Press **Tab** to focus
+a shipment summary (labeled with status, ID, quantities, and issue count), then
+**Enter** or **Space** to expand or collapse it. Focus has a visible outline;
+status uses text as well as color. Native HTML disclosure controls work without
+scripts. Shipment IDs, SKUs within messages, and all issue fields are escaped as
+plain text—even if they contain markup. The self-contained document contains only
+inline CSS and local section links: no external assets, scripts, or services.
+
+This is a static snapshot, not a dispatch control. Apply corrections to the batch
+and regenerate it; opening or expanding the report does not revalidate data.
 
 ### Output and exit codes
 
-- **0:** all shipments pass (or the batch is empty); `--help`/`-h` also exits 0.
+- **0:** all shipments pass (or the batch is empty) and no output-write error was
+  reported; `--help`/`-h` also exits 0 when its output is written successfully.
 - **1:** validation errors, including a valid JSON document with the wrong shape.
-  The text summary or JSON report and all validation errors go to stdout; processing
+  The text, JSON, or HTML report and all validation errors go to stdout; processing
   continues through the batch so independent shipments are still reported.
-- **2:** invalid arguments, unreadable file/stdin, or malformed JSON. An actionable
-  diagnostic goes to stderr without a stack trace; stdout is empty in either mode.
+- **2:** invalid arguments, unreadable file/stdin, malformed JSON, or an output-write
+  failure. An actionable diagnostic goes to stderr without a stack trace. Argument,
+  read, and syntax errors leave stdout empty. Write failures (such as a full device
+  or a closed pipe) may leave partial output and override either validation status.
+  Discard that output, fix the destination, and rerun. Successful writes are allowed
+  to drain normally; the CLI does not force an early exit.
 
 Malformed item data produces `unknown` totals rather than misleading partial
 counts. Quantity comparisons are skipped for that shipment until both item lists
@@ -146,6 +201,7 @@ packing has been checked. Follow the [packing guide](packing-guide.md),
 const { validateShipment, validateBatch } = require("./packing.js");
 const { parcelLabel } = require("./parcel-label.js");
 const { parseBatchJson } = require("./fulfill.js");
+const { formatHtmlReport } = require("./packing-report.js");
 const { readFileSync } = require("node:fs");
 
 const batch = parseBatchJson(readFileSync("./examples/shipments.json", "utf8"));
@@ -153,6 +209,7 @@ const shipment = validateShipment(batch[0]);
 console.log(shipment.valid); // true
 console.log(validateBatch(batch).valid); // false: the second shipment needs fixes
 console.log(parcelLabel(1)); // "1 item" (existing label behavior is unchanged)
+const html = formatHtmlReport(validateBatch(batch)); // Complete standalone HTML string
 ```
 
 `validateShipment` returns `{ shipmentId, valid, expectedQuantity, packedQuantity,
@@ -168,6 +225,11 @@ precision failures as `NaN` quantity values so the validator reports them at the
 correct path. The validators alone receive JavaScript values and cannot recover
 precision already lost through ordinary `JSON.parse` or numeric literals.
 
+`formatHtmlReport` takes the result of `validateBatch`, does not modify it, and
+returns a complete HTML document (without a trailing newline). It only presents
+validation results; it does not parse JSON or perform additional validation.
+The CLI adds a trailing newline consistently in every output mode.
+
 ## Tests
 
 With Node.js 22 or newer, run this command from the repository root:
@@ -179,5 +241,10 @@ node --test
 The tests use the built-in `node:test` runner and `node:assert/strict`. They retain
 the original label checks for 0, 1, and 3 (`0 items`, `1 item`, `3 items`) and cover
 split packing, per-SKU shortages/excess, duplicate assignments, malformed input,
-numeric limits, immutability, CLI exit codes, JSON reports, file and piped input,
-and the exact text/JSON example output and correction steps above.
+numeric limits, immutability, CLI exit codes, JSON/HTML reports, file and piped
+input, markup escaping, native disclosure structure, and the exact text/JSON/HTML
+example output and correction steps above. Regression checks cover deep ignored
+metadata, large escaped strings, full output devices, closed pipes, and complete
+large reports across all three formats and file/stdin input. The full-device checks
+explicitly skip when `/dev/full` is unavailable; the other checks need only Node
+built-ins.

@@ -26,5 +26,22 @@ packing data: still perform the physical packing, address, and label checks abov
 For automation, use `node fulfill.js --json path/to/shipments.json`, or pipe an
 export into `node fulfill.js --json -`. Check the exit code first: 0 and 1 provide
 a JSON report with overall `valid`, `ready`/`blocked` counts, shipment results,
-and actionable error codes/paths; exit 2 provides a stderr diagnostic instead.
+and actionable error codes/paths; exit 2 provides a stderr diagnostic. Output-write
+failures can leave an incomplete report: discard it, fix the destination, and retry.
 Never treat a failed command or an invalid batch root as an empty successful batch.
+
+For a browser-readable checklist, run
+
+```sh
+node fulfill.js --html path/to/shipments.json > packing-report.html
+```
+
+Open the report locally, or preview [the saved sample](examples/shipments.report.html).
+Exit 1 still produces a complete report: inspect the expanded blocked shipments
+and their correction messages. Tab to a shipment summary and press Enter or
+Space to toggle details. Ready/blocked section links provide quick navigation.
+This offline snapshot sends no data and does not revalidate when opened; correct
+the source batch and regenerate the report before dispatch. Keep the output file
+separate from your input, since shell redirection overwrites its destination. If
+the command exits 2 because output could not be written, do not use a partial HTML
+file; correct the output destination and regenerate it.

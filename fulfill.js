@@ -3,8 +3,9 @@
 const { readFileSync } = require("node:fs");
 const { validateBatch } = require("./packing.js");
 const { parcelLabel } = require("./parcel-label.js");
+const { formatHtmlReport } = require("./packing-report.js");
 
-const usage = "Usage: node fulfill.js <shipments.json> [--json]\n       node fulfill.js - [--json]\nValidate packing for a JSON array of shipments. No files are changed.\nUse - to read standard input until EOF; --json emits one JSON result instead of text.\nOptions may appear before or after the filename. Use -- before a dash-prefixed filename.\nExit codes: 0 = ready, 1 = validation errors, 2 = usage/file/JSON error.";
+const usage = "Usage: node fulfill.js <shipments.json> [--json | --html]\n       node fulfill.js - [--json | --html]\nValidate packing for a JSON array of shipments. No files are changed.\nUse - to read standard input until EOF; --json emits JSON; --html emits a self-contained HTML report.\nOptions may appear before or after the filename. Use -- before a dash-prefixed filename.\nExit codes: 0 = ready, 1 = validation errors, 2 = usage/read/JSON/write error.";
 const countLabel = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 const itemLabel = (count) => count === null ? "unknown" : parcelLabel(count);
 const errorLine = ({ code, path, message }) => `  - [${code}] ${path}: ${message}`;
@@ -22,15 +23,65 @@ function isExactIntegerToken(source, value) {
     significant + "0".repeat(zeros) === expected;
 }
 
-function parseBatchJson(content) {
-  return JSON.parse(content, (key, value, context) => {
-    if (key === "quantity" && Number.isSafeInteger(value) && value > 0 &&
-        !isExactIntegerToken(context.source, value)) {
-      // Let the existing validator report INVALID_QUANTITY at the correct path.
-      return NaN;
+// Scan already syntax-validated JSON. Character loops avoid recursive regex
+// backtracking on long escaped strings; strings are copied without inspecting digits.
+function markRoundedNumbers(content) {
+  const parts = [];
+  let copied = 0;
+  let index = 0;
+  const isDigit = character => character >= "0" && character <= "9";
+  while (index < content.length) {
+    const character = content[index];
+    if (character === '"') {
+      index += 1;
+      while (index < content.length) {
+        const next = content[index++];
+        if (next === "\\") index += 1; // Skip the escaped character, including a quote.
+        else if (next === '"') break;
+      }
+    } else if (character === "-" || isDigit(character)) {
+      const start = index++;
+      while (index < content.length && (isDigit(content[index]) || ".eE+-".includes(content[index]))) index += 1;
+      const token = content.slice(start, index);
+      const value = Number(token);
+      if (Number.isSafeInteger(value) && value > 0 && !isExactIntegerToken(token, value)) {
+        parts.push(content.slice(copied, start), JSON.stringify(token));
+        copied = index;
+      }
+    } else {
+      index += 1;
     }
-    return value;
-  });
+  }
+  if (parts.length === 0) return null;
+  parts.push(content.slice(copied));
+  return parts.join("");
+}
+
+function parseBatchJson(content) {
+  // Coerce once, as JSON.parse does, then validate syntax before scanning tokens.
+  content = `${content}`;
+  const parsed = JSON.parse(content);
+  const guarded = markRoundedNumbers(content);
+  if (guarded === null) return parsed;
+
+  // A second native parse marks suspect numbers as strings only in a parallel
+  // tree. Native parsing preserves escaped keys and last-property-wins behavior.
+  // Iterate rather than using a recursive reviver, including in ignored metadata.
+  const pending = [[parsed, JSON.parse(guarded)]];
+  while (pending.length) {
+    const [value, marked] = pending.pop();
+    if (value === null || typeof value !== "object") continue;
+    for (const key of Object.keys(value)) {
+      const child = value[key];
+      if (key === "quantity" && typeof child === "number" && typeof marked[key] === "string") {
+        // Preserve the API sentinel and existing INVALID_QUANTITY diagnostics.
+        value[key] = NaN;
+      } else if (child !== null && typeof child === "object") {
+        pending.push([child, marked[key]]);
+      }
+    }
+  }
+  return parsed;
 }
 
 function formatSummary(batch) {
@@ -51,14 +102,14 @@ function formatSummary(batch) {
 }
 
 function parseArgs(args) {
-  const options = { json: false, help: false, file: undefined };
+  const options = { format: "text", help: false, file: undefined };
   let flags = true;
   for (const arg of args) {
     if (flags && arg === "--") {
       flags = false;
-    } else if (flags && arg === "--json") {
-      if (options.json) return null;
-      options.json = true;
+    } else if (flags && ["--json", "--html"].includes(arg)) {
+      if (options.format !== "text") return null;
+      options.format = arg.slice(2);
     } else if (flags && ["--help", "-h"].includes(arg)) {
       options.help = true;
     } else if (flags && arg.startsWith("-") && arg !== "-") {
@@ -87,7 +138,7 @@ function main(args) {
     return 2;
   }
   if (options.help) {
-    console.log(usage);
+    process.stdout.write(usage + "\n");
     return 0;
   }
   const file = options.file;
@@ -107,10 +158,23 @@ function main(args) {
     return 2;
   }
   const batch = validateBatch(shipments);
-  console.log(options.json ? JSON.stringify(jsonReport(batch), null, 2) : formatSummary(batch));
+  const output = options.format === "json" ? JSON.stringify(jsonReport(batch), null, 2) :
+    options.format === "html" ? formatHtmlReport(batch) : formatSummary(batch);
+  process.stdout.write(output + "\n");
   return batch.valid ? 0 : 1;
 }
 
-if (require.main === module) process.exitCode = main(process.argv.slice(2));
+if (require.main === module) {
+  // console.log ignores stream errors by default. Observe real write failures,
+  // and let Node drain successful writes rather than forcing process.exit().
+  let outputFailed = false;
+  process.stdout.on("error", error => {
+    outputFailed = true;
+    process.exitCode = 2;
+    console.error(`Cannot write to standard output (${error.code || "I/O error"}). Check the output destination and rerun.`);
+  });
+  const status = main(process.argv.slice(2));
+  process.exitCode = outputFailed ? 2 : status;
+}
 
 module.exports = { formatSummary, parseBatchJson };

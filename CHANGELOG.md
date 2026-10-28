@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Report stdout write failures (including full devices and closed pipes) as exit 2
+  with a diagnostic in every format; preserve complete successful output flushing.
+- Accept deeply nested ignored metadata without recursive JSON revival, retaining
+  exact quantity-token checks, native JSON semantics, and existing validation.
+
+- Add offline `--html` packing reports with ready/blocked sections, labeled native
+  keyboard disclosures, escaped text, quantities, and actionable issues. Include
+  a runnable HTML example; preserve text/JSON/stdin validation and exit behavior.
+
 - Add `--json` reports and `-` stdin input for fulfillment automation, preserving
   default text output, validation protections, and exit codes. Include a checked
   JSON report example and file/pipe regression coverage.
