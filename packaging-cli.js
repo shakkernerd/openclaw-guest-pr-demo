@@ -2,16 +2,17 @@
 "use strict";
 
 const { readFileSync } = require("node:fs");
-const { planPackaging } = require("./packaging.js");
+const { planPackaging, summarizePackaging } = require("./packaging.js");
 const { parcelLabel } = require("./parcel-label.js");
 
 const USAGE = [
-  "Usage: node packaging-cli.js [--json] [--mode mixed|single-sku] [FILE|-]",
+  "Usage: node packaging-cli.js [--summary] [--json] [--mode mixed|single-sku] [FILE|-]",
   "       node packaging-cli.js --help",
   "",
   "Read an order JSON object with items and maxItemsPerBox.",
   "Omit FILE or use - to read standard input. Text output is the default.",
-  "--json       Write the packing plan as JSON instead of text.",
+  "--json       Write the plan or summary as JSON instead of text.",
+  "--summary    Write a compact utilization summary, without individual boxes.",
   "--mode MODE  mixed (default) or single-sku (one SKU per box).",
   "--help, -h   Show this help (use alone).",
   "--           End options, allowing filenames that begin with a dash.",
@@ -22,6 +23,7 @@ const USAGE = [
 function parseArguments(args) {
   let file;
   let json = false;
+  let summary = false;
   let mode;
   let options = true;
   for (let index = 0; index < args.length; index += 1) {
@@ -35,6 +37,9 @@ function parseArguments(args) {
     } else if (options && arg === "--json") {
       if (json) throw new Error("repeated option --json");
       json = true;
+    } else if (options && arg === "--summary") {
+      if (summary) throw new Error("repeated option --summary");
+      summary = true;
     } else if (options && arg === "--mode") {
       if (mode !== undefined) throw new Error("repeated option --mode");
       const value = args[index + 1];
@@ -50,7 +55,36 @@ function parseArguments(args) {
       file = arg;
     }
   }
-  return { file, json, mode: mode === undefined ? "mixed" : mode, help: false };
+  return { file, json, summary, mode: mode === undefined ? "mixed" : mode, help: false };
+}
+
+// Called only with a numeric token from already syntax-validated JSON.
+function isIntegerToken(token) {
+  const [coefficient, exponent = "0"] = token.toLowerCase().split("e");
+  const [whole, fraction = ""] = coefficient.split(".");
+  const digits = (whole + fraction).replace("-", "");
+  let end = digits.length;
+  while (end > 0 && digits[end - 1] === "0") end -= 1;
+  if (end === 0) return true; // Zero is integral at any exponent.
+  const trailingZeros = digits.length - end;
+  // The threshold is bounded by token length. Huge exponents may become +/-Infinity
+  // here without affecting this comparison; never allocate a power of ten.
+  return Number(exponent) >= fraction.length - trailingZeros;
+}
+
+function parseOrderJson(source) {
+  // Validate syntax FIRST so the token pass cannot repair malformed JSON.
+  // No reviver: native parsing handles deeply nested ignored data without a
+  // recursive JavaScript walk or a dependency on reviver context.source.
+  const parsed = JSON.parse(source);
+  const guarded = source.replace(/"(?:[^"\\]|\\[\s\S])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g, token => {
+    if (token[0] === '"' || !Number.isSafeInteger(Number(token)) || isIntegerToken(token)) return token;
+    // Internal invalid-count sentinel: reuse the planner's existing validation
+    // only if this value is used. Extra/overwritten fields remain ignored.
+    return "null";
+  });
+  // Native parsing preserves escaped keys and last-property-wins semantics.
+  return guarded === source ? parsed : JSON.parse(guarded);
 }
 
 function readOrder(file) {
@@ -63,7 +97,7 @@ function readOrder(file) {
   }
   let order;
   try {
-    order = JSON.parse(source);
+    order = parseOrderJson(source);
   } catch {
     throw new Error("input must contain one valid JSON order");
   }
@@ -91,6 +125,14 @@ function textReport(plan) {
   return lines.join("\n") + "\n";
 }
 
+function summaryReport(summary) {
+  return "Mode: " + summary.mode + " | Capacity: " + summary.maxItemsPerBox + "\n" +
+    parcelLabel(summary.totalItems) + " | " + summary.boxCount +
+    (summary.boxCount === 1 ? " box: " : " boxes: ") + summary.fullBoxes + " full, " +
+    summary.partialBoxes + " partial | " + summary.unusedItemSlots +
+    (summary.unusedItemSlots === "1" ? " unused item slot\n" : " unused item slots\n");
+}
+
 function main() {
   // Do not force process.exit(): piped output must finish flushing first.
   process.stdout.on("error", error => {
@@ -111,8 +153,10 @@ function main() {
   }
   try {
     const order = readOrder(options.file);
-    const plan = planPackaging(order.items, order.maxItemsPerBox, { mode: options.mode });
-    process.stdout.write(options.json ? JSON.stringify(plan, null, 2) + "\n" : textReport(plan));
+    const operation = options.summary ? summarizePackaging : planPackaging;
+    const result = operation(order.items, order.maxItemsPerBox, { mode: options.mode });
+    const report = options.summary ? summaryReport : textReport;
+    process.stdout.write(options.json ? JSON.stringify(result, null, 2) + "\n" : report(result));
   } catch (error) {
     process.stderr.write("packaging: " + error.message + "\n");
     process.exitCode = 1;

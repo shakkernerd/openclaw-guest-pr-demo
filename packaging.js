@@ -1,17 +1,10 @@
 "use strict";
 
-// This API materializes every box; reject impractical output before allocation.
+// Detailed plans materialize every box; summaries do not use this limit.
 const MAX_BOXES = 100000;
 
-/**
- * Combine exact SKU strings in first-appearance order, then fill boxes in order.
- * Quantities must be non-negative safe integers; capacity must be positive.
- * options.mode is "mixed" (default) or "single-sku" (never mix different SKUs).
- * Returns fresh { maxItemsPerBox, totalItems, boxes } data without mutating items.
- * Only single-SKU plans add mode: "single-sku", preserving legacy output.
- * Throws TypeError for invalid fields/options and RangeError for total/output overflow.
- */
-function planPackaging(items, maxItemsPerBox, options = {}) {
+// Keep validation and first-appearance SKU aggregation identical for both APIs.
+function prepareOrder(items, maxItemsPerBox, options = {}) {
   if (!Array.isArray(items)) {
     throw new TypeError("items must be an array");
   }
@@ -50,17 +43,59 @@ function planPackaging(items, maxItemsPerBox, options = {}) {
     quantities.set(sku, (quantities.get(sku) || 0) + quantity);
   }
 
-  // Count the actual mode-specific output before allocating any boxes.
-  // Single-SKU mode cannot reuse the space in another SKU's partial box.
+  return { mode, totalItems, quantities };
+}
+
+function summarizeOrder({ mode, totalItems, quantities }, maxItemsPerBox) {
+  const capacity = BigInt(maxItemsPerBox);
   const counts = mode === "single-sku" ? quantities.values() : [totalItems];
-  let boxCount = 0;
+  let fullBoxes = 0n;
+  let partialBoxes = 0n;
+  let unusedItemSlots = 0n;
+  // Work once per combined SKU (once per order in mixed mode), never per box.
   for (const quantity of counts) {
-    // Avoid quantity + capacity, which could overflow safe integers.
-    const required = Math.floor(quantity / maxItemsPerBox) + (quantity % maxItemsPerBox === 0 ? 0 : 1);
-    if (required > MAX_BOXES - boxCount) {
-      throw new RangeError("packing plan exceeds " + MAX_BOXES + " boxes; increase maxItemsPerBox or split the order");
+    const count = BigInt(quantity);
+    fullBoxes += count / capacity;
+    const remainder = count % capacity;
+    if (remainder !== 0n) {
+      partialBoxes += 1n;
+      unusedItemSlots += capacity - remainder;
     }
-    boxCount += required;
+  }
+  // Each box contains at least one item, so all box counts <= the safe total.
+  // Unused slots can exceed that bound; keep them exact and JSON-safe as a string.
+  return {
+    mode, maxItemsPerBox, totalItems,
+    boxCount: Number(fullBoxes + partialBoxes),
+    fullBoxes: Number(fullBoxes),
+    partialBoxes: Number(partialBoxes),
+    unusedItemSlots: unusedItemSlots.toString(),
+  };
+}
+
+/**
+ * Return compact utilization counts without allocating boxes or applying MAX_BOXES.
+ * Accepts the same inputs/options as planPackaging; aggregate totals must stay safe.
+ * Always includes mode and a decimal-string unusedItemSlots; other counts are numbers.
+ */
+function summarizePackaging(items, maxItemsPerBox, options = {}) {
+  return summarizeOrder(prepareOrder(items, maxItemsPerBox, options), maxItemsPerBox);
+}
+
+/**
+ * Combine exact SKU strings in first-appearance order, then fill boxes in order.
+ * Quantities must be non-negative safe integers; capacity must be positive.
+ * options.mode is "mixed" (default) or "single-sku" (never mix different SKUs).
+ * Returns fresh { maxItemsPerBox, totalItems, boxes } data without mutating items.
+ * Only single-SKU plans add mode: "single-sku", preserving legacy output.
+ * Throws TypeError for invalid fields/options and RangeError for total/output overflow.
+ */
+function planPackaging(items, maxItemsPerBox, options = {}) {
+  const order = prepareOrder(items, maxItemsPerBox, options);
+  const { mode, totalItems, quantities } = order;
+  // Count the actual mode-specific output before allocating any boxes.
+  if (summarizeOrder(order, maxItemsPerBox).boxCount > MAX_BOXES) {
+    throw new RangeError("packing plan exceeds " + MAX_BOXES + " boxes; increase maxItemsPerBox or split the order");
   }
 
   const boxes = [];
@@ -85,4 +120,4 @@ function planPackaging(items, maxItemsPerBox, options = {}) {
   return plan;
 }
 
-module.exports = { planPackaging, MAX_BOXES };
+module.exports = { planPackaging, summarizePackaging, MAX_BOXES };
