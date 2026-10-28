@@ -27,6 +27,9 @@ scan barcodes. The shipping-label checks below are manual checks.
       reconcile the record and physical parcels before proceeding.
 - [ ] For a multi-parcel order, check each parcel has its own correct shipping
       label; do not reuse one parcel's label on another.
+- [ ] Check for accidentally printing the same label twice: compare each parcel's
+      label identifier with the dispatch record. Hold any duplicate-labelled
+      parcels and securely discard unused duplicate prints before proceeding.
 
 ## 3. Check the printed label and barcode
 
@@ -49,5 +52,15 @@ scan barcodes. The shipping-label checks below are manual checks.
       so only the current shipping label can be read or scanned.
 - [ ] Attach the replacement securely, then repeat the recipient, address, count,
       print-readability, and barcode-scan checks before releasing the parcel.
+
+## 5. Record the final handoff
+
+- [ ] Complete a handoff record for each parcel in the dispatch log after the
+      checks pass and before handing it to the carrier:
+
+      - Parcel / shipment reference: ____________________
+      - Checked by (name or initials): ____________________
+      - Checked at (date, time, and time zone): ____________________
+      - Handed to (carrier or colleague) and handoff date/time: ____________________
 
 Dispatch only when every applicable check passes and all discrepancies are resolved.
