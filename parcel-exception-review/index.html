@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Parcel exception review · Dispatch</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.mjs"></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="./"><span class="brand-mark" aria-hidden="true">▣</span> DISPATCH <span class="brand-divider">/</span> <span class="brand-sub">Exception desk</span></a><span class="local-badge">● Local browser review</span></header>
+  <main>
+    <section class="page-heading"><div><p class="eyebrow">EVIDENCE, NOT ASSUMPTIONS</p><h1>Parcel exception review</h1><p class="muted">Reconcile the whole export. Inspect the evidence. Hand off only what you select.</p></div><span class="engine">Powered by<br><strong>parcel-event-audit</strong></span></section>
+    <div class="notice"><strong>Review does not authorize shipment.</strong> Conflicts stay unresolved: no event is chosen as the winner. A clean audit is not shipment clearance.</div>
+    <section class="import-panel" aria-labelledby="import-heading">
+      <div id="drop-zone" class="drop-zone"><div><h2 id="import-heading">Start with an events export</h2><p>Choose or drop one UTF-8 <strong>JSON array</strong> here. Up to 5 MiB / 10,000 records.</p><p class="small muted">Files are processed in this tab, never uploaded or overwritten. No browser storage.</p></div><label class="file-label">Choose events JSON<input id="file" type="file" accept=".json,application/json" aria-label="Choose events JSON"></label></div>
+      <div class="import-actions"><button id="example" type="button" class="secondary">Try synthetic example</button><button id="reset" type="button" class="quiet">Clear review</button><a href="example.json" download="synthetic-events.json">Download example</a><a href="README.md" target="_blank" rel="noopener">Usage &amp; input format ↗</a></div>
+      <p id="file-status" role="status" class="file-status">No file loaded. Your partner export can be added when it is ready.</p>
+      <div id="error" role="alert" class="error" hidden><h3>File rejected — no review available</h3><p id="error-message"></p></div>
+      <details id="original" hidden><summary>Original input · untouched bytes</summary><p id="original-meta" class="small muted"></p><button id="download-original" class="secondary" type="button">Download original bytes</button><p class="small muted">Displayed text is decoded UTF-8; the download preserves the exact bytes. Record evidence below retains original JSON spelling.</p><pre id="original-text" tabindex="0"></pre></details>
+    </section>
+    <section id="empty" class="empty-state"><span class="empty-icon" aria-hidden="true">▤</span><h2>Your review starts here</h2><p>Load an export to see overall totals, conflicts, and original source records.<br>The synthetic example includes a retry, a cross-parcel ID conflict, and contradictory terminal evidence.</p></section>
+    <section id="review" hidden aria-labelledby="totals-heading">
+      <div class="section-heading"><h2 id="totals-heading">Whole-file totals</h2><span class="small muted">Unaffected by filters or selection</span></div>
+      <div id="totals" class="totals"></div>
+      <section class="review-panel" aria-labelledby="exceptions-heading">
+        <div class="section-heading"><h2 id="exceptions-heading">Exception queue</h2><span id="match-count" class="count-badge" role="status"></span></div>
+        <div class="filters"><label>Parcel contains<input id="parcel-filter" type="search" placeholder="e.g. PKG-HARBOR" autocomplete="off"></label><label>Issue<select id="issue-filter"><option value="">All issues</option><option value="EVENT_ID_CONFLICT">Event ID conflict</option><option value="DELIVERY_CANCELLATION_CONTRADICTION">Delivery / cancellation</option></select></label><label class="search-label">Search parcel, event ID, or issue<input id="search" type="search" placeholder="Search exceptions…" autocomplete="off"></label><button id="clear-filters" type="button" class="quiet">Reset filters</button></div>
+        <p class="filter-help small muted">Filters combine and ignore case; identifiers themselves remain case-sensitive in the audit. Full conflict evidence stays together, including other parcels.</p>
+        <div class="selection-bar"><div><strong id="selection-count" role="status">0 selected</strong><p class="small">Filters change visibility, not selection. Downloads include hidden selections.</p></div><div class="selection-actions"><button id="select-matches" type="button" class="secondary">Select all matches</button><button id="clear-selection" type="button" class="quiet">Clear selection</button><button id="download" type="button" disabled>Download selected JSON (0)</button></div></div>
+        <div class="review-columns"><div class="queue"><div class="table-scroll"><table><caption class="sr-only">Exception records. Selection is independent of the active evidence inspector.</caption><thead><tr><th scope="col">Select</th><th scope="col">Parcel / issue</th><th scope="col">Evidence</th></tr></thead><tbody id="rows"></tbody></table></div><p id="no-matches" class="no-matches" hidden></p><nav class="pagination" aria-label="Exception pages"><button id="prev" class="quiet" type="button">← Previous</button><span id="page-info" class="small"></span><button id="next" class="quiet" type="button">Next →</button></nav></div><aside id="inspector" aria-label="Exception evidence inspector"></aside></div>
+      </section>
+    </section>
+    <footer><span>Read-only evidence review · No resolution or shipment actions</span><span>Local assets only · No dependencies</span></footer>
+  </main>
+  <noscript>This review requires JavaScript. No file has been loaded or reviewed.</noscript>
+</body>
+</html>

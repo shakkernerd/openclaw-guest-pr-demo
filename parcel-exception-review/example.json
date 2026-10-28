@@ -1,0 +1,56 @@
+[
+  {
+    "eventId": "harbor-delivery",
+    "parcelId": "PKG-HARBOR",
+    "type": "delivered",
+    "occurredAt": "2026-10-28T10:00:00Z"
+  },
+  {
+    "eventId": "shared-scan",
+    "parcelId": "PKG-NORTH",
+    "type": "in_transit",
+    "occurredAt": "2026-10-28T09:30:00Z"
+  },
+  {
+    "eventId": "harbor-create",
+    "parcelId": "PKG-HARBOR",
+    "type": "created",
+    "occurredAt": "2026-10-28T08:00:00Z"
+  },
+  {
+    "eventId": "clean-create",
+    "parcelId": "PKG-CLEAR",
+    "type": "created",
+    "occurredAt": "2026-10-28T08:15:00Z"
+  },
+  {
+    "eventId": "harbor-cancel",
+    "parcelId": "PKG-HARBOR",
+    "type": "cancelled",
+    "occurredAt": "2026-10-28T09:00:00Z"
+  },
+  {
+    "eventId": "shared-scan",
+    "parcelId": "PKG-SOUTH",
+    "type": "in_transit",
+    "occurredAt": "2026-10-28T09:30:00Z"
+  },
+  {
+    "eventId": "harbor-delivery",
+    "parcelId": "PKG-HARBOR",
+    "type": "delivered",
+    "occurredAt": "2026-10-28T11:00:00+01:00"
+  },
+  {
+    "eventId": "north-create",
+    "parcelId": "PKG-NORTH",
+    "type": "created",
+    "occurredAt": "2026-10-28T08:20:00Z"
+  },
+  {
+    "eventId": "clean-delivery",
+    "parcelId": "PKG-CLEAR",
+    "type": "delivered",
+    "occurredAt": "2026-10-28T10:20:00Z"
+  }
+]
