@@ -1,0 +1,8 @@
+{
+  "items": [
+    { "sku": "B", "quantity": 2 },
+    { "sku": "A", "quantity": 3 },
+    { "sku": "B", "quantity": 4 }
+  ],
+  "maxItemsPerBox": 4
+}
