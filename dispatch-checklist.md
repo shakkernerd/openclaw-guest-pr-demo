@@ -64,3 +64,13 @@ scan barcodes. The shipping-label checks below are manual checks.
       - Handed to (carrier or colleague) and handoff date/time: ____________________
 
 Dispatch only when every applicable check passes and all discrepancies are resolved.
+
+## 6. Handle returns
+
+- [ ] Match a returned parcel to its original order or shipment reference. Record
+      the return reason if known, parcel condition, who received it, and date/time.
+- [ ] Keep returns separate from outgoing parcels until the responsible colleague
+      confirms the next action; do not automatically redispatch them.
+- [ ] Before sending a return onward, confirm the authorised destination and use
+      the correct shipping label. Remove or cover obsolete labels and barcodes,
+      then repeat the dispatch checks and complete a new handoff record.
