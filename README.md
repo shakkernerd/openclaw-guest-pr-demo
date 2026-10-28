@@ -697,6 +697,122 @@ However, this is **not a constant-memory or arbitrary-size record guarantee**:
 No new size cap or stricter decoder is imposed. Existing safe-integer and combined
 order-total limits still apply independently to each record.
 
+### Example: consume batch summaries and total counts
+
+[`examples/batch-totals.js`](examples/batch-totals.js) is a dependency-free Node.js
+22+ **CLI example**, not a library API. It spawns the existing batch CLI rather
+than importing its implementation or repacking orders. Run it from the repository
+root (input filenames remain relative to your working directory):
+
+```sh
+node examples/batch-totals.js orders.jsonl
+cat orders.jsonl | node examples/batch-totals.js
+cat orders.jsonl | node examples/batch-totals.js -
+node examples/batch-totals.js -- --orders.jsonl
+node examples/batch-totals.js --help
+
+# Self-contained example: one valid order, one invalid record, then a valid order.
+# Prints one final JSON report, preserves the line-2 stderr diagnostic, exits 1.
+printf '%s\n' \
+  '{"items":[{"sku":"A","quantity":1},{"sku":"B","quantity":1}],"maxItemsPerBox":4}' \
+  'null' \
+  '{"items":[{"sku":"A","quantity":1},{"sku":"B","quantity":1}],"maxItemsPerBox":4}' \
+  | node examples/batch-totals.js
+```
+
+Do not concatenate the existing pretty-printed `examples/*.json` files as JSONL;
+each input order must occupy one physical line. The command above emits this
+report as a **single compact JSON line** (expanded here for readability):
+
+```json
+{
+  "failed": true,
+  "producer": { "exitCode": 1, "signal": null },
+  "consumerError": null,
+  "successfulOrders": "2",
+  "totalItems": "4",
+  "mixed": { "boxCount": "2", "fullBoxes": "0", "partialBoxes": "2", "unusedItemSlots": "4" },
+  "single-sku": { "boxCount": "4", "fullBoxes": "0", "partialBoxes": "4", "unusedItemSlots": "12" }
+}
+```
+
+All aggregate counts are decimal strings, even zero. They accumulate with
+`BigInt` from the first addition; producer numeric counts are converted directly
+and unused-slot strings never pass through `Number`. `totalItems` is counted
+**once per successful order**, while box counts and unused slots are summed
+separately for each policy. Orders are never pooled or repacked; capacities can
+differ between orders and are not aggregated. Physical line numbers are not
+counts: the example does not infer invalid or blank records from gaps or exit 1.
+
+The report describes **only complete successful summaries observed by this
+consumer**, including any retained prefix on failure. `failed: false` requires
+clean summary consumption and producer exit 0. `failed: true` does not distinguish
+invalid orders from fatal producer I/O, or assert that all input was processed.
+`producer.exitCode` / `producer.signal` record the actual child outcome; both are
+null if spawning failed. `consumerError` is null unless the consumer itself failed.
+Producer stderr is inherited unchanged; separate consumer diagnostics use the
+`batch-totals:` prefix without dumping malformed result contents or stack traces.
+
+Producer numeric statuses **0, 1 and 2 are preserved** unless a consumer/reporting
+error occurs. Consumer errors, interruption and producer signal termination exit
+**1**, with any producer signal recorded in the report. Empty/blank-only success
+produces zero totals with exit 0; an unreadable input produces zero totals with
+exit 1. Arguments go to the producer unchanged, except standalone `--help`/`-h`,
+which prints this example's usage instead of JSON without starting a child.
+
+The example inherits stdin directly and consumes child stdout incrementally with
+LF framing and stream backpressure, retaining neither all orders nor all results.
+It waits for both output consumption and child closure before writing the report.
+A malformed complete result or a trailing fragment (even parseable JSON without
+LF) is a consumer failure and is not counted. Both policy fields are checked
+before adding a result, so malformed output cannot partially update the totals.
+On observed failure, the example stops reading, terminates its owned child,
+escalates to SIGKILL after a one-second cleanup grace if necessary, and waits for
+closure. Normal report and diagnostic writes remain fully awaited, without a
+processing or flushing deadline.
+
+On POSIX, an intercepted SIGINT/SIGTERM also cancels any pending consumer write
+and suppresses further consumer diagnostics: a held-open, undrained stderr pipe
+must not be entered again after interruption. After child closure, a new partial
+report still gets a one-second flush opportunity if stdout is usable. If an own
+write was abandoned, the consumer explicitly exits 1 after this cleanup/report
+attempt so a pending native stdio write cannot keep it alive. An interrupted
+report already in progress is not retried or rewritten. These deadlines apply
+only to failure/interruption cleanup, **not normal processing or flushing**.
+
+[Node's signal contract](https://nodejs.org/docs/latest-v22.x/api/process.html#signal-events)
+distinguishes POSIX interception from Windows programmatic termination: on Windows,
+`process.kill()` / `subprocess.kill()` with SIGINT, SIGTERM or SIGKILL terminate
+the target unconditionally rather than providing this POSIX cleanup handshake.
+Console Ctrl+C can generate SIGINT and is a separate mechanism (not in terminal
+raw mode). Do not assume that a Windows programmatic kill runs these handlers or
+delivers a final report. Only tests requiring POSIX interception/ignored SIGTERM
+are platform-scoped; ordinary file/stdin, counts, help and flushing tests remain
+enabled. No Windows execution is claimed.
+
+No input/record cap is added. Stream buffers, the current result, growing integer
+totals, and the producer's existing per-order data still require memory; this is
+not an arbitrary-size record or constant-memory guarantee. A closed report pipe
+may be detected only when the final report is written. Report writes are not
+transactional: an unavailable/broken stdout cannot carry a reliable final report,
+and may contain a fragment; the command still fails. Always check the exit status:
+an interruption after a report write starts cannot retract already emitted bytes
+or update that report's earlier status snapshot. Forced termination such as
+SIGKILL cannot guarantee cleanup or a report.
+
+Focused proof for this consumer, without rerunning the producer suite:
+
+```sh
+node --test batch-totals.test.js
+```
+
+These tests use the real producer for file/stdin, partial success, diagnostics,
+large exact aggregates and exit statuses. Small controlled dependency fixtures
+exercise malformed/truncated output, incremental failure before EOF, child
+termination, held pending writes and output/spawn failures without adding
+production test hooks. Cancellation regressions distinguish held-open undrained
+destinations from closed/broken pipes, and retain a slow normal-flush control.
+
 ## Tests
 
 From the repository root:
