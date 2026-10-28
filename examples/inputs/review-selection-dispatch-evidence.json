@@ -1,0 +1,41 @@
+{
+  "format": "decision-comparison-review-selection",
+  "version": 1,
+  "purpose": "Explicit local review selection only. Does not apply, merge, approve, resolve, delete, or authorize any decision or operational action.",
+  "reviewContext": {
+    "purposeLabel": "Dispatch evidence follow-up",
+    "meaning": "Optional user-written review context only. Not approval, authentication, authorization, or a change to any source fact."
+  },
+  "createdAtLocalClock": "2026-10-28T14:11:55.592Z",
+  "comparison": {
+    "filename": "comparison.json",
+    "bytes": 35795,
+    "sha256": "bae2cfbcb560d40d145ce87ee48e7ad3ac17e551505250fddcf66b32df860783",
+    "fingerprintMeaning": "SHA-256 measured over the exact loaded comparison file bytes, not a declared source hash. Identifies bytes only; not authenticity, integrity against a trusted source, shared history, or authorization.",
+    "reportVersion": 1,
+    "currentWorkspace": "review",
+    "incomingWorkspace": "review"
+  },
+  "sharedHistory": "unproven",
+  "authentication": "unproven",
+  "selectedCount": 2,
+  "selectedRecords": [
+    {
+      "groupKey": "id:MAR-014",
+      "recordIndex": 3,
+      "jsonPointer": "/records/3",
+      "classification": "changed",
+      "currentPresent": true,
+      "incomingPresent": true
+    },
+    {
+      "groupKey": "id:MAR-015",
+      "recordIndex": 4,
+      "jsonPointer": "/records/4",
+      "classification": "missing",
+      "currentPresent": true,
+      "incomingPresent": false
+    }
+  ],
+  "selectionMeaning": "Only the listed records were explicitly selected. Omitted records are not implicitly approved, rejected, or resolved. Missing incoming snapshots are absence, not deletion instructions."
+}
