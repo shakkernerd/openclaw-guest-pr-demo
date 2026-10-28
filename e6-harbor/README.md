@@ -24,12 +24,32 @@ The first visit starts with **26 October–1 November 2026**: six volunteers, te
 4. Open **Volunteers** to add or edit names, eligible roles, notes, and repeating weekly availability. Unchecked weekdays mean unavailable.
 5. Add shifts, filter by role or missing crew, change weeks, and remove/reassign crew. Deleting a shift or volunteer asks for confirmation and explains the number of assignments removed.
 
+### Copy regular work to next week
+
+Local follow-up verification and independent review are recorded in `COPY-WEEK-CHECKS.md`.
+
+Select the source week, then choose **Copy to next week…**. The dialog shows both date ranges, the number of shifts and existing destination shifts, and two explicit choices:
+
+- **Shifts only (recommended)** is the default: new, unassigned shifts with the same titles, weekday/time, roles, capacities and notes.
+- **Shifts and assignments** also copies crew with new assignment IDs, checking the entire result for conflicts. Weekly availability repeats, so moving a valid duty by exactly seven days retains its weekday availability; existing destination assignments can still block carried crew.
+
+This copies **every shift in the selected Monday–Sunday week**, not just filtered results, exactly seven calendar days forward. The original week, volunteers, existing assignments and unrelated destination work are unchanged. Success opens the destination week with filters cleared. Reload preserves both weeks; the app initially opens its earliest scheduled week, so use the week picker to revisit the copied week.
+
+Matching work means the **same destination date, start/end time, role, and normalized title** (case-insensitive, collapsed whitespace, Unicode NFC). Different notes or capacity do not bypass the duplicate check. An existing matching shift or duplicate work within the source rejects the whole copy; nothing is silently skipped, merged or overwritten. Resolve the repeated work or use the existing destination schedule. Different work in a populated destination is allowed when crew remain valid.
+
+Any invalid date, duplicate, or crew conflict rejects the complete operation. A crew conflict can be resolved by copying shifts only or changing the conflicting assignments before retrying. Copy is saved as one complete snapshot; unlike ordinary temporary edits, a storage failure leaves the copy unapplied in memory as well, keeps the dialog open, and explains how to retry. Empty weeks cannot be copied.
+
+Keyboard: open the dialog with Enter, Tab to the assignment choice, use the arrow keys for the radio options, and activate **Copy week** to confirm. Escape cancels and restores focus. Opening/holding Enter on the heading cannot accept a copy. The dialog scrolls vertically on narrow screens.
+
 ## Exact check commands
 
 Requires **Node.js 22+** for development checks. Do **not** run an install command; there are no dependencies. Run these from the repository root:
 
 ```sh
-# Focused scheduling and persistence tests
+# Focused week-copy tests
+node --test e6-harbor/tests/copy-week.test.js
+
+# All scheduling and persistence tests
 node --test e6-harbor/tests/*.test.js
 
 # Syntax, local-resource, dependency and static packaging verification
@@ -63,8 +83,8 @@ Equivalent scripts from inside the folder are `npm test`, `npm run build`, and `
 
 ### What is checked
 
-- **26 focused tests** exercise the actual shared app domain and storage modules: all overlap shapes; exact boundaries; different people/dates; role/availability restrictions; duplicates and capacity; assignment replacement; atomic rejected edits; cascading deletion; schema/date validation; scoped coverage; persistence; corrupt-data preservation; storage denial/quota failure; and stale-tab detection.
-- **22 browser checks** load the actual app and use its forms: seed rendering, forward/reverse Tab, Enter/Escape and focus return, forced invalid assignment rejection, valid assignments, shift/volunteer editing, back-to-back duties, escaped user text, filters/search, confirmation/deletion, reload persistence, 360px/320px layouts and editors, corrupt/blocked storage warnings, and no page errors or network requests. Coordinator scenarios compare the entire saved snapshot byte-for-byte after rejected changes, exercise valid role/availability changes and back-to-back reassignment, fill then unfill a shift, and reload the exact resulting rota. Keyboard regressions verify that opening or updating crew never focuses a destructive Remove button, repeated Enter leaves assignments intact, the safe focus target is visible, and confirmation is inside the modal. Boundary-date reloads must recover explicitly without overwriting saved bytes; supported boundary weeks must render.
+- **38 focused tests** exercise the actual shared app domain and storage modules: all overlap shapes; exact boundaries; different people/dates; role/availability restrictions; duplicates and capacity; assignment replacement; atomic rejected edits; cascading deletion; schema/date validation; scoped coverage; persistence; corrupt-data preservation; storage denial/quota failure; and stale-tab detection.
+- **30 browser checks** load the actual app and use its forms: seed rendering, forward/reverse Tab, Enter/Escape and focus return, forced invalid assignment rejection, valid assignments, shift/volunteer editing, back-to-back duties, escaped user text, filters/search, confirmation/deletion, reload persistence, 360px/320px layouts and editors, corrupt/blocked storage warnings, and no page errors or network requests. Coordinator scenarios compare the entire saved snapshot byte-for-byte after rejected changes, exercise valid role/availability changes and back-to-back reassignment, fill then unfill a shift, and reload the exact resulting rota. Keyboard regressions verify that opening or updating crew never focuses a destructive Remove button, repeated Enter leaves assignments intact, the safe focus target is visible, and confirmation is inside the modal. Boundary-date reloads must recover explicitly without overwriting saved bytes; supported boundary weeks must render.
 - The static build syntax-checks JavaScript, verifies local-only asset references and zero package dependencies, validates the demo, then copies five assets byte-for-byte to `dist/`. `dist/manifest.json` records their sizes and SHA-256 hashes. The output is directly openable as `dist/index.html`; nothing is uploaded.
 - Automated checks are not a complete screen-reader or cross-browser accessibility audit. The browser suite was exercised in local Chromium; other modern browsers are not claimed as tested.
 
@@ -106,7 +126,7 @@ No companion worktree files were read or changed. Integration is deferred; its a
 
 - `core.js` exports the same API as `window.HarborCore` in the browser and `require("./core.js")` in Node.
 - `validateState(state)` validates the entire snapshot and throws on failure. It does not coerce, silently repair, or strip unknown fields. A future importer should select/map supported fields deliberately and validate **before** replacing data.
-- `saveVolunteer`, `saveShift`, `saveAssignment`, and `remove` return a **new validated state**. Failed edits leave the input untouched. `saveAssignment` supports replacement using an existing assignment ID; the UI provides remove/add editing.
+- `saveVolunteer`, `saveShift`, `saveAssignment`, `remove`, and `copyWeek(state, mondayISO, carryAssignments = false)` return a **new validated state**. Failed edits leave the input untouched. `saveAssignment` supports replacement using an existing assignment ID; the UI provides remove/add editing.
 - `assignmentIssues(state, shiftId, volunteerId, ignoreAssignmentId?)` returns readable reasons. `coverage(state, shifts?)` computes filled, required, open, covered, and total shifts.
 - `storage.js` owns the storage key and browser-failure handling. `app.js` is only the UI adapter. No import/export buttons or speculative companion API were added.
 

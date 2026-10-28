@@ -1,4 +1,6 @@
-# Verification record
+# Initial contribution verification record
+
+This records the initial contribution. For the subsequent local copy-week feature and its current checks, see `COPY-WEEK-CHECKS.md`.
 
 Run in this workspace on 2026-10-28 using Node.js v24.22.1 and the already installed Google Chrome for Testing 156.0.8078.4. No dependency installation, browser download, or web server.
 

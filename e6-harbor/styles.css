@@ -6,3 +6,5 @@
 @media print{.masthead nav,.local-badge,button,.schedule-tools,.week-picker,.safety-note,.status,footer,.day-heading a{display:none!important}main,.masthead{padding:0}.day-cards{grid-template-columns:repeat(3,1fr)}.shift-card,.day{break-inside:avoid}.metrics{grid-template-columns:repeat(4,1fr)}body{background:white}.day{grid-template-columns:70px 1fr}dialog{display:none}}
 
 .dialog-status{font-size:.85rem;color:var(--teal);overflow-wrap:anywhere;margin-bottom:.7rem}.dialog-status:empty{margin:0}
+
+.copy-toolbar{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin:1rem 0}.copy-toolbar .subtle{font-size:.8rem;flex:1 1 220px}.copy-option{display:flex;gap:.65rem;align-items:flex-start;margin:.8rem 0;font-size:.9rem;line-height:1.55}.copy-option input{flex:0 0 auto;margin-top:.25rem}.copy-option span{min-width:0;overflow-wrap:anywhere}#copy-summary{overflow-wrap:anywhere;line-height:1.6}

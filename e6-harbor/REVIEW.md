@@ -1,4 +1,6 @@
-# Independent scheduling and keyboard review
+# Initial independent scheduling and keyboard review
+
+This records the initial contribution and its historical source hashes. The subsequent local copy-week feature has its own review in `COPY-WEEK-CHECKS.md`.
 
 Reviewed on 2026-10-28 using isolated source snapshots and already installed offline Chromium. The reviewer did not modify the contribution, repository branches, or PRs. This was a separate challenge of scheduling and keyboard behavior, not just a rerun of the supplied test suite.
 

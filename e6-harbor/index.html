@@ -24,6 +24,7 @@
     <section id="schedule-view" aria-labelledby="schedule-heading">
       <div class="page-heading"><div><p class="eyebrow">GOOD CREW. SAFE HARBOR.</p><h1 id="schedule-heading">The week on the water</h1><p class="subtle">A clear plan for every pair of helping hands.</p></div><button class="primary" type="button" id="add-shift" data-action="new-shift">+ Add shift</button></div>
       <div class="week-toolbar"><div class="week-nav"><button type="button" data-action="prev-week" aria-label="Previous week">←</button><h2 id="week-label"></h2><button type="button" data-action="next-week" aria-label="Next week">→</button></div><div class="week-picker"><label for="week-date">Week of</label><input id="week-date" type="date" min="1900-01-08" max="9999-12-20"><button type="button" data-action="demo-week">Demo week</button></div></div>
+      <div class="copy-toolbar"><button type="button" id="copy-week" data-action="copy-week" data-focus="copy-week">Copy to next week…</button><span class="subtle">Reuse all shifts in the selected week, including filtered-out shifts.</span></div>
       <div id="metrics" class="metrics" aria-label="Whole-week coverage"></div>
       <div class="schedule-tools"><div><label for="role-filter">Show role</label><select id="role-filter"><option value="">All roles</option></select></div><label class="check-label"><input id="open-filter" type="checkbox">Only shifts needing crew</label><p id="filter-summary" class="subtle"></p></div>
       <div class="safety-note"><span aria-hidden="true">↔</span><p><strong>Room to breathe, not to overlap.</strong> Back-to-back shifts are fine. Overlaps, unavailable times, and ineligible roles are blocked.</p></div>
@@ -37,7 +38,7 @@
     <footer><strong>Made for a small crew.</strong><span>No accounts. No cloud. Browser-local storage only.</span><span>Schedule times are harbor-local, in 24-hour format.</span></footer>
   </main>
   <dialog id="editor" aria-labelledby="dialog-title">
-    <div class="dialog-header"><h2 id="dialog-title"></h2><button type="button" data-action="close-dialog" aria-label="Close editor">✕</button></div>
+    <div class="dialog-header"><h2 id="dialog-title" tabindex="-1"></h2><button type="button" data-action="close-dialog" aria-label="Close editor">✕</button></div>
     <p id="dialog-error" class="notice warning" role="alert" tabindex="-1" hidden></p>
     <p id="dialog-status" class="dialog-status" role="status" aria-live="polite" aria-atomic="true"></p>
     <div id="dialog-content"></div>

@@ -126,6 +126,45 @@
       if (collection === 'shifts') next.assignments = next.assignments.filter(a => a.shiftId !== id);
     });
   }
+  // Copy is one transaction, never a loop of persisted per-shift mutations.
+  function copyWeek(state, sourceWeek, carryAssignments = false) {
+    return transact(state, next => {
+      if (!dateOK(sourceWeek) || weekStart(sourceWeek) !== sourceWeek) fail('Choose a valid Monday-starting source week.');
+      if (typeof carryAssignments !== 'boolean') fail('Choose shifts only or shifts with assignments.');
+      const end = addDays(sourceWeek, 6);
+      const source = next.shifts.filter(s => s.date >= sourceWeek && s.date <= end);
+      if (!source.length) fail('This week has no shifts to copy. Choose a populated source week.');
+      const normalize = title => title.normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+      // Capacity and notes do not distinguish work; changing them must not bypass deduplication.
+      const workKey = s => JSON.stringify([s.date, s.start, s.end, s.role, normalize(s.title)]);
+      const work = new Map(next.shifts.map(s => [workKey(s), s]));
+      const planned = new Map();
+      const used = new Set([...next.shifts, ...next.assignments, ...next.volunteers].map(x => x.id));
+      let serial = 0;
+      const fresh = prefix => { let id; do { id = 'copy-' + prefix + '-' + ++serial; } while (used.has(id)); used.add(id); return id; };
+      const ids = new Map();
+      for (const original of source) {
+        let date;
+        try { date = addDays(original.date, 7); }
+        catch { fail('Cannot copy ' + original.title + ': the following date is outside the supported range. Choose an earlier source week.'); }
+        if (date < SHIFT_DATE_MIN || date > SHIFT_DATE_MAX) fail('Cannot copy ' + original.title + ' to ' + date + '. Shift dates must be between ' + SHIFT_DATE_MIN + ' and ' + SHIFT_DATE_MAX + '; choose an earlier source week.');
+        const copied = { ...original, id: fresh('s'), date };
+        const existing = work.get(workKey(copied));
+        if (existing) fail('Destination already contains ' + existing.title + ' on ' + date + ' (' + copied.start + '–' + copied.end + ', ' + copied.role + '). Use the existing shift, or change the source/destination work before copying. No shifts are merged or skipped.');
+        const duplicate = planned.get(workKey(copied));
+        if (duplicate) fail('Source week contains duplicate work: ' + duplicate.title + ' on ' + duplicate.date + ' (' + duplicate.start + '–' + duplicate.end + ', ' + duplicate.role + '). Review the repeated source shifts: give genuinely different duties distinct titles, or remove the duplicate before copying.');
+        planned.set(workKey(copied), original);
+        ids.set(original.id, copied.id);
+        next.shifts.push(copied);
+      }
+      if (carryAssignments) {
+        const assignments = next.assignments.filter(a => ids.has(a.shiftId));
+        next.assignments.push(...assignments.map(a => ({ ...a, id: fresh('a'), shiftId: ids.get(a.shiftId) })));
+        try { validateState(next); }
+        catch (error) { fail(error.message + ' Copy shifts only to leave crew unassigned, or resolve the destination crew conflict first.'); }
+      }
+    });
+  }
   function coverage(state, shifts = state.shifts) {
     const ids = new Set(shifts.map(s => s.id));
     const required = shifts.reduce((n, s) => n + s.required, 0);
@@ -162,5 +201,5 @@
     ].map(([shiftId, volunteerId], i) => ({ id: `a-${i + 1}`, shiftId, volunteerId }));
     return validateState({ version: 1, volunteers, shifts, assignments });
   }
-  return Object.freeze({ ROLES, DAYS, SHIFT_DATE_MIN, SHIFT_DATE_MAX, dateOK, minutes, dayIndex, addDays, weekStart, overlaps, validateState, assignmentIssues, saveVolunteer, saveShift, saveAssignment, remove, coverage, demo });
+  return Object.freeze({ ROLES, DAYS, SHIFT_DATE_MIN, SHIFT_DATE_MAX, dateOK, minutes, dayIndex, addDays, weekStart, overlaps, validateState, assignmentIssues, saveVolunteer, saveShift, saveAssignment, remove, copyWeek, coverage, demo });
 });

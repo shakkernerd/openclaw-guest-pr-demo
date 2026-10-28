@@ -104,6 +104,27 @@
     $('dialog-status').textContent = message;
     ($('candidate').disabled ? $('dialog-content').querySelector('[data-action="close-dialog"]') : $('candidate')).focus();
   }
+  function showCopyWeek() {
+    const end = C.addDays(week, 6);
+    let target, targetEnd;
+    try { target = C.addDays(week, 7); targetEnd = C.addDays(target, 6); }
+    catch { throw new Error('Cannot copy: the following week extends outside supported dates. Choose an earlier source week. No changes applied.'); }
+    const source = state.shifts.filter(s => s.date >= week && s.date <= end);
+    const ids = new Set(source.map(s => s.id));
+    const crewCount = state.assignments.filter(a => ids.has(a.shiftId)).length;
+    const existing = state.shifts.filter(s => s.date >= target && s.date <= targetEnd).length;
+    showDialog('Copy to next week', 'copy', week,
+      '<p id="copy-summary">Copy <strong>' + source.length + ' shifts</strong> from <strong>' + week + ' – ' + end + '</strong> to <strong>' + target + ' – ' + targetEnd + '</strong>.</p>' +
+      '<p class="help">All shifts in the selected week are included, even when filters hide them. Titles, roles, times, capacities and notes are kept. The original week stays unchanged.</p>' +
+      '<p class="dialog-note">' + existing + ' shifts already in the destination week. Different work is kept; matching work or conflicting crew will reject the entire copy. Nothing is merged, overwritten or skipped.</p>' +
+      '<form id="copy-form"><fieldset><legend>Carry assignments?</legend>' +
+      '<label class="copy-option" for="copy-none"><input id="copy-none" name="copyMode" type="radio" value="none" checked><span><strong>Shifts only (recommended)</strong><br>Leave copied shifts unassigned; plan next week’s crew separately.</span></label>' +
+      '<label class="copy-option" for="copy-carry"><input id="copy-carry" name="copyMode" type="radio" value="carry"><span><strong>Shifts and assignments</strong><br>Carry ' + crewCount + ' assignments. Weekly availability and all destination conflicts are checked again.</span></label></fieldset>' +
+      (source.length ? '' : '<p class="notice warning">This week has no shifts to copy. Cancel and choose a populated week.</p>') +
+      '<div class="form-actions">' + action('close-dialog', '', 'Cancel') + '<button id="copy-confirm" class="primary" type="submit"' + (source.length ? '' : ' disabled') + '>Copy week</button></div></form>');
+    // Opening or holding Enter must not implicitly accept the new operation.
+    $('dialog-title').focus();
+  }
   document.addEventListener('click', event => {
     const button = event.target.closest('[data-action]');
     if (!button) return;
@@ -119,6 +140,7 @@
       else if (name === 'new-volunteer') editVolunteer('');
       else if (name === 'edit-volunteer') editVolunteer(id);
       else if (name === 'assign') manageCrew(id);
+      else if (name === 'copy-week') showCopyWeek();
       else if (name === 'close-dialog') $('editor').close();
       else if (name === 'unassign') {
         commit(C.remove(state, 'assignments', id), 'Volunteer removed from shift.');
@@ -138,18 +160,35 @@
   // Native modality makes the background inert; wrap Tab explicitly so focus
   // does not escape to browser chrome at the dialog's final control.
   $('editor').addEventListener('keydown', event => {
+    if (dialogKind === 'copy' && event.key === 'Enter' && event.repeat) { event.preventDefault(); return; }
     if (event.key !== 'Tab') return;
     const controls = [...$('editor').querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]')].filter(el => el.getClientRects().length);
     const first = controls[0]; const last = controls.at(-1);
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    if (!controls.includes(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first)?.focus(); }
+    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   });
   document.addEventListener('submit', event => {
-    if (!['shift-form', 'volunteer-form', 'assignment-form'].includes(event.target.id)) return;
+    if (!['shift-form', 'volunteer-form', 'assignment-form', 'copy-form'].includes(event.target.id)) return;
     event.preventDefault(); clearDialogError();
     const data = new FormData(event.target);
     try {
-      if (dialogKind === 'shift') {
+      if (dialogKind === 'copy') {
+        const mode = data.get('copyMode');
+        if (!['none', 'carry'].includes(mode)) throw new Error('Choose whether to carry assignments. No changes applied.');
+        const next = C.copyWeek(state, dialogItem, mode === 'carry');
+        const destination = C.addDays(dialogItem, 7);
+        const count = next.shifts.length - state.shifts.length;
+        const crewCount = next.assignments.length - state.assignments.length;
+        // Copy requires a successful single save; storage failure leaves memory and view intact too.
+        const warning = persistence.save(next);
+        if (warning) { storageWarning(warning); throw new Error('Copy not applied. ' + warning + ' Reload or restore browser storage before trying again.'); }
+        state = next; week = destination;
+        $('role-filter').value = ''; $('open-filter').checked = false;
+        storageWarning(''); render();
+        status('Copied ' + count + ' shifts to week of ' + destination + ' with ' + crewCount + ' assignments. Original week unchanged. Saved in this browser.');
+        $('editor').close();
+      } else if (dialogKind === 'shift') {
         const s = { id: dialogItem || uid('s'), title: data.get('title').trim(), date: data.get('date'), start: data.get('start'), end: data.get('end'), role: data.get('role'), required: Number(data.get('required')), notes: data.get('notes').trim() };
         const next = C.saveShift(state, s);
         week = C.weekStart(s.date);

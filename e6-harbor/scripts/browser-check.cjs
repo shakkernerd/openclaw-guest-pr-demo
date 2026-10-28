@@ -330,6 +330,7 @@ async function run() {
     await evaluate('localStorage.setItem(HarborStorage.KEY, ' + q(JSON.stringify(original)) + ')');
     await send('Page.reload'); await ready();
   });
+  await require('./copy-week-scenarios.cjs')({ send, evaluate, click, set, submit, saved, key, close, settle, ready, check, screenshot, noOverflow, q });
   await check('corrupt browser data is visibly protected from overwrites', async () => {
     await evaluate('localStorage.setItem(HarborStorage.KEY, "{broken")'); await send('Page.reload'); await ready();
     assert.match(await evaluate('document.getElementById("storage-warning").textContent'), /NOT been overwritten/);
