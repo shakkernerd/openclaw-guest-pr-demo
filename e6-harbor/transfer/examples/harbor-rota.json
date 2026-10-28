@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "volunteers": [
+    {
+      "id": "v-mara",
+      "name": "Mara \"Skipper\" Chen"
+    },
+    {
+      "id": "v-jose",
+      "name": "José da Silva"
+    },
+    {
+      "id": "v-aoi",
+      "name": "青井 さくら"
+    },
+    {
+      "id": "v-amina",
+      "name": "Amina, Noor"
+    }
+  ],
+  "shifts": [
+    {
+      "id": "s-welcome",
+      "date": "2026-11-07",
+      "start": "08:00",
+      "end": "10:30",
+      "role": "Quayside welcome",
+      "volunteerIds": [
+        "v-mara",
+        "v-jose"
+      ]
+    },
+    {
+      "id": "s-supplies",
+      "date": "2026-11-07",
+      "start": "10:30",
+      "end": "13:00",
+      "role": "Supplies & tea",
+      "volunteerIds": [
+        "v-aoi"
+      ]
+    },
+    {
+      "id": "s-cleanup",
+      "date": "2026-11-08",
+      "start": "14:00",
+      "end": "16:00",
+      "role": "Harbor clean-up",
+      "volunteerIds": []
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+record_type,volunteer_id,volunteer_name,shift_id,date,start,end,role
+volunteer,v-mara,"Mara ""Skipper"" Chen",,,,,
+volunteer,v-jose,José da Silva,,,,,
+volunteer,v-aoi,青井 さくら,,,,,
+volunteer,v-amina,"Amina, Noor",,,,,
+shift,,,s-welcome,2026-11-07,08:00,10:30,Quayside welcome
+shift,,,s-supplies,2026-11-07,10:30,13:00,Supplies & tea
+shift,,,s-cleanup,2026-11-08,14:00,16:00,Harbor clean-up
+assignment,v-mara,,s-welcome,,,,
+assignment,v-jose,,s-welcome,,,,
+assignment,v-aoi,,s-supplies,,,,

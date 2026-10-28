@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123f43">
+  <title>Harbor · Rota companion</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.mjs"></script>
+</head>
+<body>
+<a class="skip" href="#rota">Skip to rota</a>
+<header class="masthead"><div class="brand"><span class="mark" aria-hidden="true">⚓</span><div><strong>HARBOR</strong><span>Volunteer desk</span></div></div><span class="local-badge">Local files · no account needed</span></header>
+<main>
+  <section class="intro" aria-labelledby="page-title"><div><p class="eyebrow">A little order, a helping hand</p><h1 id="page-title">Every helping hand,<br>in the right place.</h1><p class="lede">Bring your rota aboard. Check the details, make a correction, and take a clean copy with you.</p></div><aside class="privacy"><strong>Your rota stays here.</strong><p>Files are processed in this tab, never uploaded. Export your work before closing or refreshing; it is not saved automatically.</p></aside></section>
+  <div id="notice" role="status" aria-live="polite" class="notice" hidden></div>
+  <div id="error" role="alert" tabindex="-1" class="error" hidden></div>
+  <section class="transfer panel" aria-labelledby="transfer-title">
+    <div><p class="eyebrow">01 / Bring it aboard</p><h2 id="transfer-title">Import & export</h2><p>UTF-8 CSV or JSON · up to 2 MiB</p></div>
+    <div class="import-controls"><label for="file">Choose a rota file</label><input id="file" type="file" accept=".csv,.json,text/csv,application/json" aria-describedby="format-help"><p id="format-help" class="help">Use the companion format below. Every import is checked and previewed before replacement.</p><div class="links"><a href="examples/harbor-rota.csv" download>Example CSV</a><a href="examples/harbor-rota.json" download>Example JSON</a><a href="README.md">Format guide</a></div></div>
+    <div class="export-controls"><button id="export-json" class="primary" type="button">Export JSON</button><button id="export-csv" type="button">Export CSV</button><p class="help">JSON is recommended for archives. Treat spreadsheet CSV cells as text.</p></div>
+  </section>
+  <section id="preview" class="panel preview" aria-labelledby="preview-title" hidden><h2 id="preview-title" tabindex="-1">Ready to import</h2><p id="preview-summary"></p><p>This replaces the current rota, not merges it. Export a backup first if you need one.</p><div class="actions"><button id="confirm-import" class="primary" type="button">Replace current rota</button><button id="cancel-import" type="button">Cancel import</button></div></section>
+  <section id="rota" aria-labelledby="rota-title" tabindex="-1">
+    <div class="section-heading"><div><p class="eyebrow">02 / Check the details</p><h2 id="rota-title">Your rota</h2></div><div class="actions"><button id="sample" type="button">Try a sample rota</button><button id="undo" type="button" disabled>Undo last change</button></div></div>
+    <dl class="stats"><div><dt>Volunteers</dt><dd id="volunteer-count">0</dd></div><div><dt>Shifts</dt><dd id="shift-count">0</dd></div><div><dt>Assignments</dt><dd id="assignment-count">0</dd></div><div><dt>Unassigned shifts</dt><dd id="open-count">0</dd></div></dl>
+    <div id="empty" class="empty"><span aria-hidden="true">↳</span><h3>A fresh start for your crew</h3><p>Import a rota, explore our fictional harbor crew, or add your first volunteer and shift below. Nothing will be sent anywhere.</p></div>
+    <div class="search"><label for="search">Find a name, role, date or ID</label><input id="search" type="search" placeholder="Try “welcome” or “2026-11-07”"><p id="results-summary" role="status" class="help"></p></div>
+    <div class="roster-grid"><section aria-labelledby="volunteers-title"><div class="list-heading"><h3 id="volunteers-title">Volunteers</h3><button id="add-volunteer" type="button">+ Add volunteer</button></div><ul id="volunteers" class="cards"></ul></section><section aria-labelledby="shifts-title"><div class="list-heading"><h3 id="shifts-title">Shifts</h3><button id="add-shift" type="button">+ Add shift</button></div><ul id="shifts" class="cards"></ul></section></div>
+  </section>
+  <footer>Made for the people who show up. <span>All example people and shifts are fictional.</span></footer>
+</main>
+<dialog id="editor" aria-labelledby="editor-title"><form id="edit-form"><div class="dialog-heading"><h2 id="editor-title">Edit details</h2><button type="button" id="close-editor" aria-label="Close editor">Close</button></div><p id="editor-id" class="help"></p><p id="editor-error" class="error" role="alert" tabindex="-1" hidden></p><div id="editor-fields"></div><p class="help">Changes apply only when you save. Escape cancels.</p><div class="actions"><button type="submit" class="primary">Save changes</button><button type="button" id="cancel-editor">Cancel</button><button type="button" id="remove-record" class="danger">Remove record</button></div><div id="delete-confirmation" class="delete-confirmation" hidden><p id="delete-warning"></p><button id="confirm-delete" type="button" class="danger">Confirm removal</button><button id="keep-record" type="button">Keep record</button></div></form></dialog>
+<noscript><p class="error">This companion needs JavaScript to import and edit local files. Enable JavaScript and reload.</p></noscript>
+</body>
+</html>
