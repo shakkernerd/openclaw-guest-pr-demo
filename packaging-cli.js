@@ -7,11 +7,13 @@ const { parcelLabel } = require("./parcel-label.js");
 
 const USAGE = [
   "Usage: node packaging-cli.js [--summary] [--json] [--mode mixed|single-sku] [FILE|-]",
+  "       node packaging-cli.js --compare [--json] [FILE|-]",
   "       node packaging-cli.js --help",
   "",
   "Read an order JSON object with items and maxItemsPerBox.",
   "Omit FILE or use - to read standard input. Text output is the default.",
-  "--json       Write the plan or summary as JSON instead of text.",
+  "--json       Write the plan, summary, or comparison as JSON instead of text.",
+  "--compare    Compare both policy summaries; cannot combine with --mode or --summary.",
   "--summary    Write a compact utilization summary, without individual boxes.",
   "--mode MODE  mixed (default) or single-sku (one SKU per box).",
   "--help, -h   Show this help (use alone).",
@@ -24,6 +26,7 @@ function parseArguments(args) {
   let file;
   let json = false;
   let summary = false;
+  let compare = false;
   let mode;
   let options = true;
   for (let index = 0; index < args.length; index += 1) {
@@ -37,6 +40,9 @@ function parseArguments(args) {
     } else if (options && arg === "--json") {
       if (json) throw new Error("repeated option --json");
       json = true;
+    } else if (options && arg === "--compare") {
+      if (compare) throw new Error("repeated option --compare");
+      compare = true;
     } else if (options && arg === "--summary") {
       if (summary) throw new Error("repeated option --summary");
       summary = true;
@@ -55,7 +61,11 @@ function parseArguments(args) {
       file = arg;
     }
   }
-  return { file, json, summary, mode: mode === undefined ? "mixed" : mode, help: false };
+  // Check explicit selections before defaulting mode or reading any input.
+  if (compare && (summary || mode !== undefined)) {
+    throw new Error("--compare cannot be combined with --mode or --summary");
+  }
+  return { file, json, summary, compare, mode: mode === undefined ? "mixed" : mode, help: false };
 }
 
 // Called only with a numeric token from already syntax-validated JSON.
@@ -133,6 +143,19 @@ function summaryReport(summary) {
     (summary.unusedItemSlots === "1" ? " unused item slot\n" : " unused item slots\n");
 }
 
+function comparisonReport(comparison) {
+  const rows = [
+    ["Policy", "Capacity", "Items", "Boxes", "Full", "Partial", "Unused item slots"],
+    ...Object.values(comparison).map(summary => [
+      summary.mode, summary.maxItemsPerBox, summary.totalItems, summary.boxCount,
+      summary.fullBoxes, summary.partialBoxes, summary.unusedItemSlots,
+    ].map(String)),
+  ];
+  const widths = rows[0].map((_, column) => Math.max(...rows.map(row => row[column].length)));
+  return rows.map(row => row.map((value, column) =>
+    column === row.length - 1 ? value : value.padEnd(widths[column])).join(" | ")).join("\n") + "\n";
+}
+
 function main() {
   // Do not force process.exit(): piped output must finish flushing first.
   process.stdout.on("error", error => {
@@ -153,6 +176,15 @@ function main() {
   }
   try {
     const order = readOrder(options.file);
+    if (options.compare) {
+      // Reuse the exact summary calculations; never construct a detailed plan.
+      const comparison = {
+        mixed: summarizePackaging(order.items, order.maxItemsPerBox, { mode: "mixed" }),
+        "single-sku": summarizePackaging(order.items, order.maxItemsPerBox, { mode: "single-sku" }),
+      };
+      process.stdout.write(options.json ? JSON.stringify(comparison, null, 2) + "\n" : comparisonReport(comparison));
+      return;
+    }
     const operation = options.summary ? summarizePackaging : planPackaging;
     const result = operation(order.items, order.maxItemsPerBox, { mode: options.mode });
     const report = options.summary ? summaryReport : textReport;
