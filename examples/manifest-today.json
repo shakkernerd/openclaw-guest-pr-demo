@@ -1,0 +1,29 @@
+[
+  {
+    "id": "GB-1",
+    "recipient": "Alex Example",
+    "street": "10 Example Street",
+    "postcode": "SW1A 1AA",
+    "destination": "GB",
+    "service": "express",
+    "itemCount": 2
+  },
+  {
+    "id": "CA-1",
+    "recipient": "Robin Example",
+    "street": "30 Sample Road",
+    "postcode": "K1A 0B1",
+    "destination": "CA",
+    "service": "standard",
+    "itemCount": 1
+  },
+  {
+    "id": "US-1",
+    "recipient": "Sam Example",
+    "street": "20 Sample Avenue",
+    "postcode": "10001",
+    "destination": "US",
+    "service": "express",
+    "itemCount": 3
+  }
+]

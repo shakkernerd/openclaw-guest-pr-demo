@@ -1,0 +1,39 @@
+[
+  {
+    "id": "US-1",
+    "recipient": "Sam Example",
+    "street": "20 Sample Avenue",
+    "postcode": "10001",
+    "destination": "US",
+    "service": "standard",
+    "itemCount": 2
+  },
+  {
+    "id": "bad",
+    "recipient": "",
+    "street": "10 Example Street",
+    "postcode": "SW1A 1AA",
+    "destination": "GB",
+    "service": "standard",
+    "itemCount": 0
+  },
+  null,
+  {
+    "id": "GB-1",
+    "recipient": "Alex Example",
+    "street": "10 Example Street",
+    "postcode": "SW1A 1AA",
+    "destination": "GB",
+    "service": "express",
+    "itemCount": 2
+  },
+  {
+    "id": "GB-2",
+    "recipient": "Alex Example",
+    "street": "10 Example Street",
+    "postcode": "SW1A 1AA",
+    "destination": "GB",
+    "service": "standard",
+    "itemCount": 2
+  }
+]
