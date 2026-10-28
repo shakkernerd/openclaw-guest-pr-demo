@@ -1,9 +1,71 @@
 # openclaw-guest-pr-demo
-Synthetic disposable fixtures for guest pull request continuation tests.
 
-The `parcelLabel` helper lives in `parcel-label.js` and formats a count as an item
-label. Its behavior is unchanged. The packaging planner and fulfillment validator
-use CommonJS and Node.js built-ins only; no dependency installation is needed.
+Turn order quantities into a box-by-box packing plan, or get a compact summary of
+box utilization. Supply a JSON file or pipe an order through standard input; read
+the text report yourself or use JSON output in another program. Fix any reported
+input error and rerun the same command. The CLI only reads the order, never edits it.
+
+The planner and fulfillment validator use CommonJS and Node.js built-ins only;
+no dependency installation is needed. The existing `parcelLabel` helper in
+`parcel-label.js` is unchanged. For actual packed shipments, follow the
+[planning, recording, validation, and reporting workflow](#plan-record-validate-report)
+below; a proposal is not recorded fulfillment.
+
+## Quickstart
+
+With **Node.js 22 or newer**, run these commands from the repository root:
+
+```sh
+# Plan the included order: 9 items in 3 proposed boxes of capacity 4
+node packaging-cli.js examples/order.json
+
+# Use the same plan as JSON, or request only utilization totals
+node packaging-cli.js --json examples/order.json
+node packaging-cli.js --summary examples/order.json
+
+# Pipe an order instead of naming a file; omitting - also reads stdin
+cat examples/order.json | node packaging-cli.js --json -
+```
+
+For your own order, save the [input format below](#input) in a file and replace
+`examples/order.json` with its path. Use `--mode single-sku` if each box must contain
+only one SKU. Successful reports go to stdout and exit 0; errors go to stderr.
+
+### Recover from an input error
+
+Input errors name the quoted filename you supplied, or say `standard input` for
+both piped forms. They exit **1**, leave stdout empty (even with `--json`), and do
+not echo order contents. For example, this intentionally invalid capacity:
+
+```sh
+printf '%s\n' '{"items":[],"maxItemsPerBox":0}' | node packaging-cli.js -
+```
+
+produces this diagnostic on stderr:
+
+```text
+packaging: standard input: maxItemsPerBox must be a positive safe integer
+```
+
+Change the capacity to a positive integer and rerun. This corrected empty order
+exits 0 and reports that no boxes are needed:
+
+```sh
+printf '%s\n' '{"items":[],"maxItemsPerBox":4}' | node packaging-cli.js -
+```
+
+For a file, a diagnostic such as `packaging: "order.json": items[0].quantity must
+be a non-negative safe integer` tells you which file and zero-based item to fix.
+- **Cannot read input:** check the named path and read permissions; for stdin,
+  check the command supplying the input.
+- **One valid JSON order required:** fix JSON syntax and supply exactly one JSON
+  object, not multiple documents. The parser does not print potentially private
+  input snippets.
+- **Invalid shape, field, or limit:** use an object with `items` and
+  `maxItemsPerBox`, then correct the named field or follow the limit diagnostic.
+  Rerun the same file command, or pipe the corrected input again.
+
+See [the input rules](#input) and [all exit statuses](#command-line) below.
 
 ## Plan, record, validate, report
 
@@ -98,9 +160,9 @@ Neither shared scanning nor the module APIs conflate planning with fulfillment.
 
 ## Packaging planner
 
-Requires Node.js 22 or newer. This is an **item-count** planner, not a physical
-bin-packing or shipment-validation tool: it does not consider dimensions, weight,
-addresses, or shipping rules.
+This is an **item-count** planner, not a physical bin-packing or
+shipment-validation tool: it does not consider dimensions, weight, addresses,
+or shipping rules.
 
 ### Input
 

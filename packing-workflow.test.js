@@ -190,7 +190,7 @@ test("parseBatchJson keeps its exported value contract after scanner sharing", (
   assert.deepEqual(parseBatchJson("[1.0000000000000001]"), [1]);
 });
 
-test("planning inherits corrected escape-heavy scanning without losing count diagnostics", t => {
+test("escape-heavy metadata preserves counts and source-labelled diagnostics", t => {
   const metadata = JSON.stringify("\\".repeat(5_000_000) + '"quantity":1.0000000000000001');
   for (const token of ["1.0", "1.0000000000000001", "1e-400"]) {
     const plain = `{"items":[{"sku":"A","quantity":${token}}],"maxItemsPerBox":2}`;
@@ -200,10 +200,14 @@ test("planning inherits corrected escape-heavy scanning without losing count dia
       for (const output of [[], ["--json"], ["--summary"], ["--summary", "--json"]]) {
         const args = ["--mode", mode, ...output];
         const expected = run("packaging-cli.js", args, plain);
-        for (const result of [run("packaging-cli.js", [...args, file]), run("packaging-cli.js", [...args, "-"], raw)]) {
+        const detail = "items[0].quantity must be a non-negative safe integer\n";
+        assert.equal(expected.status, token === "1.0" ? 0 : 1);
+        assert.equal(expected.stderr, token === "1.0" ? "" : "packaging: standard input: " + detail);
+        for (const [source, label] of [[file, JSON.stringify(file)], ["-", "standard input"]]) {
+          const result = run("packaging-cli.js", [...args, source], raw);
           assert.equal(result.status, expected.status);
           assert.equal(result.stdout, expected.stdout);
-          assert.equal(result.stderr, expected.stderr);
+          assert.equal(result.stderr, token === "1.0" ? "" : "packaging: " + label + ": " + detail);
         }
       }
     }

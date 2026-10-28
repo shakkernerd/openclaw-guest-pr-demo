@@ -97,8 +97,11 @@ test("CLI rejects unknown, repeated, missing-value, and extra arguments before r
 test("CLI reports missing files and directory reads cleanly", t => {
   const dir = mkdtempSync(path.join(tmpdir(), "packaging-missing-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  fails(run([path.join(dir, "missing.json")]), 1, /read|ENOENT/i);
-  fails(run([dir]), 1, /read|EISDIR/i);
+  for (const [file, code] of [[path.join(dir, "missing.json"), "ENOENT"], [dir, "EISDIR"]]) {
+    const result = run([file]);
+    fails(result, 1, /cannot read/);
+    assert.equal(result.stderr, "packaging: " + JSON.stringify(file) + ": cannot read input (" + code + ")\n");
+  }
 });
 
 test("CLI rejects malformed JSON and invalid top-level order shapes", () => {
@@ -555,5 +558,63 @@ test("deep ignored data does not bypass fractional checks or native JSON syntax 
     fails(run(args, '{"items":[{"sku":"A","quantity":1.0000000000000001}],"maxItemsPerBox":1,"ignored":' + ignored + '}'), 1, /quantity/);
     fails(run(args, '{"items":[],"maxItemsPerBox":2.9999999999999999,"ignored":' + ignored + '}'), 1, /maxItemsPerBox/);
     fails(run(args, '{"items":[],"maxItemsPerBox":1,"ignored":' + ignored.slice(1) + '}'), 1, /JSON/);
+  }
+});
+
+
+for (const [kind, input, detail] of [
+  ["malformed JSON", '{"private":"PRIVATE_ORDER_CONTENT_9f52",', "input must contain one valid JSON order"],
+  ["invalid order shape", '["PRIVATE_ORDER_CONTENT_9f52"]', "order must be an object with items and maxItemsPerBox"],
+  ["domain validation", '{"items":[{"sku":"PRIVATE_ORDER_CONTENT_9f52","quantity":-1}],"maxItemsPerBox":4}',
+    "items[0].quantity must be a non-negative safe integer"],
+]) {
+  test("CLI input recovery labels " + kind + " without disclosing input contents", t => {
+    const dir = mkdtempSync(path.join(tmpdir(), "packaging-input-source-"));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const file = path.join(dir, "order with spaces.json");
+    writeFileSync(file, input);
+    const results = [];
+    // Cover both packing modes, report types and output formats without a full cross-product.
+    for (const flags of [[], ["--json", "--mode", "single-sku"], ["--summary", "--json"],
+      ["--summary", "--mode", "single-sku"]]) {
+      for (const [source, label] of [[[file], JSON.stringify(file)], [[], "standard input"], [["-"], "standard input"]]) {
+        results.push({ result: run([...flags, ...source], input), label });
+      }
+    }
+    // Run every route before asserting, including against the pre-fix implementation.
+    for (const { result, label } of results) {
+      fails(result, 1, /JSON|order|quantity/);
+      assert.doesNotMatch(result.stderr, /PRIVATE_ORDER_CONTENT_9f52/);
+      assert.equal(result.stderr, "packaging: " + label + ": " + detail + "\n");
+    }
+  });
+}
+
+test("CLI input recovery quotes source filenames without echoing malformed data", t => {
+  const dir = mkdtempSync(path.join(tmpdir(), "packaging-quoted-source-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  // Quotes and newlines are valid filename characters on the supported POSIX test host.
+  const name = process.platform === "win32" ? "bad order.json" : 'bad "order"\n.json';
+  writeFileSync(path.join(dir, name), "PRIVATE_ORDER_CONTENT_9f52 is not JSON");
+  const result = run([name], "ignored stdin", { cwd: dir });
+  fails(result, 1, /JSON/);
+  assert.equal(result.stderr, "packaging: " + JSON.stringify(name) + ": input must contain one valid JSON order\n");
+  assert.equal(result.stderr.split("\n").length, 2);
+  assert.doesNotMatch(result.stderr, /PRIVATE_ORDER_CONTENT_9f52/);
+});
+
+test("CLI input recovery succeeds after correcting the named file or stdin order", t => {
+  const dir = mkdtempSync(path.join(tmpdir(), "packaging-recovery-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "order.json");
+  for (const args of [[file], [], ["-"]]) {
+    const bad = '{"items":[],"maxItemsPerBox":0}';
+    writeFileSync(file, bad);
+    fails(run(["--json", ...args], bad), 1, /maxItemsPerBox/);
+    writeFileSync(file, JSON.stringify(order));
+    const recovered = run(["--json", ...args]);
+    assert.equal(recovered.status, 0);
+    assert.equal(recovered.stderr, "");
+    assert.equal(recovered.stdout, JSON.stringify(expected, null, 2) + "\n");
   }
 });
