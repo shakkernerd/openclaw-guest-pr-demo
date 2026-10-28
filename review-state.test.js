@@ -87,6 +87,26 @@ test("search and decision filters compose without mutating reviews", () => {
   assert.equal(R.counts(R.emptyState()).reviewed, 0);
 });
 
+test("search includes current review notes and still intersects the decision filter", () => {
+  let state = R.updateReview(initial(), "a", { decision: "approved", notes: "Inventory matches the signed count." });
+  state = freeze(R.updateReview(state, "b", { notes: "Check the SIGNED COUNT tomorrow." }));
+  const before = R.exportJSON(state);
+  const ids = (value, decision) => R.visibleRecords(value, "  signed COUNT  ", decision).map(record => record.id);
+  assert.deepEqual(ids(state, "all"), ["a", "b"]);
+  assert.deepEqual(ids(state, "approved"), ["a"]);
+  assert.deepEqual(ids(state, "unreviewed"), ["b"]);
+  assert.deepEqual(ids(state, "rejected"), []);
+  assert.equal(R.exportJSON(state), before);
+
+  const edited = R.updateReview(state, "a", { notes: "Inventory differs." });
+  const cleared = R.updateReview(edited, "b", { notes: "" });
+  assert.deepEqual(ids(edited, "all"), ["b"]);
+  assert.deepEqual(ids(cleared, "all"), []);
+  assert.deepEqual(ids(state, "approved"), ["a"]); // earlier state is untouched
+  assert.deepEqual(ids(R.importJSON(before), "approved"), ["a"]);
+  assert.deepEqual(R.visibleRecords(cleared, " ", "approved").map(record => record.id), ["a"]);
+});
+
 test("exports round-trip full data and replace rather than merge review snapshots", () => {
   const snapshot = reviewed();
   const competing = R.updateReview(snapshot, "b", { decision: "rejected", notes: "Not in backup" });

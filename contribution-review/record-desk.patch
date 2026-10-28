@@ -1,0 +1,1515 @@
+diff --git a/README.md b/README.md
+index 45b03e1fdc6b136b9fb6d59b15862f777ab799fa..65df3000044b96a9aedb2fc3a3e01ea45bd0c216 100644
+--- a/README.md
++++ b/README.md
+@@ -14,3 +14,97 @@ node --test
+ The tests use the built-in `node:test` runner and `node:assert/strict`; no dependency
+ installation is needed. They cover parcel counts 0, 1, and 3, expecting `0 items`,
+ `1 item`, and `3 items`, respectively.
++
++## Record Desk: offline JSON review
++
++Open **index.html** in the repository's Files preview, or open the file directly
++in a modern browser. It is self-contained: no server, installation, network,
++account, or build step is required to use it. Click **Try sample records** for a
++four-record walkthrough.
++
++1. Choose a JSON file or paste an array and click **Import & replace**:
++
++   ```json
++   [
++     { "id": "R-101", "title": "Verify delivery address", "postcode": "Missing" },
++     { "id": "R-102", "title": "Confirm parcel count", "items": 3 }
++   ]
++   ```
++
++2. Select a record; mark it **Approve**, **Reject**, **Needs follow-up**, or return
++   it to **Unreviewed**. Notes apply as you type. Expand **Original record** to see
++   every field. Search title/ID (case-insensitive) and filter by decision.
++3. Use **Export review** for a versioned JSON snapshot containing **all** records,
++   decisions, and notes, regardless of filters. Download it or select/copy the
++   JSON into a UTF-8 text file. Import that export to restore the exact snapshot.
++
++### Import and saving rules
++
++- IDs and titles must be non-empty strings; IDs must be unique. Convert numeric
++  IDs to strings. IDs are exact and case-sensitive, with no trimming/coercion.
++  Use stable IDs for the same entities, not row numbers. Additional fields stay
++  in the original records and exports; review metadata is stored separately.
++- Every import action, including sample data, **replaces the record list**.
++  Arrays retain reviews for matching IDs, even if titles change. New IDs start
++  unreviewed; omitted IDs and their reviews are removed. An empty array clears
++  the list. Export before replacing data you may want later.
++- A Record Desk export has `format: "record-review"`, `version: 1`, `records`,
++  and `reviews` keyed by ID. It restores its own reviews, not a merge. Unsupported
++  versions, missing/extra reviews, invalid decisions, duplicate IDs, malformed
++  JSON, and unreadable files are rejected without changing accepted data,
++  decisions, notes, or storage. A newer import supersedes an earlier pending
++  file read, even if the newer import is rejected.
++- When available, localStorage holds one review under `record-review:v1`.
++  Reloading the same browser location restores it. Access/write failures leave
++  the app usable in memory and display a warning. Corrupt/unsupported saved data
++  is not overwritten on startup or rejected imports; the next accepted change
++  replaces it. Browser storage is not encrypted, shared across tabs at the same
++  origin, and last write wins; use one review tab and export important work.
++- The embedded **Files preview may block browser storage and downloads**. Its
++  sandbox is unchanged. A download click cannot prove that a file was saved, so
++  the app says “requested, not confirmed.” If nothing downloads, use **Select JSON
++  to copy**, then Ctrl/Cmd+C, and save the text yourself. Export **before closing
++  or reloading** a memory-only preview. Direct-file storage also varies by browser;
++  moving the HTML file may change its storage location.
++- Intended for modest datasets that fit in browser memory; the entire JSON is
++  parsed/rendered locally. No data is uploaded. JSON numbers use JavaScript's
++  normal numeric precision; keep exact large identifiers/values as strings.
++
++### Small source layout
++
++- `review-state.js`: pure validation, identity-based state transitions, filtering,
++  export, and guarded storage functions; also usable through CommonJS in tests.
++- `review-app.js`: DOM events, async import ordering, rendering, and download UI.
++- `review-template.html`: accessible, responsive markup and inline CSS.
++- `build-review.js`: built-in Node APIs only; inlines those sources into the
++  delivered `index.html` so restrictive previews need no relative asset access.
++
++After editing those sources, run:
++
++```sh
++node build-review.js
++node build-review.js --check
++node --test
++git diff --check
++```
++
++The existing parcel helper and its three tests are unchanged. The additional
++Node checks cover atomic rejection, stable-ID reconciliation, special object-key
++IDs, decisions, search/filter composition, export round trips, corrupt/blocked
++storage, and freshness of the shipped preview.
++
++Optional real-browser checks use an **already installed** Chromium, with no test
++framework or downloads:
++
++```sh
++RECORD_REVIEW_BROWSER=/path/to/chromium node --test
++```
++
++Without that variable, four browser scenarios are explicitly skipped. With it,
++they exercise the actual HTML in an opaque-origin `sandbox="allow-scripts"`
++iframe, actual file input, overlapping/read-failed imports, safe text rendering,
++manual export, silent/throwing download limitations, storage restoration across
++a real reload, corrupt saves, and quota failures. Only in an already-isolated
++container without Chromium OS-sandbox support, add
++`RECORD_REVIEW_BROWSER_NO_SANDBOX=1` to the test command. This affects the test
++browser process only, never the Files preview or iframe permissions.
+diff --git a/build-review.js b/build-review.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..b2e30b7cbe23a9e2e56d152287a6f5ded99892b5
+--- /dev/null
++++ b/build-review.js
+@@ -0,0 +1,28 @@
++"use strict";
++
++// Produce one file for opaque-origin previews and offline use: no asset requests.
++const fs = require("node:fs");
++const path = require("node:path");
++
++function build() {
++  const source = name => fs.readFileSync(path.join(__dirname, name), "utf8");
++  return source("review-template.html").replace("<!-- REVIEW_SCRIPTS -->", () =>
++    ["review-state.js", "review-app.js"].map(name =>
++      "<script>\n" + source(name).replace(/<\/script/gi, "<\\/script") + "\n</script>").join("\n"));
++}
++
++if (require.main === module) {
++  const output = path.join(__dirname, "index.html");
++  const html = build();
++  if (process.argv.includes("--check")) {
++    if (!fs.existsSync(output) || fs.readFileSync(output, "utf8") !== html) {
++      console.error("index.html is stale. Run: node build-review.js");
++      process.exitCode = 1;
++    } else console.log("Offline preview matches its sources.");
++  } else {
++    fs.writeFileSync(output, html);
++    console.log("Built index.html (self-contained offline preview).");
++  }
++}
++
++module.exports = { build };
+diff --git a/index.html b/index.html
+new file mode 100644
+index 0000000000000000000000000000000000000000..2974711b30a9b0463b91c0af9f0397be08160ba7
+--- /dev/null
++++ b/index.html
+@@ -0,0 +1,461 @@
++<!doctype html>
++<html lang="en">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
++  <meta name="color-scheme" content="light">
++  <title>Record Desk — offline JSON review</title>
++  <style>
++    :root { font-family: system-ui, -apple-system, sans-serif; color: #203335; background: #f4f6f3; line-height: 1.5; }
++    * { box-sizing: border-box; }
++    body { margin: 0; }
++    button, input, select, textarea { font: inherit; }
++    button, summary, select { cursor: pointer; }
++    button { padding: .65rem 1rem; border: 1px solid #b6c6c3; border-radius: 7px; background: white; color: #203335; }
++    button:hover { background: #e9f1ee; border-color: #537c73; }
++    button.primary { background: #176856; color: white; border-color: #176856; }
++    button.primary:hover { background: #115344; }
++    :focus-visible { outline: 3px solid #b76c20; outline-offset: 3px; }
++    input, select, textarea { width: 100%; border: 1px solid #aebfba; border-radius: 6px; padding: .65rem; background: white; color: #203335; }
++    textarea { resize: vertical; }
++    label, legend { font-size: .85rem; font-weight: 650; }
++    label { display: block; margin-bottom: .35rem; }
++    h1, h2, p { margin: 0; }
++    h1 { font-size: 1.8rem; letter-spacing: -.055rem; }
++    h2 { font-size: 1.2rem; }
++    .shell { max-width: 1240px; margin: auto; padding: 2rem; }
++    .topbar, .row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
++    .topbar { justify-content: space-between; margin-bottom: 1.5rem; }
++    .eyebrow { color: #316e60; text-transform: uppercase; letter-spacing: .14em; font-size: .72rem; font-weight: 750; }
++    .muted, .hint { color: #536762; }
++    .hint { font-size: .85rem; margin-top: .5rem; }
++    .pill { border: 1px solid #bfd1c9; border-radius: 99px; padding: .2rem .7rem; font-size: .75rem; color: #316e60; background: #edf5ef; }
++    .notice { padding: .8rem 1rem; border-left: 3px solid #bd863d; border-radius: 4px; background: #fff5e5; font-size: .85rem; margin-bottom: 1rem; }
++    .notice.saved { border-color: #28795f; background: #e9f4ec; }
++    .panel { border: 1px solid #d2ded7; border-radius: 10px; background: white; }
++    details.panel { padding: .9rem 1.1rem; margin-bottom: 1rem; }
++    summary { font-weight: 650; }
++    .import-grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 1.5rem; margin-top: 1rem; }
++    .import-grid p { margin-bottom: 1rem; }
++    .actions { margin-top: .7rem; }
++    .message { min-height: 1.6rem; margin: .5rem 0; font-size: .9rem; overflow-wrap: anywhere; }
++    #import-error { color: #a02920; }
++    .overview { display: grid; grid-template-columns: minmax(160px, 1.2fr) repeat(3, 1fr); gap: 1rem; margin: 1.25rem 0; }
++    .stat { padding: 1rem 1.1rem; }
++    .stat strong { display: block; font-size: 1.7rem; line-height: 1.2; }
++    .stat span { font-size: .8rem; color: #536762; }
++    progress { width: 100%; height: 7px; accent-color: #176856; display: block; margin-top: .55rem; }
++    .workspace { display: grid; grid-template-columns: minmax(270px, .8fr) minmax(0, 1.6fr); min-height: 480px; overflow: hidden; }
++    .sidebar { border-right: 1px solid #d2ded7; padding: 1.1rem; min-width: 0; background: #fbfcfa; }
++    .filters { display: grid; gap: .7rem; }
++    #record-list { display: grid; gap: .45rem; list-style: none; padding: 0; margin: .75rem 0 0; max-height: 520px; overflow: auto; }
++    .record { width: 100%; text-align: left; display: block; padding: .7rem .8rem; }
++    .record[aria-current="true"] { background: #e8f3ed; border-color: #438570; box-shadow: inset 3px 0 #176856; }
++    .record strong, .record small { display: block; overflow-wrap: anywhere; }
++    .record small { color: #536762; margin-top: .2rem; }
++    .editor { padding: 1.5rem; min-width: 0; }
++    #record-id { font-family: ui-monospace, monospace; font-size: .8rem; color: #537268; margin-bottom: .35rem; overflow-wrap: anywhere; }
++    #record-title { overflow-wrap: anywhere; }
++    fieldset { border: 0; padding: 0; margin: 1.5rem 0; }
++    legend { padding: 0; margin-bottom: .5rem; }
++    .decisions { display: flex; flex-wrap: wrap; gap: .5rem; }
++    .decisions button[aria-pressed="true"] { background: #176856; border-color: #176856; color: white; }
++    #record-details { margin-top: 1.2rem; }
++    pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; background: #f3f6f3; border-radius: 6px; padding: 1rem; max-height: 320px; overflow: auto; }
++    .empty { padding: 3rem 1rem; text-align: center; color: #536762; }
++    .empty h2 { color: #203335; margin-bottom: .5rem; }
++    #export-panel { margin-top: 1rem; }
++    #export-json, #paste-json { font-family: ui-monospace, monospace; font-size: .85rem; }
++    footer { margin-top: 1.3rem; font-size: .8rem; color: #536762; }
++    [hidden] { display: none !important; }
++    @media (max-width: 720px) {
++      .shell { padding: 1rem; }
++      .import-grid, .workspace { grid-template-columns: 1fr; }
++      .overview { grid-template-columns: repeat(2, 1fr); gap: .6rem; }
++      .sidebar { border-right: 0; border-bottom: 1px solid #d2ded7; }
++      #record-list { max-height: 250px; }
++      .editor { padding: 1.1rem; }
++    }
++  </style>
++</head>
++<body>
++<main class="shell">
++  <header class="topbar">
++    <div><div class="eyebrow">A little clarity for your data</div><h1>Record Desk</h1><p class="muted">Import. Decide. Leave a useful note.</p></div>
++    <div class="row"><span class="pill">Offline · no uploads</span><button type="button" id="export-open" class="primary">Export review</button></div>
++  </header>
++  <noscript><p class="notice">JavaScript is needed to review records. Open this HTML file in a browser with JavaScript enabled.</p></noscript>
++  <p id="storage-status" class="notice" role="status" aria-live="polite">Checking browser storage…</p>
++  <details class="panel" id="import-panel" open>
++    <summary>Import records or restore a review</summary>
++    <div class="import-grid">
++      <section aria-label="File import">
++        <p class="hint">Use a JSON array with a unique, non-empty string <strong>id</strong> and <strong>title</strong> on each record. Extra fields are kept. Or import a Record Desk export.</p>
++        <label for="file-input">Choose JSON file</label>
++        <input id="file-input" type="file" accept=".json,application/json" aria-describedby="import-policy">
++        <div class="actions"><button type="button" id="sample">Try sample records</button></div>
++      </section>
++      <section aria-label="Paste import">
++        <label for="paste-json">Or paste JSON</label>
++        <textarea id="paste-json" rows="4" spellcheck="false" placeholder='[{"id":"R-101","title":"Check delivery address"}]' aria-describedby="import-policy"></textarea>
++        <div class="actions"><button type="button" id="import-paste" class="primary">Import &amp; replace</button></div>
++      </section>
++    </div>
++    <p class="hint" id="import-policy">All import actions replace the list. Record arrays keep decisions and notes for matching IDs; omitted IDs are removed. Review exports restore their exact state. Export first to keep a backup. Invalid imports change nothing.</p>
++    <p id="import-error" class="message" role="alert"></p>
++  </details>
++  <p id="activity" class="message" role="status" aria-live="polite"></p>
++  <section class="overview" aria-label="Review totals">
++    <div class="stat panel"><strong id="count-progress">0 / 0</strong><span>records reviewed</span><progress id="review-progress" max="1" value="0" aria-label="Records reviewed"></progress></div>
++    <div class="stat panel"><strong id="count-approved">0</strong><span>Approved</span></div>
++    <div class="stat panel"><strong id="count-rejected">0</strong><span>Rejected</span></div>
++    <div class="stat panel"><strong id="count-follow-up">0</strong><span>Needs follow-up</span></div>
++  </section>
++  <section class="workspace panel" aria-label="Review workspace">
++    <aside class="sidebar">
++      <div class="filters">
++        <div><label for="search">Search by title or ID</label><input id="search" type="search" placeholder="Find a record…" autocomplete="off"></div>
++        <div><label for="filter">Decision</label><select id="filter"><option value="all">All records</option><option value="unreviewed">Unreviewed</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="follow-up">Needs follow-up</option></select></div>
++      </div>
++      <p id="list-count" class="hint" aria-live="polite">0 records</p>
++      <ul id="record-list" aria-label="Records"></ul>
++    </aside>
++    <section class="editor" aria-label="Selected record">
++      <div id="empty" class="empty"><h2>Your next review starts here</h2><p>Import JSON above, or try the sample records.</p></div>
++      <div id="record-editor" hidden>
++        <p id="record-id"></p><h2 id="record-title"></h2>
++        <fieldset><legend>Review decision</legend><div class="decisions">
++          <button type="button" data-decision="unreviewed" aria-pressed="false">Unreviewed</button>
++          <button type="button" data-decision="approved" aria-pressed="false">Approve</button>
++          <button type="button" data-decision="rejected" aria-pressed="false">Reject</button>
++          <button type="button" data-decision="follow-up" aria-pressed="false">Needs follow-up</button>
++        </div></fieldset>
++        <label for="notes">Review notes</label><textarea id="notes" rows="5" placeholder="What should the next person know?" aria-describedby="notes-hint"></textarea>
++        <p class="hint" id="notes-hint">Changes apply as you type. Check the storage notice before closing this page.</p>
++        <details id="record-details"><summary>Original record · all fields</summary><pre id="record-json"></pre></details>
++      </div>
++    </section>
++  </section>
++  <details class="panel" id="export-panel">
++    <summary>Portable review JSON</summary>
++    <p class="hint">Includes every record, decision, and note—not just filtered results. Re-import it to restore this review.</p>
++    <div class="row actions"><button type="button" id="download">Try download JSON</button><button type="button" id="select-export">Select JSON to copy</button></div>
++    <p id="download-status" class="message" role="status">The embedded Files preview may block downloads silently. If no file appears, select the JSON below, copy it with Ctrl/Cmd+C, and save it in a text file.</p>
++    <label for="export-json">Review export (read-only)</label><textarea id="export-json" rows="10" readonly spellcheck="false"></textarea>
++  </details>
++  <footer>No network requests, accounts, or external assets. Browser storage is a convenience, not a backup. Keep an export before closing an embedded preview.</footer>
++</main>
++<script>
++/* Shared by the offline browser app and Node's built-in tests. */
++(function (root, factory) {
++  "use strict";
++  const api = factory();
++  if (typeof module === "object" && module.exports) module.exports = api;
++  else root.RecordReview = api;
++})(typeof globalThis === "object" ? globalThis : this, function () {
++  "use strict";
++  const FORMAT = "record-review";
++  const VERSION = 1;
++  const STORAGE_KEY = "record-review:v1";
++  const DECISIONS = Object.freeze(["unreviewed", "approved", "rejected", "follow-up"]);
++  const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
++  const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
++  const blankReview = () => ({ decision: "unreviewed", notes: "" });
++  const emptyState = () => ({ format: FORMAT, version: VERSION, records: [], reviews: {} });
++
++  function validateRecords(records) {
++    if (!Array.isArray(records)) throw new Error("Records must be a JSON array.");
++    const ids = new Set();
++    records.forEach((record, index) => {
++      const position = "Record " + (index + 1);
++      if (!object(record)) throw new Error(position + " must be an object.");
++      if (typeof record.id !== "string" || !record.id.trim()) {
++        throw new Error(position + " needs a non-empty string id (convert numeric IDs to strings).");
++      }
++      if (typeof record.title !== "string" || !record.title.trim()) {
++        throw new Error(position + " needs a non-empty string title.");
++      }
++      if (ids.has(record.id)) throw new Error(position + " repeats id " + JSON.stringify(record.id) + ".");
++      ids.add(record.id);
++    });
++    return ids;
++  }
++
++  function validateSnapshot(value) {
++    if (!object(value) || value.format !== FORMAT || value.version !== VERSION) {
++      throw new Error('Expected a records array or a version 1 "record-review" export.');
++    }
++    const ids = validateRecords(value.records);
++    if (!object(value.reviews)) throw new Error("Export reviews must be an object keyed by record ID.");
++    if (Object.keys(value.reviews).length !== ids.size) {
++      throw new Error("Export must contain exactly one review for every record.");
++    }
++    for (const [id, review] of Object.entries(value.reviews)) {
++      if (!ids.has(id)) throw new Error("Export contains a review for unknown id " + JSON.stringify(id) + ".");
++      if (!object(review) || !DECISIONS.includes(review.decision) || typeof review.notes !== "string") {
++        throw new Error("Invalid decision or notes for id " + JSON.stringify(id) + ".");
++      }
++    }
++    return {
++      format: FORMAT, version: VERSION, records: value.records,
++      reviews: Object.fromEntries(value.records.map(({ id }) => [id, {
++        decision: value.reviews[id].decision, notes: value.reviews[id].notes,
++      }])),
++    };
++  }
++
++  function parseJSON(text) {
++    if (typeof text !== "string" || !text.trim()) throw new Error("Choose a JSON file or paste JSON first.");
++    try { return JSON.parse(text.replace(/^\uFEFF/, "")); }
++    catch { throw new Error("Invalid JSON. Check commas, quotes, and brackets. Nothing was replaced."); }
++  }
++
++  // Pure transaction: finish all validation before returning a replacement.
++  // Raw datasets preserve reviews by exact ID; exports restore an exact snapshot.
++  function importJSON(text, previous = emptyState()) {
++    const value = parseJSON(text);
++    if (!Array.isArray(value)) return validateSnapshot(value);
++    validateRecords(value);
++    return {
++      format: FORMAT, version: VERSION, records: value,
++      reviews: Object.fromEntries(value.map(({ id }) => [id, own(previous.reviews, id)
++        ? { ...previous.reviews[id] } : blankReview()])),
++    };
++  }
++
++  function updateReview(state, id, patch) {
++    if (!own(state.reviews, id)) throw new Error("This record is not in the accepted dataset.");
++    const review = { ...state.reviews[id], ...patch };
++    if (!DECISIONS.includes(review.decision) || typeof review.notes !== "string") {
++      throw new Error("Choose a valid decision and use text for notes.");
++    }
++    return { ...state, reviews: { ...state.reviews, [id]: { decision: review.decision, notes: review.notes } } };
++  }
++
++  function visibleRecords(state, query = "", decision = "all") {
++    const needle = query.trim().toLowerCase();
++    return state.records.filter(record =>
++      (decision === "all" || state.reviews[record.id].decision === decision) &&
++      (!needle || (record.id + "\n" + record.title).toLowerCase().includes(needle)));
++  }
++
++  function counts(state) {
++    const result = Object.fromEntries(DECISIONS.map(decision => [decision, 0]));
++    for (const review of Object.values(state.reviews)) result[review.decision]++;
++    return { ...result, total: state.records.length, reviewed: state.records.length - result.unreviewed };
++  }
++
++  function exportJSON(state) { return JSON.stringify(validateSnapshot(state), null, 2); }
++
++  // The getter itself can throw in an opaque-origin iframe, before getItem runs.
++  function restore(getStorage) {
++    let text;
++    try { text = getStorage().getItem(STORAGE_KEY); }
++    catch { return { status: "unavailable", state: null }; }
++    if (text === null) return { status: "empty", state: null };
++    try { return { status: "restored", state: validateSnapshot(JSON.parse(text)) }; }
++    catch { return { status: "invalid", state: null }; }
++  }
++
++  function persist(getStorage, state) {
++    try {
++      getStorage().setItem(STORAGE_KEY, exportJSON(state));
++      return true;
++    } catch { return false; }
++  }
++
++  return Object.freeze({
++    FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON,
++    updateReview, visibleRecords, counts, exportJSON, restore, persist,
++  });
++});
++
++</script>
++<script>
++/* DOM adapter only; state validation and transitions live in review-state.js. */
++(function () {
++  "use strict";
++  const review = globalThis.RecordReview;
++  const $ = id => document.getElementById(id);
++  const labels = { unreviewed: "Unreviewed", approved: "Approved", rejected: "Rejected", "follow-up": "Needs follow-up" };
++  const getStorage = () => window.localStorage;
++  const restored = review.restore(getStorage);
++  let state = restored.state || review.emptyState();
++  let selectedId = null;
++  let importSequence = 0;
++  const decisionButtons = [...document.querySelectorAll("[data-decision]")];
++  const memoryWarning = "Memory only — browser storage is blocked or full. Embedded Files previews may deny storage. Export before closing or reloading; an older saved copy may otherwise return.";
++
++  function storageMessage(text, saved = false) {
++    $("storage-status").textContent = text;
++    $("storage-status").classList.toggle("saved", saved);
++  }
++
++  function updateExport() { $("export-json").value = review.exportJSON(state); }
++
++  function save() {
++    const saved = review.persist(getStorage, state);
++    storageMessage(saved ? "Saved in this browser — records, decisions, and notes will restore here when storage is available. Keep an export as a backup." : memoryWarning, saved);
++    if ($("export-panel").open) updateExport();
++  }
++
++  function render() {
++    const totals = review.counts(state);
++    $("count-progress").textContent = totals.reviewed + " / " + totals.total;
++    $("review-progress").max = totals.total || 1;
++    $("review-progress").value = totals.reviewed;
++    for (const decision of ["approved", "rejected", "follow-up"]) $("count-" + decision).textContent = totals[decision];
++    const visible = review.visibleRecords(state, $("search").value, $("filter").value);
++    if (!visible.some(record => record.id === selectedId)) selectedId = visible[0]?.id ?? null;
++    $("list-count").textContent = visible.length + " of " + totals.total + " records";
++    const fragment = document.createDocumentFragment();
++    for (const record of visible) {
++      const item = document.createElement("li");
++      const button = document.createElement("button");
++      button.type = "button";
++      button.className = "record";
++      button.setAttribute("aria-current", String(record.id === selectedId));
++      const title = document.createElement("strong");
++      title.textContent = record.title;
++      const subtitle = document.createElement("small");
++      subtitle.textContent = record.id + " · " + labels[state.reviews[record.id].decision];
++      button.append(title, subtitle);
++      button.addEventListener("click", () => {
++        selectedId = record.id;
++        render();
++        $("record-list").querySelector('[aria-current="true"]').focus({ preventScroll: true });
++      });
++      item.append(button);
++      fragment.append(item);
++    }
++    $("record-list").replaceChildren(fragment);
++    const record = visible.find(record => record.id === selectedId);
++    $("record-editor").hidden = !record;
++    $("empty").hidden = Boolean(record);
++    if (!record) {
++      $("empty").querySelector("h2").textContent = totals.total ? "No matching records" : "Your next review starts here";
++      $("empty").querySelector("p").textContent = totals.total ? "Try another search or decision filter. Your reviews are still here." : "Import JSON above, or try the sample records.";
++      $("notes").value = "";
++      return;
++    }
++    $("record-id").textContent = record.id;
++    $("record-title").textContent = record.title;
++    $("record-json").textContent = JSON.stringify(record, null, 2);
++    $("notes").value = state.reviews[record.id].notes;
++    for (const button of decisionButtons) button.setAttribute("aria-pressed", String(button.dataset.decision === state.reviews[record.id].decision));
++  }
++
++  function rejectImport(error) {
++    $("import-panel").open = true;
++    $("import-error").textContent = error.message + " Your accepted records and reviews are unchanged.";
++    $("activity").textContent = "Import rejected. Nothing was replaced.";
++  }
++
++  function acceptImport(text, source) {
++    let next;
++    try { next = review.importJSON(text, state); }
++    catch (error) { rejectImport(error); return; }
++    state = next;
++    selectedId = null;
++    $("search").value = "";
++    $("filter").value = "all";
++    $("import-error").textContent = "";
++    $("activity").textContent = "Accepted " + state.records.length + " records from " + source + ".";
++    $("import-panel").open = false;
++    save();
++    render();
++  }
++
++  $("import-paste").addEventListener("click", () => {
++    importSequence++;
++    acceptImport($("paste-json").value, "pasted JSON");
++  });
++
++  $("file-input").addEventListener("change", async event => {
++    const file = event.target.files[0];
++    if (!file) return;
++    const sequence = ++importSequence;
++    event.target.value = ""; // allow retrying the same file
++    $("activity").textContent = "Reading " + file.name + "…";
++    try {
++      const text = await file.text();
++      // A slow earlier read must never replace a newer import, even a rejected one.
++      if (sequence !== importSequence) return;
++      acceptImport(text, file.name);
++    } catch {
++      if (sequence === importSequence) rejectImport(new Error("Could not read that file. Try pasting its JSON instead."));
++    }
++  });
++
++  $("sample").addEventListener("click", () => {
++    importSequence++;
++    acceptImport(JSON.stringify([
++      { id: "R-101", title: "Verify delivery address", recipient: "Alex Morgan", address: "12 Orchard Lane", postcode: "Missing", country: "UK" },
++      { id: "R-102", title: "Confirm parcel count", expectedItems: 3, packedItems: 3 },
++      { id: "R-103", title: "Inspect packaging notes", packaging: "Fragile glassware", note: "Check protective cushioning before dispatch." },
++      { id: "R-104", title: "Check label readability", label: "Recipient and destination confirmed", quality: "Clear" },
++    ]), "sample data");
++  });
++
++  $("search").addEventListener("input", render);
++  $("filter").addEventListener("change", render);
++  for (const button of decisionButtons) button.addEventListener("click", () => {
++    if (selectedId === null) return;
++    const previousId = selectedId;
++    state = review.updateReview(state, selectedId, { decision: button.dataset.decision });
++    save();
++    render();
++    $("activity").textContent = previousId + ": " + labels[button.dataset.decision] + (selectedId !== previousId ? ". Moved out of the current filter." : ".");
++    if (selectedId !== previousId) $("filter").focus({ preventScroll: true });
++  });
++
++  $("notes").addEventListener("input", () => {
++    if (selectedId === null) return;
++    state = review.updateReview(state, selectedId, { notes: $("notes").value });
++    save(); // Don't re-render the editor: preserve caret, focus, and IME input.
++  });
++
++  function selectExport() {
++    updateExport();
++    $("export-panel").open = true;
++    $("export-json").focus();
++    $("export-json").select();
++  }
++  $("export-open").addEventListener("click", selectExport);
++  $("select-export").addEventListener("click", selectExport);
++  $("export-panel").addEventListener("toggle", () => { if ($("export-panel").open) updateExport(); });
++  $("download").addEventListener("click", () => {
++    updateExport();
++    let url;
++    let link;
++    try {
++      url = URL.createObjectURL(new Blob([$("export-json").value], { type: "application/json" }));
++      link = document.createElement("a");
++      link.href = url;
++      link.download = "record-review.json";
++      document.body.append(link);
++      link.click();
++      $("download-status").textContent = "Download requested, not confirmed. The embedded Files preview may block it silently. If no file appears, use Select JSON to copy, then Ctrl/Cmd+C and save it in a text file.";
++    } catch {
++      $("download-status").textContent = "Download is unavailable here. Use Select JSON to copy, then Ctrl/Cmd+C and save it in a text file.";
++    } finally {
++      if (link) link.remove();
++      if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);
++    }
++  });
++
++  if (restored.status === "restored") {
++    storageMessage("Restored your saved review from this browser. Future changes will be saved here when possible; keep an export as a backup.", true);
++    $("import-panel").open = false;
++  } else if (restored.status === "empty") {
++    storageMessage("No saved review yet. Changes will be saved in this browser when possible; keep an export as a backup.");
++  } else if (restored.status === "invalid") {
++    storageMessage("Saved data is invalid or from an unsupported version. It has not been overwritten. Import a valid dataset or backup to start again; your next accepted change will replace that saved copy.");
++  } else storageMessage(memoryWarning);
++  render();
++  updateExport();
++})();
++
++</script>
++</body>
++</html>
+diff --git a/review-app.js b/review-app.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..f15ea757bdf573a9ce87d03f1f23204312f79faf
+--- /dev/null
++++ b/review-app.js
+@@ -0,0 +1,183 @@
++/* DOM adapter only; state validation and transitions live in review-state.js. */
++(function () {
++  "use strict";
++  const review = globalThis.RecordReview;
++  const $ = id => document.getElementById(id);
++  const labels = { unreviewed: "Unreviewed", approved: "Approved", rejected: "Rejected", "follow-up": "Needs follow-up" };
++  const getStorage = () => window.localStorage;
++  const restored = review.restore(getStorage);
++  let state = restored.state || review.emptyState();
++  let selectedId = null;
++  let importSequence = 0;
++  const decisionButtons = [...document.querySelectorAll("[data-decision]")];
++  const memoryWarning = "Memory only — browser storage is blocked or full. Embedded Files previews may deny storage. Export before closing or reloading; an older saved copy may otherwise return.";
++
++  function storageMessage(text, saved = false) {
++    $("storage-status").textContent = text;
++    $("storage-status").classList.toggle("saved", saved);
++  }
++
++  function updateExport() { $("export-json").value = review.exportJSON(state); }
++
++  function save() {
++    const saved = review.persist(getStorage, state);
++    storageMessage(saved ? "Saved in this browser — records, decisions, and notes will restore here when storage is available. Keep an export as a backup." : memoryWarning, saved);
++    if ($("export-panel").open) updateExport();
++  }
++
++  function render() {
++    const totals = review.counts(state);
++    $("count-progress").textContent = totals.reviewed + " / " + totals.total;
++    $("review-progress").max = totals.total || 1;
++    $("review-progress").value = totals.reviewed;
++    for (const decision of ["approved", "rejected", "follow-up"]) $("count-" + decision).textContent = totals[decision];
++    const visible = review.visibleRecords(state, $("search").value, $("filter").value);
++    if (!visible.some(record => record.id === selectedId)) selectedId = visible[0]?.id ?? null;
++    $("list-count").textContent = visible.length + " of " + totals.total + " records";
++    const fragment = document.createDocumentFragment();
++    for (const record of visible) {
++      const item = document.createElement("li");
++      const button = document.createElement("button");
++      button.type = "button";
++      button.className = "record";
++      button.setAttribute("aria-current", String(record.id === selectedId));
++      const title = document.createElement("strong");
++      title.textContent = record.title;
++      const subtitle = document.createElement("small");
++      subtitle.textContent = record.id + " · " + labels[state.reviews[record.id].decision];
++      button.append(title, subtitle);
++      button.addEventListener("click", () => {
++        selectedId = record.id;
++        render();
++        $("record-list").querySelector('[aria-current="true"]').focus({ preventScroll: true });
++      });
++      item.append(button);
++      fragment.append(item);
++    }
++    $("record-list").replaceChildren(fragment);
++    const record = visible.find(record => record.id === selectedId);
++    $("record-editor").hidden = !record;
++    $("empty").hidden = Boolean(record);
++    if (!record) {
++      $("empty").querySelector("h2").textContent = totals.total ? "No matching records" : "Your next review starts here";
++      $("empty").querySelector("p").textContent = totals.total ? "Try another search or decision filter. Your reviews are still here." : "Import JSON above, or try the sample records.";
++      $("notes").value = "";
++      return;
++    }
++    $("record-id").textContent = record.id;
++    $("record-title").textContent = record.title;
++    $("record-json").textContent = JSON.stringify(record, null, 2);
++    $("notes").value = state.reviews[record.id].notes;
++    for (const button of decisionButtons) button.setAttribute("aria-pressed", String(button.dataset.decision === state.reviews[record.id].decision));
++  }
++
++  function rejectImport(error) {
++    $("import-panel").open = true;
++    $("import-error").textContent = error.message + " Your accepted records and reviews are unchanged.";
++    $("activity").textContent = "Import rejected. Nothing was replaced.";
++  }
++
++  function acceptImport(text, source) {
++    let next;
++    try { next = review.importJSON(text, state); }
++    catch (error) { rejectImport(error); return; }
++    state = next;
++    selectedId = null;
++    $("search").value = "";
++    $("filter").value = "all";
++    $("import-error").textContent = "";
++    $("activity").textContent = "Accepted " + state.records.length + " records from " + source + ".";
++    $("import-panel").open = false;
++    save();
++    render();
++  }
++
++  $("import-paste").addEventListener("click", () => {
++    importSequence++;
++    acceptImport($("paste-json").value, "pasted JSON");
++  });
++
++  $("file-input").addEventListener("change", async event => {
++    const file = event.target.files[0];
++    if (!file) return;
++    const sequence = ++importSequence;
++    event.target.value = ""; // allow retrying the same file
++    $("activity").textContent = "Reading " + file.name + "…";
++    try {
++      const text = await file.text();
++      // A slow earlier read must never replace a newer import, even a rejected one.
++      if (sequence !== importSequence) return;
++      acceptImport(text, file.name);
++    } catch {
++      if (sequence === importSequence) rejectImport(new Error("Could not read that file. Try pasting its JSON instead."));
++    }
++  });
++
++  $("sample").addEventListener("click", () => {
++    importSequence++;
++    acceptImport(JSON.stringify([
++      { id: "R-101", title: "Verify delivery address", recipient: "Alex Morgan", address: "12 Orchard Lane", postcode: "Missing", country: "UK" },
++      { id: "R-102", title: "Confirm parcel count", expectedItems: 3, packedItems: 3 },
++      { id: "R-103", title: "Inspect packaging notes", packaging: "Fragile glassware", note: "Check protective cushioning before dispatch." },
++      { id: "R-104", title: "Check label readability", label: "Recipient and destination confirmed", quality: "Clear" },
++    ]), "sample data");
++  });
++
++  $("search").addEventListener("input", render);
++  $("filter").addEventListener("change", render);
++  for (const button of decisionButtons) button.addEventListener("click", () => {
++    if (selectedId === null) return;
++    const previousId = selectedId;
++    state = review.updateReview(state, selectedId, { decision: button.dataset.decision });
++    save();
++    render();
++    $("activity").textContent = previousId + ": " + labels[button.dataset.decision] + (selectedId !== previousId ? ". Moved out of the current filter." : ".");
++    if (selectedId !== previousId) $("filter").focus({ preventScroll: true });
++  });
++
++  $("notes").addEventListener("input", () => {
++    if (selectedId === null) return;
++    state = review.updateReview(state, selectedId, { notes: $("notes").value });
++    save(); // Don't re-render the editor: preserve caret, focus, and IME input.
++  });
++
++  function selectExport() {
++    updateExport();
++    $("export-panel").open = true;
++    $("export-json").focus();
++    $("export-json").select();
++  }
++  $("export-open").addEventListener("click", selectExport);
++  $("select-export").addEventListener("click", selectExport);
++  $("export-panel").addEventListener("toggle", () => { if ($("export-panel").open) updateExport(); });
++  $("download").addEventListener("click", () => {
++    updateExport();
++    let url;
++    let link;
++    try {
++      url = URL.createObjectURL(new Blob([$("export-json").value], { type: "application/json" }));
++      link = document.createElement("a");
++      link.href = url;
++      link.download = "record-review.json";
++      document.body.append(link);
++      link.click();
++      $("download-status").textContent = "Download requested, not confirmed. The embedded Files preview may block it silently. If no file appears, use Select JSON to copy, then Ctrl/Cmd+C and save it in a text file.";
++    } catch {
++      $("download-status").textContent = "Download is unavailable here. Use Select JSON to copy, then Ctrl/Cmd+C and save it in a text file.";
++    } finally {
++      if (link) link.remove();
++      if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);
++    }
++  });
++
++  if (restored.status === "restored") {
++    storageMessage("Restored your saved review from this browser. Future changes will be saved here when possible; keep an export as a backup.", true);
++    $("import-panel").open = false;
++  } else if (restored.status === "empty") {
++    storageMessage("No saved review yet. Changes will be saved in this browser when possible; keep an export as a backup.");
++  } else if (restored.status === "invalid") {
++    storageMessage("Saved data is invalid or from an unsupported version. It has not been overwritten. Import a valid dataset or backup to start again; your next accepted change will replace that saved copy.");
++  } else storageMessage(memoryWarning);
++  render();
++  updateExport();
++})();
+diff --git a/review-browser.test.js b/review-browser.test.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..546d88bcc74f59fdceb788401e5cd38153193b46
+--- /dev/null
++++ b/review-browser.test.js
+@@ -0,0 +1,273 @@
++"use strict";
++
++// Optional real-browser checks using an already-installed Chromium. No packages,
++// server, or browser download. Default node --test clearly skips these if absent.
++const test = require("node:test");
++const assert = require("node:assert/strict");
++const fs = require("node:fs");
++const os = require("node:os");
++const path = require("node:path");
++const { pathToFileURL } = require("node:url");
++const { spawn } = require("node:child_process");
++const browser = process.env.RECORD_REVIEW_BROWSER;
++
++// Drive the existing browser over a local pipe, waiting for the actual result.
++// No HTTP server, debug port, dependencies, or virtual-time iframe races.
++async function runBrowser(args, directory, url) {
++  const child = spawn(browser, [...args, "--remote-debugging-pipe", "about:blank"], {
++    stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
++    env: { ...process.env, HOME: directory, XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory },
++  });
++  let buffer = "";
++  let diagnostic = "";
++  let nextId = 0;
++  const pending = new Map();
++  let report;
++  let fail;
++  const completed = new Promise((resolve, reject) => { report = resolve; fail = reject; });
++  // Attach immediately so early browser errors cannot become unhandled rejections.
++  completed.catch(() => {});
++  const timer = setTimeout(() => fail(new Error("Browser timed out: " + diagnostic.slice(-3000))), 20000);
++  child.stderr.on("data", chunk => { diagnostic += chunk; });
++  child.on("error", fail);
++  child.on("exit", code => {
++    const error = new Error("Browser exited " + code + ": " + diagnostic.slice(-3000));
++    for (const entry of pending.values()) entry.reject(error);
++    pending.clear();
++    fail(error);
++  });
++  child.stdio[4].setEncoding("utf8");
++  child.stdio[4].on("data", chunk => {
++    buffer += chunk;
++    let end;
++    while ((end = buffer.indexOf("\0")) !== -1) {
++      const message = JSON.parse(buffer.slice(0, end));
++      buffer = buffer.slice(end + 1);
++      if (message.id) {
++        const entry = pending.get(message.id);
++        if (entry) {
++          pending.delete(message.id);
++          if (message.error) entry.reject(new Error(JSON.stringify(message.error)));
++          else entry.resolve(message.result);
++        }
++      } else if (message.method === "Runtime.bindingCalled" && message.params.name === "reportReviewTest") {
++        report(message.params.payload);
++      } else if (message.method === "Runtime.exceptionThrown") {
++        diagnostic += JSON.stringify(message.params);
++      }
++    }
++  });
++  const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
++    const id = ++nextId;
++    pending.set(id, { resolve, reject });
++    child.stdio[3].write(JSON.stringify({ id, method, params, sessionId }) + "\0");
++  });
++  try {
++    const { targetId } = await send("Target.createTarget", { url: "about:blank" });
++    const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
++    await send("Runtime.enable", {}, sessionId);
++    await send("Runtime.addBinding", { name: "reportReviewTest" }, sessionId);
++    await send("Page.enable", {}, sessionId);
++    await send("Page.navigate", { url }, sessionId);
++    return await completed;
++  } finally {
++    clearTimeout(timer);
++    const exited = new Promise(resolve => child.once("exit", resolve));
++    child.kill();
++    if (child.exitCode === null && child.signalCode === null) await exited;
++  }
++}
++
++// This function runs inside the shipped page, not a mock DOM.
++async function exercise(mode) {
++  const $ = id => document.getElementById(id);
++  const check = (condition, message) => { if (!condition) throw new Error(message); };
++  const fire = (id, value, event = "input") => {
++    $(id).value = value;
++    $(id).dispatchEvent(new Event(event, { bubbles: true }));
++  };
++  const click = id => $(id).click();
++  const decision = value => document.querySelector('[data-decision="' + value + '"]').click();
++  const paste = value => { $("paste-json").value = value; click("import-paste"); };
++  const snapshot = () => { click("export-open"); return $("export-json").value; };
++  const tick = () => new Promise(resolve => setTimeout(resolve, 20));
++  const finish = result => {
++    if (mode === "sandbox") parent.postMessage({ recordReviewTest: result }, "*");
++    else {
++      const output = document.createElement("pre");
++      output.id = "result";
++      output.textContent = result;
++      document.body.append(output);
++      window.reportReviewTest(result);
++    }
++  };
++  try {
++    if (mode === "reload" && sessionStorage.getItem("review-test-phase") === "reload") {
++      check($("storage-status").textContent.startsWith("Restored"), "reload did not announce restoration");
++      const restored = JSON.parse(snapshot());
++      check(restored.reviews["R-101"].decision === "approved", "decision lost across reload");
++      check(restored.reviews["R-101"].notes === "Survives a real reload ✓", "notes lost across reload");
++      check(restored.records.length === 4, "records lost across reload");
++      finish("PASS reload");
++      return;
++    }
++    if (mode === "corrupt") {
++      check($("storage-status").textContent.includes("has not been overwritten"), "corrupt storage warning missing");
++      check(localStorage.getItem("record-review:v1") === "{corrupt", "startup overwrote corrupt storage");
++      paste("not JSON");
++      check(localStorage.getItem("record-review:v1") === "{corrupt", "invalid import overwrote corrupt storage");
++      click("sample");
++      check(JSON.parse(localStorage.getItem("record-review:v1")).records.length === 4, "valid import did not replace corrupt save");
++      finish("PASS corrupt");
++      return;
++    }
++    if (mode === "quota") {
++      check($("storage-status").textContent.startsWith("Restored"), "readable storage not restored");
++      decision("approved");
++      fire("notes", "Still in memory");
++      check($("storage-status").textContent.startsWith("Memory only"), "quota failure incorrectly announced saved");
++      const exported = JSON.parse(snapshot());
++      check(exported.reviews.a.notes === "Still in memory", "quota failure lost notes");
++      check(exported.reviews.a.decision === "approved", "quota failure lost decision");
++      check(JSON.parse(localStorage.getItem("record-review:v1")).reviews.a.decision === "unreviewed", "quota test unexpectedly saved");
++      finish("PASS quota");
++      return;
++    }
++    if (mode === "sandbox") {
++      let denied = false;
++      try { window.localStorage.getItem("test"); } catch { denied = true; }
++      check(denied, "fixture must deny storage with an opaque origin");
++      check($("storage-status").textContent.startsWith("Memory only"), "missing sandbox storage warning");
++    }
++    click("sample");
++    check(document.querySelectorAll(".record").length === 4, "sample list missing");
++    check($("record-id").textContent === "R-101", "first record not selected");
++    decision("approved");
++    fire("notes", "Survives a real reload ✓");
++    if (mode === "reload") {
++      check($("storage-status").textContent.startsWith("Saved"), "browser did not save");
++      const saved = localStorage.getItem("record-review:v1");
++      paste("[{bad JSON]");
++      check(localStorage.getItem("record-review:v1") === saved, "invalid import modified saved storage");
++      check(snapshot() === saved, "invalid import modified live review");
++      sessionStorage.setItem("review-test-phase", "reload");
++      location.reload();
++      return;
++    }
++    check($("count-progress").textContent === "1 / 4", "decision totals wrong");
++    const before = snapshot();
++    paste('[{"id":"ok","title":"First valid"},{"id":"bad"}]');
++    check($("import-error").textContent.includes("unchanged"), "validation message missing");
++    check(snapshot() === before, "late invalid record replaced accepted data");
++    paste('{"format":"record-review","version":2}');
++    check(snapshot() === before, "invalid snapshot replaced accepted data");
++    paste('[{"id":"x","title":"One"},{"id":"x","title":"Duplicate"}]');
++    check(snapshot() === before, "duplicate ID replaced accepted data");
++    fire("search", "PARCEL");
++    check(document.querySelectorAll(".record").length === 1, "search not case insensitive");
++    check($("record-id").textContent === "R-102", "search selected wrong record");
++    fire("filter", "approved", "change");
++    check(!$("empty").hidden && $("record-editor").hidden, "empty filter has stale editor");
++    check(snapshot() === before, "filter changed exported data");
++    fire("search", "");
++    check($("record-id").textContent === "R-101", "filter selection not recovered");
++    decision("rejected");
++    check($("record-editor").hidden, "decision moving out of filter left stale editor");
++    fire("filter", "all", "change");
++    check($("notes").value === "Survives a real reload ✓", "notes lost across filtering");
++    paste(before); // exact snapshot restore
++    check(snapshot() === before, "snapshot import did not round-trip");
++    click("select-export");
++    check($("export-json").selectionStart === 0 && $("export-json").selectionEnd === before.length, "manual copy fallback did not select export");
++    click("download"); // blocked silently by the unchanged restrictive iframe
++    check($("download-status").textContent.includes("not confirmed"), "download falsely claimed completion");
++    const originalCreateURL = URL.createObjectURL;
++    URL.createObjectURL = () => { throw new Error("Unavailable"); };
++    click("download");
++    check($("download-status").textContent.includes("unavailable"), "throwing download fallback failed");
++    check(snapshot() === before, "download failure changed review");
++    URL.createObjectURL = originalCreateURL;
++
++    // Actual File input, including the async read and same-file retry reset.
++    const fileInput = $("file-input");
++    const transfer = new DataTransfer();
++    transfer.items.add(new File(['[{"id":"file","title":"From file"}]'], "records.json", { type: "application/json" }));
++    fileInput.files = transfer.files;
++    fileInput.dispatchEvent(new Event("change"));
++    for (let i = 0; i < 100 && $("record-id").textContent !== "file"; i++) await tick();
++    check($("record-id").textContent === "file", "file import did not complete");
++    check(fileInput.value === "", "file input did not reset for retry");
++
++    // Controllable reads expose the race: latest *started* import must win.
++    function deferredFile(name) {
++      let resolve;
++      let reject;
++      const pending = new Promise((yes, no) => { resolve = yes; reject = no; });
++      Object.defineProperty(fileInput, "files", { configurable: true, value: [{ name, text: () => pending }] });
++      fileInput.dispatchEvent(new Event("change"));
++      return { resolve, reject };
++    }
++    const slow = deferredFile("slow.json");
++    paste(before);
++    slow.resolve('[{"id":"stale","title":"Must not win"}]');
++    await tick();
++    check(snapshot() === before, "slow file replaced newer paste");
++    const old = deferredFile("old.json");
++    const latest = deferredFile("new.json");
++    latest.resolve('[{"id":"new","title":"Newest"}]');
++    await tick();
++    const newest = snapshot();
++    old.resolve('[{"id":"old","title":"Older"}]');
++    await tick();
++    check(snapshot() === newest, "out-of-order files reverted newer import");
++    const pending = deferredFile("pending.json");
++    paste("invalid JSON");
++    pending.resolve(before);
++    await tick();
++    check(snapshot() === newest, "rejected newer import allowed stale completion");
++    const failed = deferredFile("failed.json");
++    failed.reject(new Error("Unreadable"));
++    await tick();
++    check(snapshot() === newest && $("import-error").textContent.includes("Could not read"), "file read failure was not atomic");
++
++    // Imported markup is text, not active HTML; prototype-like IDs are safe.
++    const hostile = '<img src=x onerror="window.injected=true">';
++    paste(JSON.stringify([{ id: "__proto__", title: hostile, extra: "</textarea>" }]));
++    check($("record-title").textContent === hostile && !$("record-title").querySelector("img"), "title rendered as HTML");
++    check(!window.injected, "imported markup executed");
++    decision("follow-up");
++    fire("notes", "Safe notes ✓");
++    check(JSON.parse(snapshot()).reviews.__proto__.notes === "Safe notes ✓", "special ID failed in browser");
++    paste("[]");
++    check($("record-editor").hidden && $("count-progress").textContent === "0 / 0", "valid empty import left stale data");
++    check(JSON.parse(snapshot()).records.length === 0, "empty export invalid");
++    check(performance.getEntriesByType("resource").length === 0, "app made resource requests");
++    finish("PASS sandbox");
++  } catch (error) { finish("FAIL " + error.message + "\n" + error.stack); }
++}
++
++for (const mode of ["sandbox", "reload", "corrupt", "quota"]) {
++  test("browser: " + mode, { skip: !browser && "Set RECORD_REVIEW_BROWSER to an existing Chromium executable", timeout: 30000 }, async () => {
++    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "record-review-browser-"));
++    try {
++      let html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
++      let setup = "";
++      if (mode === "corrupt") setup = 'localStorage.setItem("record-review:v1", "{corrupt");';
++      if (mode === "quota") setup = 'localStorage.setItem("record-review:v1", JSON.stringify({format:"record-review",version:1,records:[{id:"a",title:"Stored"}],reviews:{a:{decision:"unreviewed",notes:""}}})); Storage.prototype.setItem = function () { throw new DOMException("Full", "QuotaExceededError"); };';
++      html = html.replace("<script>", "<script>" + setup + "</script><script>");
++      html = html.replace("</body>", "<script>(" + exercise.toString() + ")(" + JSON.stringify(mode) + ");</script></body>");
++      if (mode === "sandbox") {
++        const escaped = html.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
++        html = '<!doctype html><html><body><pre id="result">WAITING</pre><script>addEventListener("message", event => { if (event.source === document.querySelector("iframe").contentWindow && event.data.recordReviewTest) window.reportReviewTest(event.data.recordReviewTest); });</script><iframe sandbox="allow-scripts" srcdoc="' + escaped + '"></iframe></body></html>';
++      }
++      const file = path.join(directory, "test.html");
++      fs.writeFileSync(file, html);
++      const args = ["--headless", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--user-data-dir=" + path.join(directory, "profile"), "--disable-component-update"];
++      // Opt in only for an already-isolated container without Chromium OS sandbox
++      // support. This never changes the Files preview or iframe permissions.
++      if (process.env.RECORD_REVIEW_BROWSER_NO_SANDBOX === "1") args.unshift("--no-sandbox");
++      const result = await runBrowser(args, directory, pathToFileURL(file).href);
++      assert.equal(result, "PASS " + mode, "Browser result: " + result);
++    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
++  });
++}
+diff --git a/review-state.js b/review-state.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..1889d8670b1452a2c125c845f1848102527018d4
+--- /dev/null
++++ b/review-state.js
+@@ -0,0 +1,123 @@
++/* Shared by the offline browser app and Node's built-in tests. */
++(function (root, factory) {
++  "use strict";
++  const api = factory();
++  if (typeof module === "object" && module.exports) module.exports = api;
++  else root.RecordReview = api;
++})(typeof globalThis === "object" ? globalThis : this, function () {
++  "use strict";
++  const FORMAT = "record-review";
++  const VERSION = 1;
++  const STORAGE_KEY = "record-review:v1";
++  const DECISIONS = Object.freeze(["unreviewed", "approved", "rejected", "follow-up"]);
++  const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
++  const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
++  const blankReview = () => ({ decision: "unreviewed", notes: "" });
++  const emptyState = () => ({ format: FORMAT, version: VERSION, records: [], reviews: {} });
++
++  function validateRecords(records) {
++    if (!Array.isArray(records)) throw new Error("Records must be a JSON array.");
++    const ids = new Set();
++    records.forEach((record, index) => {
++      const position = "Record " + (index + 1);
++      if (!object(record)) throw new Error(position + " must be an object.");
++      if (typeof record.id !== "string" || !record.id.trim()) {
++        throw new Error(position + " needs a non-empty string id (convert numeric IDs to strings).");
++      }
++      if (typeof record.title !== "string" || !record.title.trim()) {
++        throw new Error(position + " needs a non-empty string title.");
++      }
++      if (ids.has(record.id)) throw new Error(position + " repeats id " + JSON.stringify(record.id) + ".");
++      ids.add(record.id);
++    });
++    return ids;
++  }
++
++  function validateSnapshot(value) {
++    if (!object(value) || value.format !== FORMAT || value.version !== VERSION) {
++      throw new Error('Expected a records array or a version 1 "record-review" export.');
++    }
++    const ids = validateRecords(value.records);
++    if (!object(value.reviews)) throw new Error("Export reviews must be an object keyed by record ID.");
++    if (Object.keys(value.reviews).length !== ids.size) {
++      throw new Error("Export must contain exactly one review for every record.");
++    }
++    for (const [id, review] of Object.entries(value.reviews)) {
++      if (!ids.has(id)) throw new Error("Export contains a review for unknown id " + JSON.stringify(id) + ".");
++      if (!object(review) || !DECISIONS.includes(review.decision) || typeof review.notes !== "string") {
++        throw new Error("Invalid decision or notes for id " + JSON.stringify(id) + ".");
++      }
++    }
++    return {
++      format: FORMAT, version: VERSION, records: value.records,
++      reviews: Object.fromEntries(value.records.map(({ id }) => [id, {
++        decision: value.reviews[id].decision, notes: value.reviews[id].notes,
++      }])),
++    };
++  }
++
++  function parseJSON(text) {
++    if (typeof text !== "string" || !text.trim()) throw new Error("Choose a JSON file or paste JSON first.");
++    try { return JSON.parse(text.replace(/^\uFEFF/, "")); }
++    catch { throw new Error("Invalid JSON. Check commas, quotes, and brackets. Nothing was replaced."); }
++  }
++
++  // Pure transaction: finish all validation before returning a replacement.
++  // Raw datasets preserve reviews by exact ID; exports restore an exact snapshot.
++  function importJSON(text, previous = emptyState()) {
++    const value = parseJSON(text);
++    if (!Array.isArray(value)) return validateSnapshot(value);
++    validateRecords(value);
++    return {
++      format: FORMAT, version: VERSION, records: value,
++      reviews: Object.fromEntries(value.map(({ id }) => [id, own(previous.reviews, id)
++        ? { ...previous.reviews[id] } : blankReview()])),
++    };
++  }
++
++  function updateReview(state, id, patch) {
++    if (!own(state.reviews, id)) throw new Error("This record is not in the accepted dataset.");
++    const review = { ...state.reviews[id], ...patch };
++    if (!DECISIONS.includes(review.decision) || typeof review.notes !== "string") {
++      throw new Error("Choose a valid decision and use text for notes.");
++    }
++    return { ...state, reviews: { ...state.reviews, [id]: { decision: review.decision, notes: review.notes } } };
++  }
++
++  function visibleRecords(state, query = "", decision = "all") {
++    const needle = query.trim().toLowerCase();
++    return state.records.filter(record =>
++      (decision === "all" || state.reviews[record.id].decision === decision) &&
++      (!needle || (record.id + "\n" + record.title).toLowerCase().includes(needle)));
++  }
++
++  function counts(state) {
++    const result = Object.fromEntries(DECISIONS.map(decision => [decision, 0]));
++    for (const review of Object.values(state.reviews)) result[review.decision]++;
++    return { ...result, total: state.records.length, reviewed: state.records.length - result.unreviewed };
++  }
++
++  function exportJSON(state) { return JSON.stringify(validateSnapshot(state), null, 2); }
++
++  // The getter itself can throw in an opaque-origin iframe, before getItem runs.
++  function restore(getStorage) {
++    let text;
++    try { text = getStorage().getItem(STORAGE_KEY); }
++    catch { return { status: "unavailable", state: null }; }
++    if (text === null) return { status: "empty", state: null };
++    try { return { status: "restored", state: validateSnapshot(JSON.parse(text)) }; }
++    catch { return { status: "invalid", state: null }; }
++  }
++
++  function persist(getStorage, state) {
++    try {
++      getStorage().setItem(STORAGE_KEY, exportJSON(state));
++      return true;
++    } catch { return false; }
++  }
++
++  return Object.freeze({
++    FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON,
++    updateReview, visibleRecords, counts, exportJSON, restore, persist,
++  });
++});
+diff --git a/review-state.test.js b/review-state.test.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..b7fa943ada33029791ec98b4d7730b6de78f2afc
+--- /dev/null
++++ b/review-state.test.js
+@@ -0,0 +1,153 @@
++"use strict";
++
++const test = require("node:test");
++const assert = require("node:assert/strict");
++const fs = require("node:fs");
++const path = require("node:path");
++const vm = require("node:vm");
++const R = require("./review-state.js");
++const { build } = require("./build-review.js");
++
++const records = [{ id: "a", title: "Alpha", payload: { count: 3 } }, { id: "b", title: "Beta" }];
++const initial = () => R.importJSON(JSON.stringify(records));
++const reviewed = () => R.updateReview(initial(), "a", { decision: "approved", notes: "Checked ✓\nKeep this." });
++function freeze(value) {
++  Object.freeze(value);
++  for (const child of Object.values(value)) if (child && typeof child === "object") freeze(child);
++  return value;
++}
++
++test("raw import retains arbitrary JSON fields and creates independent blank reviews", () => {
++  const state = initial();
++  assert.deepEqual(state.records, records);
++  assert.deepEqual(state.reviews.a, { decision: "unreviewed", notes: "" });
++  assert.notEqual(state.reviews.a, state.reviews.b);
++  assert.deepEqual(R.importJSON("\uFEFF" + JSON.stringify(records)), state);
++});
++
++const invalidImports = [
++  "", " ", "{bad json", "null", "true", "42", '"text"', "{}", '{"records":[]}',
++  "[null]", "[[]]", '[{"id":1,"title":"Numeric ID"}]',
++  '[{"id":" ","title":"Empty ID"}]', '[{"title":"Missing ID"}]',
++  '[{"id":"a"}]', '[{"id":"a","title":" "}]', '[{"id":"a","title":3}]',
++  '[{"id":"a","title":"Valid first"},{"id":"a","title":"Late duplicate"}]',
++  '[{"id":"a","title":"Valid first"},{"id":"b","title":null}]',
++];
++for (const input of invalidImports) test("invalid import is atomic: " + input.slice(0, 70), () => {
++  const previous = freeze(reviewed());
++  const before = R.exportJSON(previous);
++  assert.throws(() => R.importJSON(input, previous));
++  assert.equal(R.exportJSON(previous), before);
++});
++
++test("reimport/reorder preserves exact matching IDs, not position or title", () => {
++  const previous = freeze(reviewed());
++  const next = R.importJSON(JSON.stringify([
++    { id: "b", title: "Now first" }, { id: "a", title: "Renamed" }, { id: "c", title: "New" },
++  ]), previous);
++  assert.deepEqual(next.reviews.a, previous.reviews.a);
++  assert.notEqual(next.reviews.a, previous.reviews.a);
++  assert.equal(next.reviews.b.decision, "unreviewed");
++  assert.equal(next.reviews.c.notes, "");
++  assert.equal(next.records[1].title, "Renamed");
++  const replaced = R.importJSON('[{"id":"A","title":"Case differs"}]', previous);
++  assert.deepEqual(Object.keys(replaced.reviews), ["A"]);
++  assert.equal(replaced.reviews.A.decision, "unreviewed");
++  assert.deepEqual(R.importJSON("[]", previous), R.emptyState());
++});
++
++test("prototype-like IDs are ordinary keys, never inherited reviews", () => {
++  const state = R.importJSON(JSON.stringify(["__proto__", "constructor", "toString", "hasOwnProperty"].map(id => ({ id, title: id }))));
++  assert.equal(Object.keys(state.reviews).length, 4);
++  assert.equal(Object.getPrototypeOf(state.reviews), Object.prototype);
++  const next = R.updateReview(state, "__proto__", { decision: "follow-up", notes: "Safe" });
++  assert.deepEqual(R.importJSON(R.exportJSON(next)), next);
++  assert.equal({}.decision, undefined);
++});
++
++test("all decisions and notes update immutably, including return to unreviewed", () => {
++  const previous = freeze(reviewed());
++  for (const decision of R.DECISIONS) {
++    const next = R.updateReview(previous, "a", { decision, notes: "" });
++    assert.equal(next.reviews.a.decision, decision);
++    assert.equal(next.reviews.a.notes, "");
++    assert.equal(previous.reviews.a.decision, "approved");
++  }
++  for (const patch of [{ decision: "unknown" }, { notes: null }]) assert.throws(() => R.updateReview(previous, "a", patch));
++  assert.throws(() => R.updateReview(previous, "missing", { notes: "lost" }));
++});
++
++test("search and decision filters compose without mutating reviews", () => {
++  const state = freeze(reviewed());
++  assert.deepEqual(R.visibleRecords(state, " ALPHA ", "approved").map(r => r.id), ["a"]);
++  assert.deepEqual(R.visibleRecords(state, "B", "unreviewed").map(r => r.id), ["b"]);
++  assert.equal(R.visibleRecords(state, "alpha", "rejected").length, 0);
++  assert.equal(R.visibleRecords(state, "no match").length, 0);
++  assert.deepEqual(R.counts(state), { unreviewed: 1, approved: 1, rejected: 0, "follow-up": 0, total: 2, reviewed: 1 });
++  assert.equal(R.counts(R.emptyState()).reviewed, 0);
++});
++
++test("exports round-trip full data and replace rather than merge review snapshots", () => {
++  const snapshot = reviewed();
++  const competing = R.updateReview(snapshot, "b", { decision: "rejected", notes: "Not in backup" });
++  assert.deepEqual(R.importJSON(R.exportJSON(snapshot), competing), snapshot);
++  const special = R.importJSON('[{"id":"x","title":"<img src=x onerror=alert(1)>","extra":[null,true,"雪"]}]');
++  const withNotes = R.updateReview(special, "x", { notes: "quotes: \" and newline\n</textarea>" });
++  assert.deepEqual(R.importJSON(R.exportJSON(withNotes)), withNotes);
++});
++
++test("invalid snapshots never partially replace accepted state", () => {
++  const previous = freeze(reviewed());
++  const before = R.exportJSON(previous);
++  const mutations = [
++    value => { value.version = 2; },
++    value => { value.format = "other"; },
++    value => { value.reviews.a.decision = "maybe"; },
++    value => { value.reviews.a.notes = 1; },
++    value => { value.reviews.a = null; },
++    value => { delete value.reviews.b; },
++    value => { value.reviews.unknown = value.reviews.b; delete value.reviews.b; },
++    value => { value.reviews = []; },
++    value => { value.records.push(value.records[0]); },
++  ];
++  for (const mutate of mutations) {
++    const invalid = JSON.parse(before);
++    mutate(invalid);
++    assert.throws(() => R.importJSON(JSON.stringify(invalid), previous));
++    assert.equal(R.exportJSON(previous), before);
++  }
++});
++
++test("storage restore and save use a versioned key and preserve the full snapshot", () => {
++  const map = new Map();
++  const storage = { getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) };
++  assert.deepEqual(R.restore(() => storage), { status: "empty", state: null });
++  assert.equal(R.persist(() => storage, reviewed()), true);
++  assert.deepEqual([...map.keys()], [R.STORAGE_KEY]);
++  assert.deepEqual(R.restore(() => storage), { status: "restored", state: reviewed() });
++});
++
++test("blocked getters, denied reads, quota failures, and corrupt saves are safe", () => {
++  const denied = () => { throw new Error("SecurityError"); };
++  assert.deepEqual(R.restore(denied), { status: "unavailable", state: null });
++  assert.equal(R.persist(denied, reviewed()), false);
++  assert.equal(R.restore(() => ({ getItem: denied })).status, "unavailable");
++  const previous = reviewed();
++  const before = R.exportJSON(previous);
++  assert.equal(R.persist(() => ({ setItem: denied }), previous), false);
++  assert.equal(R.exportJSON(previous), before);
++  let writes = 0;
++  for (const text of ["{broken", "null", "[]", '{"format":"record-review","version":99}', '{"format":"record-review","version":1,"records":[],"reviews":{"ghost":{}}}']) {
++    assert.deepEqual(R.restore(() => ({ getItem: () => text, setItem: () => writes++ })), { status: "invalid", state: null });
++  }
++  assert.equal(writes, 0);
++});
++
++test("shipped preview is fresh, self-contained, and its actual scripts parse", () => {
++  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
++  assert.equal(html, build());
++  assert.doesNotMatch(html, /<script[^>]+src=|<link[^>]+href=|@import|\bfetch\s*\(|XMLHttpRequest/);
++  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
++  assert.equal(scripts.length, 2);
++  for (const [, source] of scripts) new vm.Script(source);
++});
+diff --git a/review-template.html b/review-template.html
+new file mode 100644
+index 0000000000000000000000000000000000000000..781274e5114edc48dad14595efd1bb39c482dc43
+--- /dev/null
++++ b/review-template.html
+@@ -0,0 +1,150 @@
++<!doctype html>
++<html lang="en">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
++  <meta name="color-scheme" content="light">
++  <title>Record Desk — offline JSON review</title>
++  <style>
++    :root { font-family: system-ui, -apple-system, sans-serif; color: #203335; background: #f4f6f3; line-height: 1.5; }
++    * { box-sizing: border-box; }
++    body { margin: 0; }
++    button, input, select, textarea { font: inherit; }
++    button, summary, select { cursor: pointer; }
++    button { padding: .65rem 1rem; border: 1px solid #b6c6c3; border-radius: 7px; background: white; color: #203335; }
++    button:hover { background: #e9f1ee; border-color: #537c73; }
++    button.primary { background: #176856; color: white; border-color: #176856; }
++    button.primary:hover { background: #115344; }
++    :focus-visible { outline: 3px solid #b76c20; outline-offset: 3px; }
++    input, select, textarea { width: 100%; border: 1px solid #aebfba; border-radius: 6px; padding: .65rem; background: white; color: #203335; }
++    textarea { resize: vertical; }
++    label, legend { font-size: .85rem; font-weight: 650; }
++    label { display: block; margin-bottom: .35rem; }
++    h1, h2, p { margin: 0; }
++    h1 { font-size: 1.8rem; letter-spacing: -.055rem; }
++    h2 { font-size: 1.2rem; }
++    .shell { max-width: 1240px; margin: auto; padding: 2rem; }
++    .topbar, .row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
++    .topbar { justify-content: space-between; margin-bottom: 1.5rem; }
++    .eyebrow { color: #316e60; text-transform: uppercase; letter-spacing: .14em; font-size: .72rem; font-weight: 750; }
++    .muted, .hint { color: #536762; }
++    .hint { font-size: .85rem; margin-top: .5rem; }
++    .pill { border: 1px solid #bfd1c9; border-radius: 99px; padding: .2rem .7rem; font-size: .75rem; color: #316e60; background: #edf5ef; }
++    .notice { padding: .8rem 1rem; border-left: 3px solid #bd863d; border-radius: 4px; background: #fff5e5; font-size: .85rem; margin-bottom: 1rem; }
++    .notice.saved { border-color: #28795f; background: #e9f4ec; }
++    .panel { border: 1px solid #d2ded7; border-radius: 10px; background: white; }
++    details.panel { padding: .9rem 1.1rem; margin-bottom: 1rem; }
++    summary { font-weight: 650; }
++    .import-grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 1.5rem; margin-top: 1rem; }
++    .import-grid p { margin-bottom: 1rem; }
++    .actions { margin-top: .7rem; }
++    .message { min-height: 1.6rem; margin: .5rem 0; font-size: .9rem; overflow-wrap: anywhere; }
++    #import-error { color: #a02920; }
++    .overview { display: grid; grid-template-columns: minmax(160px, 1.2fr) repeat(3, 1fr); gap: 1rem; margin: 1.25rem 0; }
++    .stat { padding: 1rem 1.1rem; }
++    .stat strong { display: block; font-size: 1.7rem; line-height: 1.2; }
++    .stat span { font-size: .8rem; color: #536762; }
++    progress { width: 100%; height: 7px; accent-color: #176856; display: block; margin-top: .55rem; }
++    .workspace { display: grid; grid-template-columns: minmax(270px, .8fr) minmax(0, 1.6fr); min-height: 480px; overflow: hidden; }
++    .sidebar { border-right: 1px solid #d2ded7; padding: 1.1rem; min-width: 0; background: #fbfcfa; }
++    .filters { display: grid; gap: .7rem; }
++    #record-list { display: grid; gap: .45rem; list-style: none; padding: 0; margin: .75rem 0 0; max-height: 520px; overflow: auto; }
++    .record { width: 100%; text-align: left; display: block; padding: .7rem .8rem; }
++    .record[aria-current="true"] { background: #e8f3ed; border-color: #438570; box-shadow: inset 3px 0 #176856; }
++    .record strong, .record small { display: block; overflow-wrap: anywhere; }
++    .record small { color: #536762; margin-top: .2rem; }
++    .editor { padding: 1.5rem; min-width: 0; }
++    #record-id { font-family: ui-monospace, monospace; font-size: .8rem; color: #537268; margin-bottom: .35rem; overflow-wrap: anywhere; }
++    #record-title { overflow-wrap: anywhere; }
++    fieldset { border: 0; padding: 0; margin: 1.5rem 0; }
++    legend { padding: 0; margin-bottom: .5rem; }
++    .decisions { display: flex; flex-wrap: wrap; gap: .5rem; }
++    .decisions button[aria-pressed="true"] { background: #176856; border-color: #176856; color: white; }
++    #record-details { margin-top: 1.2rem; }
++    pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; background: #f3f6f3; border-radius: 6px; padding: 1rem; max-height: 320px; overflow: auto; }
++    .empty { padding: 3rem 1rem; text-align: center; color: #536762; }
++    .empty h2 { color: #203335; margin-bottom: .5rem; }
++    #export-panel { margin-top: 1rem; }
++    #export-json, #paste-json { font-family: ui-monospace, monospace; font-size: .85rem; }
++    footer { margin-top: 1.3rem; font-size: .8rem; color: #536762; }
++    [hidden] { display: none !important; }
++    @media (max-width: 720px) {
++      .shell { padding: 1rem; }
++      .import-grid, .workspace { grid-template-columns: 1fr; }
++      .overview { grid-template-columns: repeat(2, 1fr); gap: .6rem; }
++      .sidebar { border-right: 0; border-bottom: 1px solid #d2ded7; }
++      #record-list { max-height: 250px; }
++      .editor { padding: 1.1rem; }
++    }
++  </style>
++</head>
++<body>
++<main class="shell">
++  <header class="topbar">
++    <div><div class="eyebrow">A little clarity for your data</div><h1>Record Desk</h1><p class="muted">Import. Decide. Leave a useful note.</p></div>
++    <div class="row"><span class="pill">Offline · no uploads</span><button type="button" id="export-open" class="primary">Export review</button></div>
++  </header>
++  <noscript><p class="notice">JavaScript is needed to review records. Open this HTML file in a browser with JavaScript enabled.</p></noscript>
++  <p id="storage-status" class="notice" role="status" aria-live="polite">Checking browser storage…</p>
++  <details class="panel" id="import-panel" open>
++    <summary>Import records or restore a review</summary>
++    <div class="import-grid">
++      <section aria-label="File import">
++        <p class="hint">Use a JSON array with a unique, non-empty string <strong>id</strong> and <strong>title</strong> on each record. Extra fields are kept. Or import a Record Desk export.</p>
++        <label for="file-input">Choose JSON file</label>
++        <input id="file-input" type="file" accept=".json,application/json" aria-describedby="import-policy">
++        <div class="actions"><button type="button" id="sample">Try sample records</button></div>
++      </section>
++      <section aria-label="Paste import">
++        <label for="paste-json">Or paste JSON</label>
++        <textarea id="paste-json" rows="4" spellcheck="false" placeholder='[{"id":"R-101","title":"Check delivery address"}]' aria-describedby="import-policy"></textarea>
++        <div class="actions"><button type="button" id="import-paste" class="primary">Import &amp; replace</button></div>
++      </section>
++    </div>
++    <p class="hint" id="import-policy">All import actions replace the list. Record arrays keep decisions and notes for matching IDs; omitted IDs are removed. Review exports restore their exact state. Export first to keep a backup. Invalid imports change nothing.</p>
++    <p id="import-error" class="message" role="alert"></p>
++  </details>
++  <p id="activity" class="message" role="status" aria-live="polite"></p>
++  <section class="overview" aria-label="Review totals">
++    <div class="stat panel"><strong id="count-progress">0 / 0</strong><span>records reviewed</span><progress id="review-progress" max="1" value="0" aria-label="Records reviewed"></progress></div>
++    <div class="stat panel"><strong id="count-approved">0</strong><span>Approved</span></div>
++    <div class="stat panel"><strong id="count-rejected">0</strong><span>Rejected</span></div>
++    <div class="stat panel"><strong id="count-follow-up">0</strong><span>Needs follow-up</span></div>
++  </section>
++  <section class="workspace panel" aria-label="Review workspace">
++    <aside class="sidebar">
++      <div class="filters">
++        <div><label for="search">Search by title or ID</label><input id="search" type="search" placeholder="Find a record…" autocomplete="off"></div>
++        <div><label for="filter">Decision</label><select id="filter"><option value="all">All records</option><option value="unreviewed">Unreviewed</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="follow-up">Needs follow-up</option></select></div>
++      </div>
++      <p id="list-count" class="hint" aria-live="polite">0 records</p>
++      <ul id="record-list" aria-label="Records"></ul>
++    </aside>
++    <section class="editor" aria-label="Selected record">
++      <div id="empty" class="empty"><h2>Your next review starts here</h2><p>Import JSON above, or try the sample records.</p></div>
++      <div id="record-editor" hidden>
++        <p id="record-id"></p><h2 id="record-title"></h2>
++        <fieldset><legend>Review decision</legend><div class="decisions">
++          <button type="button" data-decision="unreviewed" aria-pressed="false">Unreviewed</button>
++          <button type="button" data-decision="approved" aria-pressed="false">Approve</button>
++          <button type="button" data-decision="rejected" aria-pressed="false">Reject</button>
++          <button type="button" data-decision="follow-up" aria-pressed="false">Needs follow-up</button>
++        </div></fieldset>
++        <label for="notes">Review notes</label><textarea id="notes" rows="5" placeholder="What should the next person know?" aria-describedby="notes-hint"></textarea>
++        <p class="hint" id="notes-hint">Changes apply as you type. Check the storage notice before closing this page.</p>
++        <details id="record-details"><summary>Original record · all fields</summary><pre id="record-json"></pre></details>
++      </div>
++    </section>
++  </section>
++  <details class="panel" id="export-panel">
++    <summary>Portable review JSON</summary>
++    <p class="hint">Includes every record, decision, and note—not just filtered results. Re-import it to restore this review.</p>
++    <div class="row actions"><button type="button" id="download">Try download JSON</button><button type="button" id="select-export">Select JSON to copy</button></div>
++    <p id="download-status" class="message" role="status">The embedded Files preview may block downloads silently. If no file appears, select the JSON below, copy it with Ctrl/Cmd+C, and save it in a text file.</p>
++    <label for="export-json">Review export (read-only)</label><textarea id="export-json" rows="10" readonly spellcheck="false"></textarea>
++  </details>
++  <footer>No network requests, accounts, or external assets. Browser storage is a convenience, not a backup. Keep an export before closing an embedded preview.</footer>
++</main>
++<!-- REVIEW_SCRIPTS -->
++</body>
++</html>

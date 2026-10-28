@@ -1,0 +1,169 @@
+{
+  "pullRequestUrl": "https://github.com/shakkernerd/openclaw-guest-pr-demo/pull/18",
+  "sourceCommit": "c4703c5f842d58678fc14b465121fd6fa10c6ca3",
+  "sourceRevisionPublished": false,
+  "bodyEdited": false,
+  "publicAccess": "unverified; body association deliberately deferred at requester direction",
+  "receipts": [
+    {
+      "name": "01-baseline-existing-readme.png",
+      "receipt": {
+        "publication": {
+          "requestId": "9b51554c-6542-4bd2-8291-6227d953503e",
+          "publisher": {
+            "source": "system-configured",
+            "accountId": 165377636,
+            "login": "shakkernerd"
+          },
+          "status": "published",
+          "url": "https://github.com/shakkernerd/openclaw-guest-pr-demo/pull/18",
+          "repository": "shakkernerd/openclaw-guest-pr-demo",
+          "branch": "openclaw/d1-1028-g1-record-review",
+          "headCommit": "9f993f29b6136bdecbff3d2849ebf5a36605addd"
+        },
+        "publishingSessionKey": "agent:main:dashboard:8b5d710c-43ae-43fa-84e2-abaf189afbeb",
+        "state": "open",
+        "headCommit": "9f993f29b6136bdecbff3d2849ebf5a36605addd",
+        "mergeCommit": null,
+        "mergeable": true,
+        "mergeState": "clean",
+        "evidence": {
+          "status": "uploaded",
+          "url": "https://github.com/user-attachments/assets/717a388c-bded-4146-ac48-d4d6e7b06749",
+          "sha256": "6ef8ad2a9e938f448034f450a8109f821a1338c951453d2205c49d54b951c1ca",
+          "sizeBytes": 40555,
+          "mimeType": "image/png",
+          "publicAccess": "unverified"
+        }
+      }
+    },
+    {
+      "name": "23b-export-selection-before-panel.png",
+      "receipt": {
+        "publication": {
+          "requestId": "9b51554c-6542-4bd2-8291-6227d953503e",
+          "publisher": {
+            "source": "system-configured",
+            "accountId": 165377636,
+            "login": "shakkernerd"
+          },
+          "status": "published",
+          "url": "https://github.com/shakkernerd/openclaw-guest-pr-demo/pull/18",
+          "repository": "shakkernerd/openclaw-guest-pr-demo",
+          "branch": "openclaw/d1-1028-g1-record-review",
+          "headCommit": "9f993f29b6136bdecbff3d2849ebf5a36605addd"
+        },
+        "publishingSessionKey": "agent:main:dashboard:8b5d710c-43ae-43fa-84e2-abaf189afbeb",
+        "state": "open",
+        "headCommit": "9f993f29b6136bdecbff3d2849ebf5a36605addd",
+        "mergeCommit": null,
+        "mergeable": true,
+        "mergeState": "clean",
+        "evidence": {
+          "status": "uploaded",
+          "url": "https://github.com/user-attachments/assets/c4719ddd-31d5-4293-b229-bf29150104aa",
+          "sha256": "34288171a5f90f713f47a7fb15e61851f05129365afe81b67727e14a06e45840",
+          "sizeBytes": 48477,
+          "mimeType": "image/png",
+          "publicAccess": "unverified"
+        }
+      }
+    },
+    {
+      "name": "24-export-selection-after-panel.png",
+      "receipt": {
+        "publication": {
+          "requestId": "9b51554c-6542-4bd2-8291-6227d953503e",
+          "publisher": {
+            "source": "system-configured",
+            "accountId": 165377636,
+            "login": "shakkernerd"
+          },
+          "status": "published",
+          "url": "https://github.com/shakkernerd/openclaw-guest-pr-demo/pull/18",
+          "repository": "shakkernerd/openclaw-guest-pr-demo",
+          "branch": "openclaw/d1-1028-g1-record-review",
+          "headCommit": "9f993f29b6136bdecbff3d2849ebf5a36605addd"
+        },
+        "publishingSessionKey": "agent:main:dashboard:8b5d710c-43ae-43fa-84e2-abaf189afbeb",
+        "state": "open",
+        "headCommit": "9f993f29b6136bdecbff3d2849ebf5a36605addd",
+        "mergeCommit": null,
+        "mergeable": true,
+        "mergeState": "clean",
+        "evidence": {
+          "status": "uploaded",
+          "url": "https://github.com/user-attachments/assets/de7a0f62-34c3-40ef-a149-37a21577cfb6",
+          "sha256": "3ba3f7366c144638c60318210e99ae90a5dc559b0810397c35d959aeff99e8af",
+          "sizeBytes": 49739,
+          "mimeType": "image/png",
+          "publicAccess": "unverified"
+        }
+      }
+    },
+    {
+      "name": "25-record-desk-complete.png",
+      "receipt": {
+        "publication": {
+          "requestId": "9b51554c-6542-4bd2-8291-6227d953503e",
+          "publisher": {
+            "source": "system-configured",
+            "accountId": 165377636,
+            "login": "shakkernerd"
+          },
+          "status": "published",
+          "url": "https://github.com/shakkernerd/openclaw-guest-pr-demo/pull/18",
+          "repository": "shakkernerd/openclaw-guest-pr-demo",
+          "branch": "openclaw/d1-1028-g1-record-review",
+          "headCommit": "9f993f29b6136bdecbff3d2849ebf5a36605addd"
+        },
+        "publishingSessionKey": "agent:main:dashboard:8b5d710c-43ae-43fa-84e2-abaf189afbeb",
+        "state": "open",
+        "headCommit": "9f993f29b6136bdecbff3d2849ebf5a36605addd",
+        "mergeCommit": null,
+        "mergeable": true,
+        "mergeState": "clean",
+        "evidence": {
+          "status": "uploaded",
+          "url": "https://github.com/user-attachments/assets/2bdb8479-f347-4667-b769-67816fb76a51",
+          "sha256": "465cbb39016904f6c5b427564ec682e7aab9a181b827f38d30e5fb204e942b6c",
+          "sizeBytes": 120130,
+          "mimeType": "image/png",
+          "publicAccess": "unverified"
+        }
+      }
+    },
+    {
+      "name": "26-complete-pointer-workflow.mp4",
+      "receipt": {
+        "publication": {
+          "requestId": "9b51554c-6542-4bd2-8291-6227d953503e",
+          "publisher": {
+            "source": "system-configured",
+            "accountId": 165377636,
+            "login": "shakkernerd"
+          },
+          "status": "published",
+          "url": "https://github.com/shakkernerd/openclaw-guest-pr-demo/pull/18",
+          "repository": "shakkernerd/openclaw-guest-pr-demo",
+          "branch": "openclaw/d1-1028-g1-record-review",
+          "headCommit": "9f993f29b6136bdecbff3d2849ebf5a36605addd"
+        },
+        "publishingSessionKey": "agent:main:dashboard:8b5d710c-43ae-43fa-84e2-abaf189afbeb",
+        "state": "open",
+        "headCommit": "9f993f29b6136bdecbff3d2849ebf5a36605addd",
+        "mergeCommit": null,
+        "mergeable": true,
+        "mergeState": "clean",
+        "evidence": {
+          "status": "uploaded",
+          "url": "https://github.com/user-attachments/assets/22fa7cdc-da70-4abd-a03e-3584e17da2e6",
+          "sha256": "729a3db2ea99124c53aaa61d9cf49b918e498869fb90808e854a9aa9e3e22613",
+          "sizeBytes": 319050,
+          "mimeType": "video/mp4",
+          "publicAccess": "unverified"
+        }
+      }
+    }
+  ]
+}

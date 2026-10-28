@@ -33,7 +33,17 @@ four-record walkthrough.
 
 2. Select a record; mark it **Approve**, **Reject**, **Needs follow-up**, or return
    it to **Unreviewed**. Notes apply as you type. Expand **Original record** to see
-   every field. Search title/ID (case-insensitive) and filter by decision.
+   every field. Search titles, IDs, and review notes (case-insensitive), combined
+   with the selected decision filter. For example, `signed count` finds a record
+   with the review note `Inventory matches the signed count.`. Leaving the notes
+   field refreshes the matching list/count without interrupting typing. If that
+   note no longer matches, the same record stays open with a notice; subsequent
+   edits still belong to it, not another matching record. All buttons and
+   disclosure summaries share one note-exit path: the completed click finishes
+   the note before the action, so targets cannot shift away between pointer
+   press and release. This includes record selection, decisions, export/copy,
+   download, and record details. Dragging off cancels the action; keyboard focus
+   changes still refresh immediately.
 3. Use **Export review** for a versioned JSON snapshot containing **all** records,
    decisions, and notes, regardless of filters. Download it or select/copy the
    JSON into a UTF-8 text file. Import that export to restore the exact snapshot.
@@ -90,8 +100,8 @@ git diff --check
 
 The existing parcel helper and its three tests are unchanged. The additional
 Node checks cover atomic rejection, stable-ID reconciliation, special object-key
-IDs, decisions, search/filter composition, export round trips, corrupt/blocked
-storage, and freshness of the shipped preview.
+IDs, decisions, title/ID/notes search with decision filters, export round trips,
+corrupt/blocked storage, and freshness of the shipped preview.
 
 Optional real-browser checks use an **already installed** Chromium, with no test
 framework or downloads:
@@ -100,11 +110,15 @@ framework or downloads:
 RECORD_REVIEW_BROWSER=/path/to/chromium node --test
 ```
 
-Without that variable, four browser scenarios are explicitly skipped. With it,
+Without that variable, ten browser scenarios are explicitly skipped. With it,
 they exercise the actual HTML in an opaque-origin `sandbox="allow-scripts"`
 iframe, actual file input, overlapping/read-failed imports, safe text rendering,
-manual export, silent/throwing download limitations, storage restoration across
-a real reload, corrupt saves, and quota failures. Only in an already-isolated
+note-finish list/count refresh without changing the edited record or caret,
+actual pointer down/up on record, decision, export/copy, download, and disclosure
+controls (including drag-away cancellation and subsequent keyboard blur), manual
+export, silent/throwing download limitations, storage restoration across a real
+reload, corrupt saves, and quota failures. The pointer download check inspects
+the requested JSON blob, not a confirmed disk save. Only in an already-isolated
 container without Chromium OS-sandbox support, add
 `RECORD_REVIEW_BROWSER_NO_SANDBOX=1` to the test command. This affects the test
 browser process only, never the Files preview or iframe permissions.

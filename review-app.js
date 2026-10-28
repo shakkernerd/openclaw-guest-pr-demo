@@ -25,6 +25,43 @@
     if ($("export-panel").open) updateExport();
   }
 
+  // Reuse matching buttons so a note blur cannot remove a pending click target.
+  const listItems = new Map();
+  function renderList(visible) {
+    const visibleIds = new Set(visible.map(record => record.id));
+    for (const [id, item] of listItems) {
+      if (!visibleIds.has(id)) { item.remove(); listItems.delete(id); }
+    }
+    const list = $("record-list");
+    $("list-count").textContent = visible.length + " of " + state.records.length + " records";
+    visible.forEach((record, index) => {
+      let item = listItems.get(record.id);
+      if (!item) {
+        item = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "record";
+        button.append(document.createElement("strong"), document.createElement("small"));
+        button.addEventListener("click", () => {
+          if (selectedId === record.id) return; // Blur may remove this current row.
+          selectedId = record.id;
+          render();
+          button.focus({ preventScroll: true });
+        });
+        item.append(button);
+        listItems.set(record.id, item);
+      }
+      const button = item.firstElementChild;
+      button.setAttribute("aria-current", String(record.id === selectedId));
+      button.querySelector("strong").textContent = record.title;
+      button.querySelector("small").textContent = record.id + " · " + labels[state.reviews[record.id].decision];
+      if (list.children[index] !== item) list.insertBefore(item, list.children[index] || null);
+    });
+    const outsideResults = selectedId !== null && !visibleIds.has(selectedId);
+    $("selection-status").hidden = !outsideResults;
+    $("selection-status").textContent = outsideResults ? selectedId + " no longer matches the current search/filter. You are still editing this record." : "";
+  }
+
   function render() {
     const totals = review.counts(state);
     $("count-progress").textContent = totals.reviewed + " / " + totals.total;
@@ -33,28 +70,7 @@
     for (const decision of ["approved", "rejected", "follow-up"]) $("count-" + decision).textContent = totals[decision];
     const visible = review.visibleRecords(state, $("search").value, $("filter").value);
     if (!visible.some(record => record.id === selectedId)) selectedId = visible[0]?.id ?? null;
-    $("list-count").textContent = visible.length + " of " + totals.total + " records";
-    const fragment = document.createDocumentFragment();
-    for (const record of visible) {
-      const item = document.createElement("li");
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "record";
-      button.setAttribute("aria-current", String(record.id === selectedId));
-      const title = document.createElement("strong");
-      title.textContent = record.title;
-      const subtitle = document.createElement("small");
-      subtitle.textContent = record.id + " · " + labels[state.reviews[record.id].decision];
-      button.append(title, subtitle);
-      button.addEventListener("click", () => {
-        selectedId = record.id;
-        render();
-        $("record-list").querySelector('[aria-current="true"]').focus({ preventScroll: true });
-      });
-      item.append(button);
-      fragment.append(item);
-    }
-    $("record-list").replaceChildren(fragment);
+    renderList(visible);
     const record = visible.find(record => record.id === selectedId);
     $("record-editor").hidden = !record;
     $("empty").hidden = Boolean(record);
@@ -135,10 +151,31 @@
     if (selectedId !== previousId) $("filter").focus({ preventScroll: true });
   });
 
+  // All click-activated controls share the same note-exit ordering, including
+  // native details summaries. Text inputs/selects keep their native focus path.
+  const clickControl = event => event.target.closest?.("button:not(:disabled), summary");
+  document.addEventListener("pointerdown", event => {
+    if (event.isPrimary && event.button === 0 && document.activeElement === $("notes") && clickControl(event)) {
+      // Do not blur/reflow before mouse-up, or activate anything on press.
+      // Dragging away therefore still cancels the native click.
+      event.preventDefault();
+    }
+  });
+  document.addEventListener("click", event => {
+    // Hit testing is complete. Finish the note before any action handler or
+    // summary default action runs; do not replay clicks or use a timing delay.
+    if (document.activeElement === $("notes")) clickControl(event)?.focus({ preventScroll: true });
+  }, true);
+
   $("notes").addEventListener("input", () => {
     if (selectedId === null) return;
     state = review.updateReview(state, selectedId, { notes: $("notes").value });
     save(); // Don't re-render the editor: preserve caret, focus, and IME input.
+  });
+  $("notes").addEventListener("blur", () => {
+    // Refresh matches only after editing. Keep this editor/ID even if its note
+    // no longer matches, so the next edit or decision cannot target another ID.
+    renderList(review.visibleRecords(state, $("search").value, $("filter").value));
   });
 
   function selectExport() {

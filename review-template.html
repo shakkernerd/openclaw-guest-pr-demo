@@ -114,7 +114,7 @@
   <section class="workspace panel" aria-label="Review workspace">
     <aside class="sidebar">
       <div class="filters">
-        <div><label for="search">Search by title or ID</label><input id="search" type="search" placeholder="Find a record…" autocomplete="off"></div>
+        <div><label for="search">Search title, ID, or notes</label><input id="search" type="search" placeholder="Find a record…" autocomplete="off"></div>
         <div><label for="filter">Decision</label><select id="filter"><option value="all">All records</option><option value="unreviewed">Unreviewed</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="follow-up">Needs follow-up</option></select></div>
       </div>
       <p id="list-count" class="hint" aria-live="polite">0 records</p>
@@ -124,6 +124,7 @@
       <div id="empty" class="empty"><h2>Your next review starts here</h2><p>Import JSON above, or try the sample records.</p></div>
       <div id="record-editor" hidden>
         <p id="record-id"></p><h2 id="record-title"></h2>
+        <p id="selection-status" class="hint" role="status" hidden></p>
         <fieldset><legend>Review decision</legend><div class="decisions">
           <button type="button" data-decision="unreviewed" aria-pressed="false">Unreviewed</button>
           <button type="button" data-decision="approved" aria-pressed="false">Approve</button>
@@ -131,7 +132,7 @@
           <button type="button" data-decision="follow-up" aria-pressed="false">Needs follow-up</button>
         </div></fieldset>
         <label for="notes">Review notes</label><textarea id="notes" rows="5" placeholder="What should the next person know?" aria-describedby="notes-hint"></textarea>
-        <p class="hint" id="notes-hint">Changes apply as you type. Check the storage notice before closing this page.</p>
+        <p class="hint" id="notes-hint">Changes apply as you type; search results refresh when you leave this field. A record that stops matching stays open for editing. Check the storage notice before closing this page.</p>
         <details id="record-details"><summary>Original record · all fields</summary><pre id="record-json"></pre></details>
       </div>
     </section>

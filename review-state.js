@@ -88,7 +88,7 @@
     const needle = query.trim().toLowerCase();
     return state.records.filter(record =>
       (decision === "all" || state.reviews[record.id].decision === decision) &&
-      (!needle || (record.id + "\n" + record.title).toLowerCase().includes(needle)));
+      (!needle || (record.id + "\n" + record.title + "\n" + state.reviews[record.id].notes).toLowerCase().includes(needle)));
   }
 
   function counts(state) {
