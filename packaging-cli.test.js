@@ -84,13 +84,20 @@ test("CLI help is successful without reading input", () => {
     assert.match(result.stdout, /Usage:.*packaging-cli\.js/);
     assert.match(result.stdout, /--json/);
     assert.match(result.stdout, /stdin|standard input/i);
+    assert.ok(result.stdout.includes("       node packaging-cli.js --check [--mode mixed|single-sku] [FILE|-]\n"));
+    assert.match(result.stdout, /--check +Validate only; silent success, no detailed plan or report\./);
+    assert.match(result.stdout, /Accepts orders beyond the detailed-plan box limit\./);
+    assert.match(result.stdout, /Cannot be combined with --csv, --json, --summary, or --compare\./);
   }
 });
 
 test("CLI rejects unknown, repeated, missing-value, and extra arguments before reading input", () => {
+  const usage = run(["--help"]).stdout;
   for (const args of [["--wat"], ["-j"], ["--json=true"], ["a.json", "b.json"],
     ["--json", "--json"], ["--file"], ["--help", "--wat"]]) {
-    fails(run(args, "not JSON"), 2, /argument|option|Usage/i);
+    const result = run(args, "not JSON");
+    fails(result, 2, /argument|option|Usage/i);
+    assert.ok(result.stderr.endsWith("\n" + usage));
   }
 });
 
@@ -616,5 +623,146 @@ test("CLI input recovery succeeds after correcting the named file or stdin order
     assert.equal(recovered.status, 0);
     assert.equal(recovered.stderr, "");
     assert.equal(recovered.stdout, JSON.stringify(expected, null, 2) + "\n");
+  }
+});
+
+function checked(result) {
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+}
+
+test("CLI --check is silent for files, implicit/explicit stdin, and either mode", t => {
+  const dir = mkdtempSync(path.join(tmpdir(), "packaging-check-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const name of ["order file.json", "--check"]) {
+    writeFileSync(path.join(dir, name), JSON.stringify(order));
+  }
+  for (const mode of [[], ["--mode", "mixed"], ["--mode", "single-sku"]]) {
+    checked(run(["--check", ...mode]));
+    checked(run(["-", ...mode, "--check"]));
+    checked(run(["order file.json", "--check", ...mode], "ignored invalid stdin", { cwd: dir }));
+    checked(run([...mode, "--check", "--", "--check"], "ignored invalid stdin", { cwd: dir }));
+  }
+  // After --, the new flag name remains an ordinary filename in existing commands.
+  const legacy = run(["--json", "--", "--check"], "ignored", { cwd: dir });
+  assert.equal(legacy.status, 0);
+  assert.equal(legacy.stderr, "");
+  assert.equal(legacy.stdout, JSON.stringify(expected, null, 2) + "\n");
+});
+
+test("CLI --check retains accepted input semantics without a second validation contract", t => {
+  const dir = mkdtempSync(path.join(tmpdir(), "packaging-check-valid-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "order.json");
+  const ignored = "[".repeat(3000) + "1.0000000000000001" + "]".repeat(3000);
+  const inputs = [
+    '{"items":[],"maxItemsPerBox":1}',
+    '{"items":[{"sku":"A","quantity":-0},{"sku":"A","quantity":0e9999}],"maxItemsPerBox":1}',
+    '{"items":[{"sku":" A ","quantity":1.0},{"sku":"A","quantity":300e-2},{"sku":" A ","quantity":2}],"maxItemsPerBox":3e0}',
+    String.raw`{"items":[{"sku":"A","quantity":1e-400,"quanti\u0074y":3e0}],"maxItemsPerBox":2.9999999999999999,"maxItemsPer\u0042ox":300e-2}`,
+    '{"items":' + ignored + ',"items":[],"maxItemsPerBox":1,"extra":' + ignored + '}',
+  ];
+  for (const input of inputs) {
+    writeFileSync(file, input);
+    for (const mode of ["mixed", "single-sku"]) {
+      assert.equal(run(["--summary", "--mode", mode], input).status, 0);
+      checked(run(["--check", "--mode", mode], input));
+      checked(run(["--check", "--mode", mode, file], "ignored"));
+    }
+  }
+});
+
+test("CLI --check accepts huge valid orders while detailed plans still enforce their limit", t => {
+  const dir = mkdtempSync(path.join(tmpdir(), "packaging-check-huge-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "huge.json");
+  const { MAX_BOXES } = require("./packaging.js");
+  const samples = [
+    { items: [{ sku: "A", quantity: Number.MAX_SAFE_INTEGER }], maxItemsPerBox: 1 },
+    { items: Array.from({ length: MAX_BOXES + 1 }, (_, index) => ({ sku: String(index), quantity: 1 })), maxItemsPerBox: 1 },
+  ];
+  for (const sample of samples) {
+    const input = JSON.stringify(sample);
+    writeFileSync(file, input);
+    for (const mode of ["mixed", "single-sku"]) {
+      // run() has a child-process deadline, so accidental per-box work cannot hang.
+      checked(run(["--check", "--mode", mode, file], "ignored"));
+      checked(run(["--check", "--mode", mode, "-"], input));
+      const summary = run(["--summary", "--json", "--mode", mode], input);
+      assert.equal(summary.status, 0);
+      assert.equal(summary.stderr, "");
+      assert.ok(JSON.parse(summary.stdout).boxCount > MAX_BOXES);
+      fails(run(["--mode", mode], input), 1, /100000 boxes/);
+    }
+  }
+});
+
+test("CLI --check keeps exact source-qualified input diagnostics for files and stdin", t => {
+  const dir = mkdtempSync(path.join(tmpdir(), "packaging-check-invalid-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, process.platform === "win32" ? "bad order.json" : 'bad "order"\n.json');
+  const inputs = [
+    "", '{"private":"PRIVATE_ORDER_CONTENT_9f52",', "{} {}", "null", "[]", "42", "{}",
+    '{"items":{},"maxItemsPerBox":1}',
+    '{"items":[null],"maxItemsPerBox":1}',
+    '{"items":[{"sku":" ","quantity":1}],"maxItemsPerBox":1}',
+    '{"items":[{"sku":"PRIVATE_ORDER_CONTENT_9f52","quantity":-1}],"maxItemsPerBox":1}',
+    '{"items":[{"sku":"A","quantity":"1"}],"maxItemsPerBox":1}',
+    '{"items":[{"sku":"A","quantity":1.0000000000000001}],"maxItemsPerBox":1}',
+    '{"items":[{"sku":"A","quantity":1e-400}],"maxItemsPerBox":1}',
+    '{"items":[{"sku":"A","quantity":9007199254740992}],"maxItemsPerBox":1}',
+    '{"items":[],"maxItemsPerBox":0}',
+    '{"items":[],"maxItemsPerBox":2.9999999999999999}',
+    '{"items":[{"sku":"A","quantity":9007199254740991},{"sku":"A","quantity":1}],"maxItemsPerBox":1}',
+    '{"items":[{"sku":"A","quantity":9007199254740991},{"sku":"B","quantity":1}],"maxItemsPerBox":1}',
+  ];
+  for (const [index, input] of inputs.entries()) {
+    writeFileSync(file, input);
+    const mode = ["--mode", index % 2 === 0 ? "mixed" : "single-sku"];
+    const legacy = run(mode, input);
+    fails(legacy, 1, /JSON|order|items|maxItemsPerBox|total/);
+    const summary = run(["--summary", ...mode], input);
+    assert.equal(summary.status, legacy.status);
+    assert.equal(summary.stderr, legacy.stderr);
+    for (const source of [[], ["-"], [file]]) {
+      const result = run(["--check", ...mode, ...source], input);
+      fails(result, 1, /JSON|order|items|maxItemsPerBox|total/);
+      const label = source[0] === file ? JSON.stringify(file) : "standard input";
+      assert.equal(result.stderr, legacy.stderr.replace("packaging: standard input:", "packaging: " + label + ":"));
+      assert.doesNotMatch(result.stderr, /PRIVATE_ORDER_CONTENT_9f52/);
+    }
+  }
+});
+
+test("CLI --check retains unreadable-file diagnostics", t => {
+  const dir = mkdtempSync(path.join(tmpdir(), "packaging-check-read-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const file of [path.join(dir, "missing.json"), dir]) {
+    const result = run(["--check", file]);
+    fails(result, 1, /cannot read input/);
+    assert.equal(result.stderr, run([file]).stderr);
+  }
+});
+
+test("CLI --check rejects repeated, conflicting, and invalid arguments before reading input", () => {
+  const usage = run(["--help"]).stdout;
+  for (const [args, detail] of [
+    [["--check", "--check"], "repeated option --check"],
+    ...["--csv", "--json", "--summary", "--compare"].flatMap(flag => [
+      [["--check", flag], "--check cannot be combined with --csv, --json, --summary, or --compare"],
+      [[flag, "--check"], "--check cannot be combined with --csv, --json, --summary, or --compare"],
+    ]),
+    [["--check", "--mode"], "--mode requires mixed or single-sku"],
+    [["--check", "--mode", "other"], "--mode requires mixed or single-sku"],
+    [["--check", "--mode", "mixed", "--mode", "single-sku"], "repeated option --mode"],
+    [["--check", "a.json", "b.json"], "expected at most one FILE argument"],
+    [["--check", "--help"], "help option must be used alone"],
+    [["--help", "--check"], "help option must be used alone"],
+    [["--check=true"], 'unknown option "--check=true"'],
+  ]) {
+    const result = run(args, "not JSON");
+    fails(result, 2, /option|argument|mode|combined/);
+    assert.equal(result.stderr, "packaging: " + detail + "\n" + usage);
   }
 });

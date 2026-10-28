@@ -1,10 +1,14 @@
 # openclaw-guest-pr-demo
 
-Turn order quantities into a box-by-box packing plan, or get a compact summary of
-box utilization. Compare both packing policies with `--compare`. Supply a JSON
-file or pipe an order through standard input; read the text report yourself or
-use JSON output in another program. Fix any reported
-input error and rerun the same command. The CLI only reads the order, never edits it.
+Turn order quantities into a box-by-box packing plan, get a compact summary of
+box utilization, compare both packing policies with `--compare`, or validate an
+order silently with `--check`. Supply a JSON file or pipe an order through standard
+input; read the text report yourself, use JSON output in another program, or export
+detailed CSV for a spreadsheet. Fix any reported input error and rerun the same
+command. The CLI only reads the order, never edits it.
+
+For multiple orders, use the separate [batch JSON Lines CLI](#batch-orders-json-lines).
+It emits both policy summaries per valid record, not detailed CSV or silent checks.
 
 The planner uses CommonJS and Node.js built-ins only; no dependency installation
 is needed. The existing `parcelLabel` helper in `parcel-label.js` is unchanged.
@@ -20,6 +24,13 @@ node packaging-cli.js examples/order.json
 # Use the same plan as JSON, or request only utilization totals
 node packaging-cli.js --json examples/order.json
 node packaging-cli.js --summary examples/order.json
+
+# Export packing rows as CSV, or compare both policies
+node packaging-cli.js --csv examples/order.json
+node packaging-cli.js --compare examples/order.json
+
+# Validate only: no report, no detailed plan, silent exit 0 on success
+node packaging-cli.js --check examples/order.json
 
 # Pipe an order instead of naming a file; omitting - also reads stdin
 cat examples/order.json | node packaging-cli.js --json -
@@ -109,16 +120,17 @@ as `order.json` (or use the included `examples/order.json`):
   distinct SKUs always requires splitting in single-SKU mode. The
   planner works in quantity chunks rather than allocating one object per item.
   Input, SKU strings, and the resulting plan are held in memory; this is not a
-  streaming interface or a general-purpose memory limit. Summary-only output does
-  not allocate boxes and is exempt from this box-count limit (see below).
+  streaming interface or a general-purpose memory limit. Summaries, comparisons,
+  and `--check` do not allocate boxes and are exempt from this box-count limit
+  (see below).
 - Extra object fields are ignored; no shipment fields are required or validated.
 
 #### Exact JSON numbers versus JavaScript Numbers
 
-For the CLI (file or stdin, either mode, detailed, summary, or comparison output),
-each used `quantity` and `maxItemsPerBox` numeric token must represent a **mathematical
-integer in decimal**, not merely round to an integer when parsed as a JavaScript
-Number. Decimal points and exponents are allowed: `1.0`, `3e0`, and `300e-2`
+For every CLI command (file or stdin, either mode, including CSV, summaries,
+comparisons, and `--check`), each used `quantity` and `maxItemsPerBox` numeric
+token must represent a **mathematical integer in decimal**, not merely round
+to an integer when parsed as a JavaScript Number. Decimal points and exponents are allowed: `1.0`, `3e0`, and `300e-2`
 represent integers and remain valid. Sign, safe-integer, aggregate-total, and
 box-count rules above still apply. Zero (including `-0`) is allowed for quantity,
 not capacity; numeric strings are not coerced.
@@ -184,19 +196,141 @@ SKUs are JSON-quoted in text reports; ASCII and C1 controls, DEL, and Unicode
 line/paragraph separators are escaped visibly. JSON output preserves the original
 SKU strings. For plans and summaries, `--json` writes the same object returned by
 the module (below); comparisons contain both unchanged summary objects. JSON is
-pretty-printed with a trailing newline. Success writes only to stdout. Errors
-write a diagnostic to stderr, without a stack trace; input/argument errors produce
-no stdout. Exit statuses are:
+pretty-printed with a trailing newline. Successful reports write only to stdout;
+`--check` success writes nothing to stdout or stderr. Errors write a diagnostic
+to stderr, without a stack trace; input/argument errors produce no stdout.
+Exit statuses are:
 
-- **0**: successful plan, summary, comparison, or help (`--help`/`-h`, used alone).
+- **0**: successful plan (text/JSON/CSV), summary, comparison, validation (`--check`),
+  or help (`--help`/`-h`, used alone).
 - **1**: unreadable input, malformed JSON, invalid order, exceeded limits, or
   output failure (including a broken pipe).
-- **2**: unknown/repeated options, a missing or invalid `--mode` value, extra
-  file arguments, or `--compare` combined with `--summary` or any explicit `--mode`.
-  Options are parsed before input is read. Supported options are `--json`,
-  `--summary`, `--compare`, `--mode mixed|single-sku`, `--help`/`-h`, and `--`.
-  Mode values are case-sensitive; use two arguments (`--mode single-sku`),
-  not `--mode=single-sku`.
+- **2**: unknown/repeated/conflicting options, a missing or invalid `--mode` value,
+  or extra file arguments. Options are parsed before input is read. Supported
+  options are `--json`, `--csv`, `--summary`, `--compare`, `--check`,
+  `--mode mixed|single-sku`, `--help`/`-h`, and `--`. Mode values are case-sensitive;
+  use two arguments (`--mode single-sku`), not `--mode=single-sku`.
+
+The option constraints apply in either argument order, including after a filename:
+
+- `--check` is exclusive with every reporting flag: `--csv`, `--json`, `--summary`,
+  and `--compare`. It accepts either `--mode`.
+- `--csv` cannot combine with `--json`, `--summary`, `--compare`, or `--check`.
+  It accepts either `--mode`.
+- `--compare` permits `--json`, but rejects `--summary`, `--csv`, `--check`, and
+  **any explicitly supplied `--mode`**, including `--mode mixed`.
+- `--summary --json` remains valid in either mode. Help must be used alone.
+
+### Detailed CSV export (opt-in)
+
+Use `--csv` for packing rows in either mode, from a file or stdin. It cannot be
+combined with `--json`, `--summary`, `--compare`, or `--check`; repeated `--csv`
+is also an argument error (exit 2, no stdout, before reading input). Existing
+text, JSON, summary, and comparison reports are unchanged. Options may follow
+the filename; `--` still ends options.
+
+```sh
+node packaging-cli.js --csv examples/order.json > packing.csv
+cat examples/order.json | node packaging-cli.js --csv -
+node packaging-cli.js examples/order.json --csv --mode single-sku
+node packaging-cli.js --csv -- -order.json
+```
+
+The first command exports these records (actual record endings are CRLF):
+
+```csv
+box,sku,quantity
+1,B,4
+2,B,2
+2,A,2
+3,A,1
+```
+
+- The fixed header is `box,sku,quantity`. Each existing box/SKU entry produces one
+  row: `box` is the one-based box number and `quantity` is that SKU's count in
+  that box. Box and SKU ordering come directly from the existing packing plan;
+  there is no repacking or additional aggregation.
+- Empty/all-zero orders emit only `box,sku,quantity` followed by CRLF.
+- Output is UTF-8 **without a BOM**, comma-separated, with CRLF record endings
+  and a final CRLF. Fields containing a comma, double quote, CR, or LF are
+  double-quoted; embedded double quotes are doubled. Embedded newlines remain
+  unchanged inside quoted fields, so one CSV record can span multiple lines.
+- SKU strings are preserved exactly as parsed: no trimming, newline
+  normalization, apostrophe prefixes, or formula rewriting. Numeric counts are
+  emitted as exact decimal digits. JSON escape spellings are decoded, not copied.
+- **CSV only:** every effective input SKU, including zero-quantity rows, must
+  contain well-formed Unicode. An unpaired UTF-16 surrogate cannot be represented
+  losslessly in UTF-8, so CSV rejects it with exit 1 **before any stdout**, rather
+  than silently replacing it. The diagnostic includes the input source and
+  zero-based item index, for example: `packaging: standard input: items[1].sku
+  contains an unpaired UTF-16 surrogate; CSV requires well-formed Unicode`.
+  Valid surrogate pairs (such as emoji) work. Ignored extra fields and overwritten
+  values remain ignored. Existing non-CSV commands keep their accepted inputs.
+- The same exact-number validation, mode-specific **100,000-box** detailed-plan
+  limit, source-labelled errors, and output-failure handling apply. CSV builds
+  the plan and report in memory; it is not a streaming export. Summaries,
+  comparisons, and `--check` avoid per-box allocation and remain exempt from
+  the detailed limit.
+
+#### Importing into a spreadsheet
+
+Use the spreadsheet's **Text/CSV import** workflow, choose UTF-8 and comma as the
+separator, and explicitly import `sku` as **Text** rather than simply opening
+the file with automatic type detection. This helps preserve leading zeros and
+prevents date/number conversion. Import `quantity` as Text too when exact large
+counts matter: spreadsheets may round numbers even within JavaScript's safe
+integer range (Excel, for example, has 15-digit numeric precision).
+
+**CSV quoting is not formula protection.** This exporter deliberately does not
+neutralize SKUs beginning with `=`, `+`, `-`, or `@` (or leading controls that an
+importer might ignore). Some spreadsheet import/open paths may interpret them
+as formulas even when the field is quoted. Disable formula evaluation/automatic
+conversion where supported, import as Text, and verify the importer's behavior
+before opening untrusted data. Reopening or re-exporting may change interpretation;
+CSV cannot enforce spreadsheet cell types or guarantee safe formula handling.
+
+### Validation only (automation)
+
+```text
+node packaging-cli.js --check [--mode mixed|single-sku] [FILE|-]
+```
+
+```sh
+node packaging-cli.js --check examples/order.json
+cat examples/order.json | node packaging-cli.js --check
+cat examples/order.json | node packaging-cli.js --check --mode single-sku -
+node packaging-cli.js --check -- -order.json
+
+# Valid even though a detailed plan would exceed 100,000 boxes
+node packaging-cli.js --check examples/large-order.json
+```
+
+`--check` reads and validates the order without allocating a detailed packing plan
+or printing any report. Success exits **0** with **empty stdout and stderr**. It
+uses the existing JSON reader (including exact decimal-token checks) and compact
+summary validation, discarding the summary. Empty/all-zero orders are valid; all
+field and aggregate-safe-integer rules still apply. Like `--summary`, it accepts
+valid orders exceeding the detailed-plan box limit, including `9007199254740991`
+items at capacity 1. A successful check does **not** guarantee that a detailed
+plan will fit within that limit. Input and SKU aggregation must still fit in memory.
+
+The default mode is `mixed`; `--mode single-sku` is also accepted. File/stdin
+selection, `--` handling, and option ordering work as for existing commands.
+`--check` cannot be repeated or combined with any reporting flag: `--csv`,
+`--json`, `--summary`, or `--compare`. These are argument errors (exit **2**)
+detected before reading input. Help must still be used alone. Canonical
+`--help`/`-h` and argument-error usage also describe `--check` and its constraints.
+
+Unreadable input, malformed JSON, or invalid orders exit **1**, leave stdout empty,
+and retain the same source-qualified diagnostics on stderr as report commands,
+without echoing order contents. For example:
+
+```sh
+printf '%s\n' '{"items":[],"maxItemsPerBox":0}' | node packaging-cli.js --check -
+```
+
+prints `packaging: standard input: maxItemsPerBox must be a positive safe integer`
+to stderr. Correct the named field and rerun the check.
 
 ### CommonJS API
 
@@ -283,11 +417,10 @@ single-SKU mode, including for empty plans:
 }
 ```
 
-Without `--summary` or `--compare`, omitting `--mode`, or using `--mode mixed`,
-leaves the default text and JSON output unchanged: no mode label or `mode` property
-is added. In that
-default mode, the same order packs A=2 and B=1 into the first box, then B=1 into the
-second.
+For detailed text and JSON reports, omitting `--mode` or using `--mode mixed`
+leaves the default output unchanged: no mode label or `mode` property is added.
+In that default mode, the same order packs A=2 and B=1 into the first box, then
+B=1 into the second.
 
 ### Compact utilization summaries (opt-in)
 
@@ -352,8 +485,8 @@ support for arbitrary-size numeric quantities.
 
 Add `--summary` for a two-line text report, or combine it with `--json`. It works
 with either mode and the same file/stdin input, diagnostics, and exit statuses.
-Without `--summary` or `--compare`, all existing detailed API and CLI output stays
-unchanged. Mode is still selected by `--mode`, not an input JSON field.
+Existing detailed text/JSON formats and the module API output stay unchanged.
+Mode is still selected by `--mode`, not an input JSON field.
 
 ```sh
 node packaging-cli.js --summary examples/order.json
@@ -461,16 +594,108 @@ Unused slots remain exact decimal strings, including `"0"` and values beyond the
 safe-integer limit. Empty/all-zero orders still return both summaries with zero
 counts; capacity must still be positive. Neither result includes a `boxes` array.
 
-`--compare` cannot be combined with `--summary` or **any explicit `--mode`**,
-including `--mode mixed`, in either argument order. These conflicts and repeated
-`--compare` options exit **2** with empty stdout before reading a file or stdin.
+`--compare` permits `--json`, but cannot be combined with `--summary`, `--csv`,
+`--check`, or **any explicit `--mode`**, including `--mode mixed`, in either
+argument order. These conflicts and repeated `--compare` options exit **2**
+with empty stdout before reading a file or stdin.
 Omitting `--mode` is valid: comparison itself selects both policies. A `mode` or
 `compare` field inside the input JSON does not select CLI behavior.
 
 File/stdin selection, `--`, source-labelled input errors (exit 1), output-failure
-handling, and trailing newlines follow existing CLI conventions. Without
-`--compare`, existing detailed and summary report output is unchanged; help and
-argument-error usage text now also document comparison.
+handling, and trailing newlines follow existing CLI conventions. Comparison does
+not change existing detailed and summary report formats; help and argument-error
+usage text document all commands and their constraints.
+
+## Batch orders (JSON Lines)
+
+Use the separate, JSON-only CLI for a file of orders or a byte stream. It uses
+Node.js 22+ built-ins and the same pure text-to-order parser as the single-order
+CLI. No dependency installation is needed; the single-order CLI's flags, text,
+pretty-printed JSON, diagnostics, and exit statuses are unchanged.
+
+```sh
+node packaging-batch-cli.js orders.jsonl
+cat orders.jsonl | node packaging-batch-cli.js
+cat orders.jsonl | node packaging-batch-cli.js -
+node packaging-batch-cli.js -- --orders.jsonl
+node packaging-batch-cli.js --help
+```
+
+Only one optional FILE is accepted. Omit it or use `-` for stdin; `--` ends option
+parsing, and `--help` / `-h` must be used alone. Arguments are checked before
+opening input. There are no `--json`, `--csv`, `--check`, `--mode`, `--summary`, or `--compare` flags:
+every valid record always produces both policy summaries.
+
+### Records and results
+
+- **Only LF (byte `0a`) separates records.** CRLF works because the CR remains
+  trailing JSON whitespace. A bare CR is not a record boundary: it is ordinary
+  JSON whitespace outside strings, and an unescaped CR inside a string is invalid.
+- Empty lines and lines containing **only SPACE, TAB, and CR** are skipped.
+  Vertical tabs, form feeds, nonbreaking spaces, and BOMs are not blank lines.
+  Every physical line counts, including skipped and invalid lines.
+- A final nonempty line without LF is processed only after **clean EOF**. A
+  terminal LF does not invent an extra line. Empty/blank-only input succeeds with
+  no results. Pretty-printed multi-line order objects are not JSONL records.
+- UTF-8 uses Node's existing replacement behavior for malformed byte sequences,
+  including sequences split across input chunks. No strict decoder is added.
+  BOMs are **not stripped**; a BOM before an order remains invalid JSON, as in the
+  single-order CLI. SKU strings are neither normalized nor trimmed.
+- Each valid record emits one compact JSON object followed by LF, in input order:
+  `{"line":3,"mixed":{...},"single-sku":{...}}`. `line` is the physical one-based
+  input line, not a count of successful records. Both nested objects retain the
+  existing seven summary fields and exact decimal-string `unusedItemSlots`.
+  There is no header, array wrapper, error object, aggregate total, or boxes array.
+
+Both policies call `summarizePackaging` in `packaging.js`. Validation, exact SKU
+aggregation and summary arithmetic remain owned there; no packing engine or
+validation rules are duplicated. The shared `order-json.js` parser preserves raw
+numeric-token checks, escaped keys, ignored fields and last-property-wins behavior.
+
+### Continue on invalid records; fail on transport errors
+
+Invalid JSON, an invalid top-level shape, or invalid order fields produce one
+controlled stderr diagnostic with the source (quoted filename or `standard input`)
+and physical line. They produce no result for that line and **do not stop later
+records**. Input contents and stack traces are not echoed. For example:
+
+```text
+packaging-batch: "orders.jsonl": line 7: items[0].quantity must be a non-negative safe integer
+```
+
+Exit statuses:
+
+- **0:** all nonblank records valid, empty/blank-only input, or help.
+- **1:** any invalid record, or a fatal input/output failure.
+- **2:** argument misuse, before any input is read.
+
+Input errors and premature stream closure stop processing: an unterminated tail
+is **never** treated as a clean EOF record after a read error. Output errors,
+including broken pipes, stop input consumption even if stdin remains open. Results
+already emitted are retained, not rolled back. Check both stderr and exit status:
+nonempty stdout does not imply that every record succeeded. Output writes are not
+transactional; if a sink fails during a write, a trailing incomplete JSON line may
+remain at that sink. Consumers must not treat such a fragment as a complete result.
+A failed stderr sink is also fatal and cannot reliably report its own failure.
+
+### Memory and streaming limits
+
+Records are processed sequentially, with Node stream backpressure for stdout and
+awaited diagnostic writes. The batch does not buffer all input or all results, and
+summaries do not allocate boxes or apply the detailed planner's `MAX_BOXES` cap.
+However, this is **not a constant-memory or arbitrary-size record guarantee**:
+
+- The current unterminated record must fit in memory. Its decoded text, temporary
+  exact-number parsing data (including a possible guarded copy), parsed order and
+  SKU strings also need memory. Very long blank lines still need buffering.
+- Input chunks/read-ahead, decoder state and output stream/OS buffers use memory.
+  Backpressure bounds ordinary buffering, not record size; a stream high-water
+  mark is a buffering threshold, not a hard memory limit.
+- Each policy's existing validation/aggregation uses a Map proportional to the
+  record's distinct SKUs. Work scales with input rows and distinct SKUs, not boxes.
+
+No new size cap or stricter decoder is imposed. Existing safe-integer and combined
+order-total limits still apply independently to each record.
 
 ## Tests
 
@@ -479,6 +704,11 @@ From the repository root:
 ```sh
 node --test
 ```
+
+For focused CSV CLI coverage, run `node --test packaging-csv.test.js`. These
+real child-process checks cover CSV bytes and escaping, both modes, file/stdin
+routing, argument conflicts, surrogate validation, numeric diagnostics, output
+draining/broken pipes, and the adjacent legacy compatibility contracts.
 
 The tests use the built-in `node:test` runner and `node:assert/strict`. They cover
 the original parcel counts 0, 1, and 3 (`0 items`, `1 item`, `3 items`), planner
@@ -501,8 +731,31 @@ left open, malformed/raw fractional input, and broken pipes. Ordinary CLI runs
 verify exact, compact text and JSON for maximum-safe-integer box counts within
 the existing five-second per-process deadline, with no detailed boxes in the
 result. These behavior checks do not instrument internal calls or allocations.
-Run the focused comparison and existing CLI/summary compatibility checks with:
+
+Validation-only regressions run the actual CLI against files and implicit/explicit
+stdin, checking silent success in both modes, huge valid orders, shared input
+semantics and source-qualified failures, option conflicts, and unchanged report
+behavior and detailed-plan limits. Combined-command regressions cover the full
+reporting-flag matrix, open-stdin conflicts, cross-feature Unicode/number handling,
+and executable documentation examples.
+
+Run the focused combined CLI and summary compatibility checks with:
 
 ```sh
-node --test packaging-compare.test.js packaging-cli.test.js packaging-summary.test.js
+node --test packaging-cli.test.js packaging-csv.test.js packaging-compare.test.js packaging-integration.test.js packaging-summary.test.js packaging-batch.test.js packaging-entrypoints.test.js
 ```
+
+Batch coverage adds real CLI file/stdin runs and real `Readable`/`Writable` stream
+contracts: mixed-validity continuation, physical line numbers, exact whitespace
+and LF rules, byte-split UTF-8/CRLF, replacement decoding/BOM handling, clean versus
+failed EOF, bounded read-ahead under backpressure, broken pipes with open input,
+and write/finalization errors. No test-only production flags or global patches
+are used. Run the focused batch tests with:
+
+```sh
+node --test packaging-batch.test.js
+```
+
+Cross-entry-point regressions cover shared exact-number/effective-key semantics,
+CSV-local surrogate rejection, source-qualified record continuation, and separate
+argument and LF-only transport contracts.

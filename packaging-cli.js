@@ -2,19 +2,27 @@
 "use strict";
 
 const { readFileSync } = require("node:fs");
+const { parseOrder } = require("./order-json.js");
 const { planPackaging, summarizePackaging } = require("./packaging.js");
 const { parcelLabel } = require("./parcel-label.js");
 
 const USAGE = [
   "Usage: node packaging-cli.js [--summary] [--json] [--mode mixed|single-sku] [FILE|-]",
+  "       node packaging-cli.js --csv [--mode mixed|single-sku] [FILE|-]",
+  "       node packaging-cli.js --check [--mode mixed|single-sku] [FILE|-]",
   "       node packaging-cli.js --compare [--json] [FILE|-]",
   "       node packaging-cli.js --help",
   "",
   "Read an order JSON object with items and maxItemsPerBox.",
   "Omit FILE or use - to read standard input. Text output is the default.",
   "--json       Write the plan, summary, or comparison as JSON instead of text.",
+  "--csv        Write the detailed plan as CSV; cannot combine with --json, --summary, --compare, or --check.",
   "--compare    Compare both policy summaries; cannot combine with --mode or --summary.",
+  "             Also cannot combine with --csv or --check.",
   "--summary    Write a compact utilization summary, without individual boxes.",
+  "--check      Validate only; silent success, no detailed plan or report.",
+  "             Accepts orders beyond the detailed-plan box limit.",
+  "             Cannot be combined with --csv, --json, --summary, or --compare.",
   "--mode MODE  mixed (default) or single-sku (one SKU per box).",
   "--help, -h   Show this help (use alone).",
   "--           End options, allowing filenames that begin with a dash.",
@@ -25,7 +33,9 @@ const USAGE = [
 function parseArguments(args) {
   let file;
   let json = false;
+  let csv = false;
   let summary = false;
+  let check = false;
   let compare = false;
   let mode;
   let options = true;
@@ -40,12 +50,18 @@ function parseArguments(args) {
     } else if (options && arg === "--json") {
       if (json) throw new Error("repeated option --json");
       json = true;
+    } else if (options && arg === "--csv") {
+      if (csv) throw new Error("repeated option --csv");
+      csv = true;
     } else if (options && arg === "--compare") {
       if (compare) throw new Error("repeated option --compare");
       compare = true;
     } else if (options && arg === "--summary") {
       if (summary) throw new Error("repeated option --summary");
       summary = true;
+    } else if (options && arg === "--check") {
+      if (check) throw new Error("repeated option --check");
+      check = true;
     } else if (options && arg === "--mode") {
       if (mode !== undefined) throw new Error("repeated option --mode");
       const value = args[index + 1];
@@ -62,39 +78,16 @@ function parseArguments(args) {
     }
   }
   // Check explicit selections before defaulting mode or reading any input.
+  if (check && (csv || json || summary || compare)) {
+    throw new Error("--check cannot be combined with --csv, --json, --summary, or --compare");
+  }
+  if (csv && (json || summary || compare)) {
+    throw new Error("--csv cannot be combined with --json, --summary, or --compare");
+  }
   if (compare && (summary || mode !== undefined)) {
     throw new Error("--compare cannot be combined with --mode or --summary");
   }
-  return { file, json, summary, compare, mode: mode === undefined ? "mixed" : mode, help: false };
-}
-
-// Called only with a numeric token from already syntax-validated JSON.
-function isIntegerToken(token) {
-  const [coefficient, exponent = "0"] = token.toLowerCase().split("e");
-  const [whole, fraction = ""] = coefficient.split(".");
-  const digits = (whole + fraction).replace("-", "");
-  let end = digits.length;
-  while (end > 0 && digits[end - 1] === "0") end -= 1;
-  if (end === 0) return true; // Zero is integral at any exponent.
-  const trailingZeros = digits.length - end;
-  // The threshold is bounded by token length. Huge exponents may become +/-Infinity
-  // here without affecting this comparison; never allocate a power of ten.
-  return Number(exponent) >= fraction.length - trailingZeros;
-}
-
-function parseOrderJson(source) {
-  // Validate syntax FIRST so the token pass cannot repair malformed JSON.
-  // No reviver: native parsing handles deeply nested ignored data without a
-  // recursive JavaScript walk or a dependency on reviver context.source.
-  const parsed = JSON.parse(source);
-  const guarded = source.replace(/"(?:[^"\\]|\\[\s\S])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g, token => {
-    if (token[0] === '"' || !Number.isSafeInteger(Number(token)) || isIntegerToken(token)) return token;
-    // Internal invalid-count sentinel: reuse the planner's existing validation
-    // only if this value is used. Extra/overwritten fields remain ignored.
-    return "null";
-  });
-  // Native parsing preserves escaped keys and last-property-wins semantics.
-  return guarded === source ? parsed : JSON.parse(guarded);
+  return { file, json, csv, summary, check, compare, mode: mode === undefined ? "mixed" : mode, help: false };
 }
 
 function readOrder(file) {
@@ -105,16 +98,7 @@ function readOrder(file) {
   } catch (error) {
     throw new Error("cannot read input (" + error.code + ")");
   }
-  let order;
-  try {
-    order = parseOrderJson(source);
-  } catch {
-    throw new Error("input must contain one valid JSON order");
-  }
-  if (order === null || typeof order !== "object" || Array.isArray(order)) {
-    throw new TypeError("order must be an object with items and maxItemsPerBox");
-  }
-  return order;
+  return parseOrder(source);
 }
 
 function textReport(plan) {
@@ -141,6 +125,32 @@ function summaryReport(summary) {
     (summary.boxCount === 1 ? " box: " : " boxes: ") + summary.fullBoxes + " full, " +
     summary.partialBoxes + " partial | " + summary.unusedItemSlots +
     (summary.unusedItemSlots === "1" ? " unused item slot\n" : " unused item slots\n");
+}
+
+// Called after normal order validation, only for CSV. UTF-8 cannot preserve lone
+// surrogates; check original rows once (including zero quantities), before output.
+function validateCsvSkus(items) {
+  for (const [index, item] of items.entries()) {
+    if (!item.sku.isWellFormed()) {
+      throw new TypeError("items[" + index + "].sku contains an unpaired UTF-16 surrogate; CSV requires well-formed Unicode");
+    }
+  }
+}
+
+function csvField(value) {
+  const field = String(value);
+  return /[",\r\n]/.test(field) ? '"' + field.replace(/"/g, '""') + '"' : field;
+}
+
+function csvReport(plan) {
+  const rows = ["box,sku,quantity"];
+  for (const [index, box] of plan.boxes.entries()) {
+    for (const item of box.contents) {
+      rows.push([index + 1, item.sku, item.quantity].map(csvField).join(","));
+    }
+  }
+  // Build the entire report before writing, just like existing text/JSON output.
+  return rows.join("\r\n") + "\r\n";
 }
 
 function comparisonReport(comparison) {
@@ -185,9 +195,12 @@ function main() {
       process.stdout.write(options.json ? JSON.stringify(comparison, null, 2) + "\n" : comparisonReport(comparison));
       return;
     }
-    const operation = options.summary ? summarizePackaging : planPackaging;
+    // Check uses the same validation as summaries, without boxes or the detailed-plan limit.
+    const operation = options.summary || options.check ? summarizePackaging : planPackaging;
     const result = operation(order.items, order.maxItemsPerBox, { mode: options.mode });
-    const report = options.summary ? summaryReport : textReport;
+    if (options.check) return;
+    if (options.csv) validateCsvSkus(order.items);
+    const report = options.csv ? csvReport : options.summary ? summaryReport : textReport;
     process.stdout.write(options.json ? JSON.stringify(result, null, 2) + "\n" : report(result));
   } catch (error) {
     // The CLI owns source context; parsing and planning keep their existing diagnostics.
