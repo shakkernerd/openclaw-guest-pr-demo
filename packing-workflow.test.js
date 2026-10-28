@@ -204,7 +204,7 @@ test("escape-heavy metadata preserves counts and source-labelled diagnostics", t
         assert.equal(expected.status, token === "1.0" ? 0 : 1);
         assert.equal(expected.stderr, token === "1.0" ? "" : "packaging: standard input: " + detail);
         for (const [source, label] of [[file, JSON.stringify(file)], ["-", "standard input"]]) {
-          const result = run("packaging-cli.js", [...args, source], raw);
+          const result = run("packaging-cli.js", [...args, source], source === "-" ? raw : undefined);
           assert.equal(result.status, expected.status);
           assert.equal(result.stdout, expected.stdout);
           assert.equal(result.stderr, token === "1.0" ? "" : "packaging: " + label + ": " + detail);
