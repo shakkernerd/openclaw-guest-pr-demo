@@ -2,6 +2,18 @@
 Synthetic disposable fixtures for guest pull request continuation tests.
 
 The parcelLabel helper lives in parcel-label.js and formats a count as an item label.
+The number `1` and the exact string `"1"` produce `1 item`, so counts supplied as
+strings (for example, from form fields) use the same singular label. All other
+values use `items`. The count is displayed as supplied, without trimming or
+numeric conversion; for example, `"01"` remains `01 items`.
+
+```js
+const { parcelLabel } = require("./parcel-label.js");
+
+parcelLabel(1);   // "1 item"
+parcelLabel("1"); // "1 item"
+parcelLabel("3"); // "3 items"
+```
 
 ## Tests
 
@@ -12,5 +24,7 @@ node --test
 ```
 
 The tests use the built-in `node:test` runner and `node:assert/strict`; no dependency
-installation is needed. They cover parcel counts 0, 1, and 3, expecting `0 items`,
-`1 item`, and `3 items`, respectively.
+installation is needed. They cover parcel counts 0, 1, and 3 as both numbers and
+strings, expecting `0 items`, `1 item`, and `3 items`, respectively. They also
+check that other values such as `"01"`, `"1.0"`, `" 1 "`, and `true` are not
+coerced to the singular form.
