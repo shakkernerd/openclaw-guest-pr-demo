@@ -14,7 +14,8 @@ node fulfill.js examples/shipments.json
 node fulfill.js --help
 ```
 
-Pass one UTF-8 JSON file containing an **array of shipments**. Each shipment has:
+Pass one UTF-8 JSON file, or `-` to read standard input, containing an **array of
+shipments**. Each shipment has:
 
 - `id`: a non-blank string, unique in the batch.
 - `order`: a non-empty array of `{ "sku": "MUG-BLUE", "quantity": 2 }` lines.
@@ -79,14 +80,57 @@ get two ready shipments and exit 0. For a duplicate parcel, the error names the
 conflicting ID and every assignment path; correct the ID or remove the duplicated
 assignment, then recheck quantities. Paths use zero-based array indexes.
 
+### JSON reports and piped exports
+
+Text remains the default. Add `--json` for dispatch automation; the option can
+appear before or after the input filename:
+
+```sh
+node fulfill.js --json examples/shipments.json
+node fulfill.js examples/shipments.json --json
+cat examples/shipments.json | node fulfill.js --json -
+cat examples/shipments.json | node fulfill.js -
+```
+
+The first three commands produce the same complete
+[JSON report](examples/shipments.report.json); the fourth produces the original
+text summary. Each intentionally exits 1 because the example includes one blocked
+shipment. Substitute your export command for `cat examples/shipments.json` to pipe
+a real batch. The command reads stdin until EOF and buffers the whole batch, so
+duplicate assignments are checked across all shipments, not one input line at a time.
+
+For exit 0 or 1, `--json` writes exactly one JSON object plus a trailing newline to
+stdout, with no human summary mixed in. Its fields are:
+
+- `valid`: overall validation result; true only when the entire batch passes.
+- `total`, `ready`, `blocked`: shipment counts, with `ready + blocked === total`.
+- `shipments`: results in input order, each containing `shipmentId`, `valid`,
+  `expectedQuantity`, `packedQuantity`, `parcelCount`, and `errors`. IDs/counts
+  that cannot be determined are `null`, not misleading partial totals.
+- `errors`: the flattened list of shipment errors. Every error has an actionable
+  `code`, zero-based input `path`, and `message`. For a non-array JSON root,
+  `valid` is false, counts are zero, `shipments` is empty, and this list contains
+  `INVALID_BATCH`. An empty array instead has `valid: true` and no errors.
+
+Do not infer success from zero blocked shipments alone: check `valid` and the
+exit status. Usage, input-read, and JSON syntax errors still exit 2, write only
+a diagnostic to stderr, and leave stdout empty, even with `--json`. Help is human
+text and exits 0. Consumers should inspect the exit code before parsing stdout.
+
+Use `--` to end option parsing for dash-prefixed filenames, for example
+`node fulfill.js --json -- -export.json`. A lone `-` always means stdin; use `./-`
+for an actual file named dash. Missing input, unknown options, repeated `--json`,
+and extra filenames are usage errors. No dependencies or shell-specific pipeline
+features are required by the Node command.
+
 ### Output and exit codes
 
 - **0:** all shipments pass (or the batch is empty); `--help`/`-h` also exits 0.
 - **1:** validation errors, including a valid JSON document with the wrong shape.
-  The summary and all validation errors go to stdout; processing continues through
-  the batch so independent shipments are still reported.
-- **2:** missing/extra arguments, unreadable file, or malformed JSON. An actionable
-  diagnostic goes to stderr without a stack trace.
+  The text summary or JSON report and all validation errors go to stdout; processing
+  continues through the batch so independent shipments are still reported.
+- **2:** invalid arguments, unreadable file/stdin, or malformed JSON. An actionable
+  diagnostic goes to stderr without a stack trace; stdout is empty in either mode.
 
 Malformed item data produces `unknown` totals rather than misleading partial
 counts. Quantity comparisons are skipped for that shipment until both item lists
@@ -135,4 +179,5 @@ node --test
 The tests use the built-in `node:test` runner and `node:assert/strict`. They retain
 the original label checks for 0, 1, and 3 (`0 items`, `1 item`, `3 items`) and cover
 split packing, per-SKU shortages/excess, duplicate assignments, malformed input,
-numeric limits, immutability, CLI exit codes, and the exact example output above.
+numeric limits, immutability, CLI exit codes, JSON reports, file and piped input,
+and the exact text/JSON example output and correction steps above.

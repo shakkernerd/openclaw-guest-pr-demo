@@ -22,3 +22,9 @@ quantity differences can be calculated reliably.
 The included `examples/shipments.json` intentionally contains one blocked order
 to demonstrate the correction workflow. A `READY` result only confirms the recorded
 packing data: still perform the physical packing, address, and label checks above.
+
+For automation, use `node fulfill.js --json path/to/shipments.json`, or pipe an
+export into `node fulfill.js --json -`. Check the exit code first: 0 and 1 provide
+a JSON report with overall `valid`, `ready`/`blocked` counts, shipment results,
+and actionable error codes/paths; exit 2 provides a stderr diagnostic instead.
+Never treat a failed command or an invalid batch root as an empty successful batch.

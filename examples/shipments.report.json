@@ -1,0 +1,47 @@
+{
+  "valid": false,
+  "total": 2,
+  "ready": 1,
+  "blocked": 1,
+  "shipments": [
+    {
+      "shipmentId": "SHIP-1001",
+      "valid": true,
+      "expectedQuantity": 3,
+      "packedQuantity": 3,
+      "parcelCount": 2,
+      "errors": []
+    },
+    {
+      "shipmentId": "SHIP-1002",
+      "valid": false,
+      "expectedQuantity": 3,
+      "packedQuantity": 3,
+      "parcelCount": 1,
+      "errors": [
+        {
+          "code": "MISSING_QUANTITY",
+          "path": "shipments[1].parcels",
+          "message": "SKU \"MUG-BLUE\": pack 1 more (ordered 2, packed 1)."
+        },
+        {
+          "code": "EXCESS_QUANTITY",
+          "path": "shipments[1].parcels",
+          "message": "SKU \"TEA-100G\": remove 1 (ordered 1, packed 2)."
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": "MISSING_QUANTITY",
+      "path": "shipments[1].parcels",
+      "message": "SKU \"MUG-BLUE\": pack 1 more (ordered 2, packed 1)."
+    },
+    {
+      "code": "EXCESS_QUANTITY",
+      "path": "shipments[1].parcels",
+      "message": "SKU \"TEA-100G\": remove 1 (ordered 1, packed 2)."
+    }
+  ]
+}

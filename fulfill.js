@@ -4,7 +4,7 @@ const { readFileSync } = require("node:fs");
 const { validateBatch } = require("./packing.js");
 const { parcelLabel } = require("./parcel-label.js");
 
-const usage = "Usage: node fulfill.js <shipments.json>\nValidate packing for a JSON array of shipments. No files are changed.\nExit codes: 0 = ready, 1 = validation errors, 2 = usage/file/JSON error.";
+const usage = "Usage: node fulfill.js <shipments.json> [--json]\n       node fulfill.js - [--json]\nValidate packing for a JSON array of shipments. No files are changed.\nUse - to read standard input until EOF; --json emits one JSON result instead of text.\nOptions may appear before or after the filename. Use -- before a dash-prefixed filename.\nExit codes: 0 = ready, 1 = validation errors, 2 = usage/file/JSON error.";
 const countLabel = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 const itemLabel = (count) => count === null ? "unknown" : parcelLabel(count);
 const errorLine = ({ code, path, message }) => `  - [${code}] ${path}: ${message}`;
@@ -50,32 +50,64 @@ function formatSummary(batch) {
   return lines.join("\n");
 }
 
-function main(args) {
-  if (args.length === 1 && ["--help", "-h"].includes(args[0])) {
-    console.log(usage);
-    return 0;
+function parseArgs(args) {
+  const options = { json: false, help: false, file: undefined };
+  let flags = true;
+  for (const arg of args) {
+    if (flags && arg === "--") {
+      flags = false;
+    } else if (flags && arg === "--json") {
+      if (options.json) return null;
+      options.json = true;
+    } else if (flags && ["--help", "-h"].includes(arg)) {
+      options.help = true;
+    } else if (flags && arg.startsWith("-") && arg !== "-") {
+      return null;
+    } else {
+      if (options.file !== undefined) return null;
+      options.file = arg;
+    }
   }
-  if (args.length !== 1) {
+  return options;
+}
+
+function jsonReport(batch) {
+  const total = batch.shipments.length;
+  const ready = batch.shipments.filter(({ valid }) => valid).length;
+  return {
+    valid: batch.valid, total, ready, blocked: total - ready,
+    shipments: batch.shipments, errors: batch.errors,
+  };
+}
+
+function main(args) {
+  const options = parseArgs(args);
+  if (!options || (!options.help && options.file === undefined)) {
     console.error(usage);
     return 2;
   }
-  const file = args[0];
+  if (options.help) {
+    console.log(usage);
+    return 0;
+  }
+  const file = options.file;
+  const source = file === "-" ? "standard input" : JSON.stringify(file);
   let content;
   try {
-    content = readFileSync(file, "utf8");
+    content = readFileSync(file === "-" ? 0 : file, "utf8");
   } catch (error) {
-    console.error(`Cannot read ${JSON.stringify(file)} (${error.code || "I/O error"}). Check the path and read permissions.`);
+    console.error(`Cannot read ${source} (${error.code || "I/O error"}). Check the input source and read permissions.`);
     return 2;
   }
   let shipments;
   try {
     shipments = parseBatchJson(content);
   } catch (error) {
-    console.error(`Cannot parse JSON in ${JSON.stringify(file)}: ${JSON.stringify(error.message)}. Fix the JSON syntax and rerun.`);
+    console.error(`Cannot parse JSON in ${source}: ${JSON.stringify(error.message)}. Fix the JSON syntax and rerun.`);
     return 2;
   }
   const batch = validateBatch(shipments);
-  console.log(formatSummary(batch));
+  console.log(options.json ? JSON.stringify(jsonReport(batch), null, 2) : formatSummary(batch));
   return batch.valid ? 0 : 1;
 }
 
