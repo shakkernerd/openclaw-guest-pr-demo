@@ -1,0 +1,3 @@
+{"eventId":"a-delivered","parcelId":"PKG-A","type":"delivered","occurredAt":"2026-10-28T10:00:00Z"}
+{"eventId":"a-created","parcelId":"PKG-A","type":"created","occurredAt":"2026-10-28T08:00:00Z"}
+{"eventId":"b-transit","parcelId":"PKG-B","type":"in_transit","occurredAt":"2026-10-28T09:00:00Z"}

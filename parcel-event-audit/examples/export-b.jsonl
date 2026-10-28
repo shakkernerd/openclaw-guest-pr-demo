@@ -1,0 +1,3 @@
+{"occurredAt":"2026-10-28T11:00:00+01:00","type":"delivered","parcelId":"PKG-A","eventId":"a-delivered"}
+{"eventId":"a-cancelled","parcelId":"PKG-A","type":"cancelled","occurredAt":"2026-10-28T09:30:00Z"}
+{"eventId":"b-transit","parcelId":"PKG-B","type":"in_transit","occurredAt":"2026-10-28T09:05:00Z"}
