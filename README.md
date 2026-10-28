@@ -1,8 +1,9 @@
 # openclaw-guest-pr-demo
 
 Turn order quantities into a box-by-box packing plan, or get a compact summary of
-box utilization. Supply a JSON file or pipe an order through standard input; read
-the text report yourself or use JSON output in another program. Fix any reported
+box utilization. Compare both packing policies with `--compare`. Supply a JSON
+file or pipe an order through standard input; read the text report yourself or
+use JSON output in another program. Fix any reported
 input error and rerun the same command. The CLI only reads the order, never edits it.
 
 The planner uses CommonJS and Node.js built-ins only; no dependency installation
@@ -114,8 +115,8 @@ as `order.json` (or use the included `examples/order.json`):
 
 #### Exact JSON numbers versus JavaScript Numbers
 
-For the CLI (file or stdin, either mode, detailed or summary output), each used
-`quantity` and `maxItemsPerBox` numeric token must represent a **mathematical
+For the CLI (file or stdin, either mode, detailed, summary, or comparison output),
+each used `quantity` and `maxItemsPerBox` numeric token must represent a **mathematical
 integer in decimal**, not merely round to an integer when parsed as a JavaScript
 Number. Decimal points and exponents are allowed: `1.0`, `3e0`, and `300e-2`
 represent integers and remain valid. Sign, safe-integer, aggregate-total, and
@@ -181,18 +182,21 @@ Box 3: 1 item
 
 SKUs are JSON-quoted in text reports; ASCII and C1 controls, DEL, and Unicode
 line/paragraph separators are escaped visibly. JSON output preserves the original
-SKU strings. `--json` writes the same object returned by the module (below),
+SKU strings. For plans and summaries, `--json` writes the same object returned by
+the module (below); comparisons contain both unchanged summary objects. JSON is
 pretty-printed with a trailing newline. Success writes only to stdout. Errors
 write a diagnostic to stderr, without a stack trace; input/argument errors produce
 no stdout. Exit statuses are:
 
-- **0**: successful plan, summary, or help (`--help`/`-h`, used alone).
+- **0**: successful plan, summary, comparison, or help (`--help`/`-h`, used alone).
 - **1**: unreadable input, malformed JSON, invalid order, exceeded limits, or
   output failure (including a broken pipe).
-- **2**: unknown/repeated options, a missing or invalid `--mode` value, or extra
-  file arguments. Options are parsed before input is read. Supported options are
-  `--json`, `--summary`, `--mode mixed|single-sku`, `--help`/`-h`, and `--`. Mode values are
-  case-sensitive; use two arguments (`--mode single-sku`), not `--mode=single-sku`.
+- **2**: unknown/repeated options, a missing or invalid `--mode` value, extra
+  file arguments, or `--compare` combined with `--summary` or any explicit `--mode`.
+  Options are parsed before input is read. Supported options are `--json`,
+  `--summary`, `--compare`, `--mode mixed|single-sku`, `--help`/`-h`, and `--`.
+  Mode values are case-sensitive; use two arguments (`--mode single-sku`),
+  not `--mode=single-sku`.
 
 ### CommonJS API
 
@@ -279,8 +283,9 @@ single-SKU mode, including for empty plans:
 }
 ```
 
-Without `--summary`, omitting `--mode`, or using `--mode mixed`, leaves the default
-text and JSON output unchanged: no mode label or `mode` property is added. In that
+Without `--summary` or `--compare`, omitting `--mode`, or using `--mode mixed`,
+leaves the default text and JSON output unchanged: no mode label or `mode` property
+is added. In that
 default mode, the same order packs A=2 and B=1 into the first box, then B=1 into the
 second.
 
@@ -347,8 +352,8 @@ support for arbitrary-size numeric quantities.
 
 Add `--summary` for a two-line text report, or combine it with `--json`. It works
 with either mode and the same file/stdin input, diagnostics, and exit statuses.
-Without `--summary`, all existing detailed API and CLI output stays unchanged.
-Mode is still selected by `--mode`, not an input JSON field.
+Without `--summary` or `--compare`, all existing detailed API and CLI output stays
+unchanged. Mode is still selected by `--mode`, not an input JSON field.
 
 ```sh
 node packaging-cli.js --summary examples/order.json
@@ -390,6 +395,83 @@ printf '%s\n' '{"items":[{"sku":"A","quantity":9007199254740991}],"maxItemsPerBo
 printf '%s\n' '{"items":[{"sku":"A","quantity":1},{"sku":"B","quantity":2}],"maxItemsPerBox":9007199254740991}' | node packaging-cli.js --summary --mode single-sku --json -
 ```
 
+### Compare packing policies (opt-in)
+
+Use `--compare` to report the same order under both policies without generating
+individual boxes. The CLI reads the order once and calls the existing
+`summarizePackaging` API once for `mixed` and once for `single-sku`. It does not
+call the detailed planner, apply `MAX_BOXES`, or do work per box. Input and SKU
+aggregation still need to fit in memory, and all existing validation rules apply.
+No module API or dependency is added; Node.js 22+ built-ins remain sufficient.
+
+```sh
+node packaging-cli.js --compare examples/order.json
+node packaging-cli.js --compare --json examples/order.json
+cat examples/large-order.json | node packaging-cli.js --compare -
+node packaging-cli.js --compare --json -- -order.json
+```
+
+Text output is an aligned table, always `mixed` first and `single-sku` second.
+Its columns are the existing summary fields: policy (`mode`), capacity
+(`maxItemsPerBox`), items (`totalItems`), boxes (`boxCount`), full boxes
+(`fullBoxes`), partial boxes (`partialBoxes`), and unused item slots
+(`unusedItemSlots`). No percentages, differences, or recommendation are calculated.
+
+For A=1, B=1, capacity=4, this command:
+
+```sh
+printf '%s\n' '{"items":[{"sku":"A","quantity":1},{"sku":"B","quantity":1}],"maxItemsPerBox":4}' | node packaging-cli.js --compare
+```
+
+prints:
+
+```text
+Policy     | Capacity | Items | Boxes | Full | Partial | Unused item slots
+mixed      | 4        | 2     | 1     | 0    | 1       | 2
+single-sku | 4        | 2     | 2     | 0    | 2       | 6
+```
+
+Adding `--json` to the same command prints an object keyed by policy, with each
+unchanged seven-field summary nested under its key:
+
+```json
+{
+  "mixed": {
+    "mode": "mixed",
+    "maxItemsPerBox": 4,
+    "totalItems": 2,
+    "boxCount": 1,
+    "fullBoxes": 0,
+    "partialBoxes": 1,
+    "unusedItemSlots": "2"
+  },
+  "single-sku": {
+    "mode": "single-sku",
+    "maxItemsPerBox": 4,
+    "totalItems": 2,
+    "boxCount": 2,
+    "fullBoxes": 0,
+    "partialBoxes": 2,
+    "unusedItemSlots": "6"
+  }
+}
+```
+
+Unused slots remain exact decimal strings, including `"0"` and values beyond the
+safe-integer limit. Empty/all-zero orders still return both summaries with zero
+counts; capacity must still be positive. Neither result includes a `boxes` array.
+
+`--compare` cannot be combined with `--summary` or **any explicit `--mode`**,
+including `--mode mixed`, in either argument order. These conflicts and repeated
+`--compare` options exit **2** with empty stdout before reading a file or stdin.
+Omitting `--mode` is valid: comparison itself selects both policies. A `mode` or
+`compare` field inside the input JSON does not select CLI behavior.
+
+File/stdin selection, `--`, source-labelled input errors (exit 1), output-failure
+handling, and trailing newlines follow existing CLI conventions. Without
+`--compare`, existing detailed and summary report output is unchanged; help and
+argument-error usage text now also document comparison.
+
 ## Tests
 
 From the repository root:
@@ -413,3 +495,14 @@ escaped/duplicate keys, ignored extras, and the unchanged module Number contract
 Nesting regressions cover 3,000-level arrays and 20,000-level objects in ignored
 or overwritten fields through files/stdin, both modes, and both report types;
 invalid used counts and malformed JSON must still fail with the right diagnostic.
+Comparison tests exercise actual CLI text/JSON, files/stdin, option terminators,
+empty/repeated-SKU orders, exact large integers, pre-input conflicts with stdin
+left open, malformed/raw fractional input, and broken pipes. Ordinary CLI runs
+verify exact, compact text and JSON for maximum-safe-integer box counts within
+the existing five-second per-process deadline, with no detailed boxes in the
+result. These behavior checks do not instrument internal calls or allocations.
+Run the focused comparison and existing CLI/summary compatibility checks with:
+
+```sh
+node --test packaging-compare.test.js packaging-cli.test.js packaging-summary.test.js
+```
