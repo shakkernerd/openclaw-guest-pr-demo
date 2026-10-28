@@ -93,7 +93,7 @@ function readOrder(file) {
   try {
     source = readFileSync(stdin ? 0 : file, "utf8");
   } catch (error) {
-    throw new Error("cannot read " + (stdin ? "standard input" : JSON.stringify(file)) + " (" + error.code + ")");
+    throw new Error("cannot read input (" + error.code + ")");
   }
   let order;
   try {
@@ -158,7 +158,9 @@ function main() {
     const report = options.summary ? summaryReport : textReport;
     process.stdout.write(options.json ? JSON.stringify(result, null, 2) + "\n" : report(result));
   } catch (error) {
-    process.stderr.write("packaging: " + error.message + "\n");
+    // The CLI owns source context; parsing and planning keep their existing diagnostics.
+    const source = options.file === undefined || options.file === "-" ? "standard input" : JSON.stringify(options.file);
+    process.stderr.write("packaging: " + source + ": " + error.message + "\n");
     process.exitCode = 1;
   }
 }
