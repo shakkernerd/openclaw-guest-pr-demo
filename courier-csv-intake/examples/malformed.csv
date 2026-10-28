@@ -1,0 +1,3 @@
+note,eventId,parcelId,type,occurredAt
+"Multiline note
+with bad timestamp",bad,PKG-X,created,2026-02-29T08:00:00Z

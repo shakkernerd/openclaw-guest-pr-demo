@@ -1,0 +1,5 @@
+eventId,parcelId,type,occurredAt,note,scanCode
+a-delivered,PKG-A,delivered,2026-10-28T10:00:00Z,"Handed to recipient, 雪",D01
+a-created,PKG-A,created,2026-10-28T08:00:00Z,"Label printed
+Dock 2",C01
+b-transit,PKG-B,in_transit,2026-10-28T09:00:00Z,"Driver said ""loaded""",T01

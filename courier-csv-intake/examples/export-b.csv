@@ -1,0 +1,4 @@
+note,occurredAt,type,parcelId,eventId,scanCode
+Retry metadata differs,2026-10-28T11:00:00+01:00,delivered,PKG-A,a-delivered,D02
+Cancellation evidence,2026-10-28T09:30:00Z,cancelled,PKG-A,a-cancelled,X01
+Conflicting scan time,2026-10-28T09:05:00Z,in_transit,PKG-B,b-transit,T02
