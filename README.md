@@ -2,22 +2,39 @@
 Synthetic disposable fixtures for guest pull request continuation tests.
 
 The parcelLabel helper lives in parcel-label.js and formats a count as an item label.
-The number `1`, the exact string `"1"`, and the BigInt `1n` produce `1 item`, so
-counts supplied as strings (for example, from form fields) or BigInts (for
-example, from aggregations) use the same singular label. All other values use
-`items`. The count is displayed without trimming or numeric conversion; for
-example, `"01"` remains `01 items`, and `3n` produces `3 items`.
+The number `1`, the exact string `"1"`, and the BigInt `1n` produce `1 item`.
+All other values use `items`.
 
 ```js
 const { parcelLabel } = require("./parcel-label.js");
 
 parcelLabel(1);   // "1 item"
-parcelLabel("1"); // "1 item"
-parcelLabel("3"); // "3 items"
 parcelLabel(0n);  // "0 items"
 parcelLabel(1n);  // "1 item"
 parcelLabel(3n);  // "3 items"
 ```
+
+## Using counts from callers
+
+With `parcelLabel` imported above:
+
+```js
+const formCount = "1"; // A form field's input.value.
+parcelLabel(formCount); // "1 item"
+
+const aggregatedCount = [9007199254740992n, 1n].reduce(
+  (total, count) => total + count, 0n
+);
+parcelLabel(aggregatedCount); // "9007199254740993 items"
+
+parcelLabel("01"); // "01 items"
+parcelLabel(" 1 "); // " 1  items"
+```
+
+Keep the aggregate as a BigInt: converting it to `Number` can round values above
+`Number.MAX_SAFE_INTEGER`. The helper displays its exact decimal digits without
+the `n` suffix. It formats rather than parses or trims string counts, so padding
+and whitespace stay intact; the usual separator adds another space before `items`.
 
 ## Tests
 
