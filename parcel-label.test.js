@@ -15,3 +15,7 @@ test("parcelLabel formats one parcel as singular", () => {
 test("parcelLabel formats three parcels as plural", () => {
   assert.equal(parcelLabel(3), "3 items");
 });
+
+test("parcelLabel keeps string one plural without numeric coercion", () => {
+  assert.equal(parcelLabel("1"), "1 items");
+});
