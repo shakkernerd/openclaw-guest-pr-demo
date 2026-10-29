@@ -387,6 +387,8 @@ test('diagnostic sink failure is fatal and cancels an open input', async t => {
 });
 
 const jsonlOptions = { diagnostics: 'jsonl' };
+const failFastOptions = { ...jsonlOptions, failFast: true };
+const failFastRejection = { version: 1, type: 'record-error', line: 2, message: 'order must be an object with items and maxItemsPerBox' };
 const completion = exitCode => ({ version: 1, type: 'complete', exitCode });
 function diagnosticEvents(text) {
   assert.ok(text.endsWith('\n'), 'diagnostics must contain complete LF-framed events');
@@ -410,6 +412,146 @@ function diagnosticEvents(text) {
     return event;
   });
 }
+
+test('fail-fast completes an unterminated rejected EOF tail but not an LF rejection', t => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'packaging-fail-fast-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'orders.jsonl');
+  for (const suffix of ['', '\n', '\n' + order + '\n[]\n']) {
+    const input = order + '\nnull' + suffix;
+    writeFileSync(file, input);
+    for (const args of [[], ['-'], [file]]) {
+      const r = run(['--fail-fast', '--diagnostics=jsonl', ...args], input);
+      assert.equal(r.status, 1);
+      assert.equal(r.stdout, resultLine(1));
+      assert.deepEqual(diagnosticEvents(r.stderr), [
+        { version: 1, type: 'record-error', line: 2, message: 'order must be an object with items and maxItemsPerBox' },
+        ...(suffix === '' ? [completion(1)] : []),
+      ]);
+    }
+  }
+});
+
+test('fail-fast real CLI retains its prefix and exits with stdin still open', async t => {
+  for (const jsonl of [false, true]) {
+    const { child, done } = childRun(t, ['--fail-fast', ...(jsonl ? ['--diagnostics=jsonl', '-'] : [])]);
+    // Offer later valid and invalid records in the same write, but never end stdin.
+    child.stdin.write(order + '\nnull\n' + order + '\n[]\n');
+    const r = await bounded(done);
+    assert.equal(child.stdin.writableEnded, false);
+    assert.equal(r.status, 1);
+    assert.equal(r.signal, null);
+    assert.equal(r.stdout, resultLine(1));
+    if (jsonl) assert.deepEqual(diagnosticEvents(r.stderr), [failFastRejection]);
+    else assert.equal(r.stderr, 'packaging-batch: standard input: line 2: ' + failFastRejection.message + '\n');
+  }
+});
+
+test('fail-fast awaits rejection, prefix drain and EOF-tail completion callbacks in order', async () => {
+  for (const tail of [false, true]) {
+    const input = new PassThrough();
+    let releaseRecord, recordStarted, releaseOutput, outputStarted, releaseComplete, completeStarted;
+    const record = new Promise(resolve => { recordStarted = resolve; });
+    const final = new Promise(resolve => { outputStarted = resolve; });
+    const complete = new Promise(resolve => { completeStarted = resolve; });
+    const out = sink({ final(callback) { releaseOutput = callback; outputStarted(); } });
+    const chunks = [];
+    const err = new Writable({ write(chunk, encoding, callback) {
+      chunks.push(chunk.toString());
+      if (chunks.length === 1) { releaseRecord = callback; recordStarted(); }
+      else { releaseComplete = callback; completeStarted(); }
+    } });
+    let settled = false;
+    const done = runBatch(input, out.stream, err, undefined, failFastOptions).then(code => { settled = true; return code; });
+    if (tail) input.end(order + '\nnull');
+    else input.write(order + '\nnull\n' + order + '\n');
+    await bounded(record);
+    assert.equal(settled, false);
+    assert.equal(out.stream.writableEnded, false);
+    if (!tail) assert.equal(input.destroyed, false);
+    releaseRecord();
+    await bounded(final);
+    assert.equal(settled, false);
+    assert.equal(out.text(), resultLine(1));
+    assert.deepEqual(diagnosticEvents(chunks.join('')), [failFastRejection]);
+    if (!tail) assert.equal(input.destroyed, true);
+    releaseOutput();
+    if (tail) {
+      await bounded(complete);
+      assert.equal(out.stream.writableFinished, true);
+      assert.equal(settled, false);
+      releaseComplete();
+    }
+    assert.equal(await bounded(done), 1);
+    assert.deepEqual(diagnosticEvents(chunks.join('')), [failFastRejection, ...(tail ? [completion(1)] : [])]);
+    assert.equal(out.stream.writableFinished, true);
+    assert.equal(err.writableEnded, false);
+  }
+});
+
+test('fail-fast preserves output-finalization and intentional input-close failure ownership', async () => {
+  for (const [tail, operation] of [[false, 'write-output'], [true, 'write-output'], [false, 'read-input']]) {
+    const input = new PassThrough(operation === 'read-input'
+      ? { destroy(error, callback) { callback(ioError('EIO')); } } : {});
+    const out = sink(operation === 'write-output' ? { final(callback) { callback(ioError('EIO')); } } : {});
+    const err = sink();
+    const done = runBatch(input, out.stream, err.stream, undefined, failFastOptions);
+    if (tail) input.end(order + '\nnull');
+    else input.write(order + '\nnull\n' + order + '\n');
+    assert.equal(await bounded(done), 1);
+    assert.equal(out.text(), resultLine(1));
+    assert.deepEqual(diagnosticEvents(err.text()), [
+      failFastRejection, { version: 1, type: 'fatal-error', operation, code: 'EIO' },
+    ]);
+  }
+});
+
+test('fail-fast diagnostic failures never fabricate or retry completion', async () => {
+  for (const [tail, failAt] of [[false, 1], [true, 1], [true, 2]]) {
+    const input = new PassThrough();
+    const out = sink();
+    const chunks = [];
+    const err = new Writable({ write(chunk, encoding, callback) {
+      chunks.push(chunk.toString());
+      callback(chunks.length === failAt ? ioError('EPIPE') : undefined);
+    } });
+    const done = runBatch(input, out.stream, err, undefined, failFastOptions);
+    if (tail) input.end(order + '\nnull');
+    else input.write(order + '\nnull\n' + order + '\n');
+    assert.equal(await bounded(done), 1);
+    assert.equal(input.destroyed, true);
+    assert.equal(err.destroyed, true);
+    assert.equal(out.text(), resultLine(1));
+    assert.deepEqual(diagnosticEvents(chunks.join('')), [failFastRejection, ...(failAt === 2 ? [completion(1)] : [])]);
+  }
+});
+
+test('fail-fast EOF-tail completion retains late input and output failure ownership', async () => {
+  for (const operation of ['read-input', 'write-output']) {
+    const input = Readable.from([Buffer.from(order + '\nnull')], { autoDestroy: false });
+    const out = sink({ autoDestroy: false });
+    const chunks = [];
+    let release, started;
+    const complete = new Promise(resolve => { started = resolve; });
+    const err = new Writable({ write(chunk, encoding, callback) {
+      chunks.push(chunk.toString());
+      if (chunks.length === 2) { release = callback; started(); } else callback();
+    } });
+    const done = runBatch(input, out.stream, err, undefined, failFastOptions);
+    await bounded(complete);
+    assert.equal(out.stream.writableFinished, true);
+    const failing = operation === 'read-input' ? input : out.stream;
+    const failed = new Promise(resolve => failing.once('error', resolve));
+    failing.destroy(ioError('EIO'));
+    await bounded(failed);
+    release();
+    assert.equal(await bounded(done), 1);
+    assert.equal(out.text(), resultLine(1));
+    assert.deepEqual(diagnosticEvents(chunks.join('')), [
+      failFastRejection, completion(1), { version: 1, type: 'fatal-error', operation, code: 'EIO' },
+    ]);
+  }
+});
 
 test('JSONL diagnostics real CLI preserves stdout and reports physical rejected lines without source data', t => {
   const dir = mkdtempSync(path.join(tmpdir(), 'packaging-diagnostics-'));
@@ -512,7 +654,7 @@ test('JSONL real CLI unreadable input emits only a fatal event', t => {
 
 
 test('JSONL read failure never rejects an unterminated tail or completes', async t => {
-  for (const tail of [order, '{PRIVATE_TAIL']) {
+  for (const [tail, options] of [[order, jsonlOptions], ['{PRIVATE_TAIL', jsonlOptions], ['null', failFastOptions]]) {
     const input = new PassThrough();
     t.after(() => input.destroy());
     let emitted;
@@ -520,7 +662,7 @@ test('JSONL read failure never rejects an unterminated tail or completes', async
     const chunks = [];
     const out = new Writable({ write(chunk, encoding, callback) { chunks.push(chunk.toString()); callback(); emitted(); } });
     const err = sink();
-    const done = runBatch(input, out, err.stream, 'PRIVATE_SOURCE', jsonlOptions);
+    const done = runBatch(input, out, err.stream, 'PRIVATE_SOURCE', options);
     input.write(order + '\n');
     await bounded(first);
     input.write(tail);

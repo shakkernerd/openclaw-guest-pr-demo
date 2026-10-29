@@ -618,6 +618,8 @@ node packaging-batch-cli.js orders.jsonl
 cat orders.jsonl | node packaging-batch-cli.js
 cat orders.jsonl | node packaging-batch-cli.js -
 node packaging-batch-cli.js -- --orders.jsonl
+node packaging-batch-cli.js --fail-fast orders.jsonl
+cat orders.jsonl | node packaging-batch-cli.js --fail-fast --diagnostics=jsonl -
 node packaging-batch-cli.js --help
 ```
 
@@ -625,8 +627,14 @@ Only one optional FILE is accepted. Omit it or use `-` for stdin; `--` ends opti
 parsing, and `--help` / `-h` must be used alone. Arguments are checked before
 opening input. Optional `--diagnostics=jsonl` replaces human batch stderr with
 [machine-readable diagnostics](#machine-readable-batch-diagnostics-opt-in); place it
-before `--`, either before or after FILE. There are no `--json`, `--csv`, `--check`, `--mode`, `--summary`, or `--compare` flags:
-every valid record always produces both policy summaries.
+before `--`, either before or after FILE. Optional `--fail-fast` stops after the
+first rejected record instead of continuing. Use this exact, valueless flag once,
+before `--`, either before or after FILE; it combines with `--diagnostics=jsonl`
+in either order. Repeating it, adding a value (such as `--fail-fast=true`), or
+using an abbreviation is argument misuse (exit 2). After `--`, `--fail-fast` is
+a filename, not an option. There are no `--json`, `--csv`, `--check`, `--mode`,
+`--summary`, or `--compare` flags: every valid record always produces both policy
+summaries.
 
 ### Records and results
 
@@ -654,7 +662,7 @@ aggregation and summary arithmetic remain owned there; no packing engine or
 validation rules are duplicated. The shared `order-json.js` parser preserves raw
 numeric-token checks, escaped keys, ignored fields and last-property-wins behavior.
 
-### Continue on invalid records; fail on transport errors
+### Continue by default, optionally fail fast; fail on transport errors
 
 By default, invalid JSON, an invalid top-level shape, or invalid order fields produce one
 controlled stderr diagnostic with the source (quoted filename or `standard input`)
@@ -664,6 +672,16 @@ records**. Input contents and stack traces are not echoed. For example:
 ```text
 packaging-batch: "orders.jsonl": line 7: items[0].quantity must be a non-negative safe integer
 ```
+
+With `--fail-fast`, the first rejected record gets the same diagnostic and no
+result, but later records are not parsed, validated, or summarized—even if their
+bytes are already buffered. Earlier results are retained and stdout is finalized
+normally before exit **1**. On an early rejection, input is closed without
+draining it or waiting for an open stdin to reach EOF. This is a record-processing
+stop, not a guarantee against stream/OS read-ahead. A final line without LF still
+needs clean EOF before it becomes a record; rejecting that tail retains normal
+completion diagnostics because the reader has already observed exhaustion. Valid
+and blank-only inputs retain their normal behavior.
 
 Exit statuses:
 
@@ -707,9 +725,9 @@ not a single successful stream):
 
 - **Record error:** `line` is the positive, one-based physical input line,
   including skipped blank lines. One event carries the existing first parser or
-  validator message for a rejected record; processing continues. Blank and valid
-  records emit no record-error event. `message` is informational text, not a
-  stable error taxonomy to parse or branch on.
+  validator message for a rejected record; processing continues by default, or
+  stops with `--fail-fast`. Blank and valid records emit no record-error event.
+  `message` is informational text, not a stable error taxonomy to parse or branch on.
 - **Fatal error:** `operation` is `read-input`, `write-output`, or
   `write-diagnostics`. `code` is the existing sanitized I/O code as a string
   (uppercase letters, digits, and underscores), or `IO_ERROR`. The first fatal
@@ -719,7 +737,15 @@ not a single successful stream):
 - **Completion:** exactly one write is attempted only after clean input exhaustion
   and successful result-output finalization, with `exitCode` 0 for no invalid
   records or 1 for record rejection. No completion is attempted after a known
-  input/output failure. Empty and blank-only input also emit completion with 0.
+  input/output failure. A fail-fast rejection of an LF-terminated record emits
+  the existing record-error event, but **no completion**: the reader has not yet
+  observed exhaustion, even if the rejected record is physically last. If the
+  reader has already reached clean EOF before yielding an **unterminated final
+  record**, its rejection is followed by `complete` with `exitCode: 1`, after
+  successful output finalization and diagnostic writes. This uses the reader's
+  observed exhaustion, not another input read or a physical-EOF guess. No new
+  event or synthetic fatal error represents an early stop. Empty and blank-only
+  input also emit completion with 0, including with `--fail-fast`.
   Completion is not retried if its write fails. Thus clean opted-in success has
   one completion event on stderr, while default success remains silent there.
 
@@ -748,10 +774,13 @@ human-readable, and exit 0. After `--`, the selector text is a filename.
 Direct CommonJS callers can use
 `runBatch(input, output, diagnostics, source, { diagnostics: "jsonl" })`.
 Existing four-argument calls keep text diagnostics and integer status returns;
-JSONL mode also returns an integer and leaves the diagnostics stream open. The
-source argument is not included in JSONL events. Both modes reuse the existing
-parser, validation, summaries, awaited diagnostic writes, and stream backpressure;
-neither accumulates a rejection list in the producer.
+JSONL mode also returns an integer and leaves the diagnostics stream open. Add
+`failFast: true` to the same options object to stop after the first rejection;
+`{ failFast: true }` also works with default text diagnostics. Input/output belong
+to the run: an early stop closes input and finalizes output, leaving
+diagnostics open. The source argument is not included in JSONL events. Both modes
+reuse the existing parser, validation, summaries, awaited diagnostic writes, and
+stream backpressure; neither accumulates a rejection list in the producer.
 
 ### Inspect saved batch captures (example)
 
@@ -895,7 +924,10 @@ and write/finalization errors. JSONL diagnostics coverage pins exact version-1
 event keys, physical rejection lines, unchanged stdout, pre-input option errors,
 completion ordering, fatal failures, diagnostic backpressure, and partial/full
 diagnostic delivery on failure without assuming atomic writes. No test-only
-production flags or global patches are used. Run the focused batch tests with:
+production flags or global patches are used. Maintained fail-fast regressions
+cover open-stdin early stops, accepted-prefix draining, rejected EOF tails versus
+LF records, diagnostic/output callback ordering, and transport-failure ownership.
+Run the focused batch tests with:
 
 ```sh
 node --test packaging-batch.test.js
