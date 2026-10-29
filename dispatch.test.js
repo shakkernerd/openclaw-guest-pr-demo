@@ -243,6 +243,66 @@ test("JSON token checking preserves punctuation, quotes, backslashes and Unicode
   assert.deepEqual(JSON.parse(result.stdout).couriers[0].deliveries[0], input.deliveries[0]);
 });
 
+test("actual command rejects invalid UTF-8 from files and stdin without partial output", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "e11-dispatch-encoding-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const file = join(directory, "invalid.json");
+  const inputs = [];
+  for (const [field, bytes] of [
+    ["id", [0xff]], // Invalid leading byte: previously became a replacement character.
+    ["address", [0xc3, 0x28]], // Invalid continuation byte.
+    ["address", [0xc0, 0xaf]], // Overlong encoding.
+    ["id", [0xed, 0xa0, 0x80]], // UTF-8 encoding of a surrogate is invalid.
+    ["address", [0xf4, 0x90, 0x80, 0x80]], // Above Unicode's maximum code point.
+  ]) {
+    const input = batch();
+    input.deliveries[0][field] = "before-ENCODING_MARKER-after";
+    const [before, after] = JSON.stringify(input).split("ENCODING_MARKER");
+    inputs.push(Buffer.concat([Buffer.from(before), Buffer.from(bytes), Buffer.from(after)]));
+  }
+  // A truncated multibyte sequence at EOF must also be reported as an encoding error.
+  inputs.push(Buffer.concat([Buffer.from(JSON.stringify(batch())), Buffer.from([0xe2, 0x82])]));
+  for (const input of inputs) {
+    writeFileSync(file, input);
+    for (const source of [file, "-"]) {
+      for (const options of [[], ["--json"]]) {
+        const result = cli([...options, source], input);
+        failure(result, /invalid UTF-8/);
+        assert.ok(result.stderr.includes(JSON.stringify(source)));
+      }
+    }
+  }
+});
+
+test("actual command preserves valid Unicode from files and stdin in both output modes", (t) => {
+  const input = batch();
+  input.deliveries[0] = {
+    id: "D-é-東京-🚲",
+    address: "12 rue de l’Église, Zürich",
+    priority: "urgent",
+    notes: "门铃 🔔; combining e\u0301; literal replacement character \ufffd",
+  };
+  input.couriers[0].name = "Zoë";
+  const bytes = Buffer.from(JSON.stringify(input), "utf8");
+  const directory = mkdtempSync(join(tmpdir(), "e11-dispatch-unicode-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const file = join(directory, "unicode.json");
+  writeFileSync(file, bytes);
+  for (const source of [file, "-"]) {
+    const json = cli(["--json", source], bytes);
+    success(json);
+    const plan = JSON.parse(json.stdout);
+    assert.deepEqual(plan.couriers[0].deliveries, input.deliveries);
+    assert.equal(plan.couriers[0].name, input.couriers[0].name);
+    const report = cli([source], bytes);
+    success(report);
+    for (const value of [input.deliveries[0].id, input.deliveries[0].address,
+      input.deliveries[0].notes, input.couriers[0].name]) {
+      assert.ok(report.stdout.includes(value));
+    }
+  }
+});
+
 test("actual command rejects malformed JSON and bad arguments", () => {
   for (const input of ["", "{", '{"deliveries":[],}', '{"deliveries":[]} trailing']) {
     failure(cli(["--json", "-"], input), /invalid JSON/);

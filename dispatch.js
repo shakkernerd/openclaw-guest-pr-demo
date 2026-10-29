@@ -2,6 +2,7 @@
 "use strict";
 
 const { readFileSync } = require("node:fs");
+const { isUtf8 } = require("node:buffer");
 const { planDispatch, formatReport } = require("./dispatch-planner.js");
 
 const USAGE = [
@@ -75,13 +76,16 @@ function main() {
     }
     let source;
     try {
-      source = readFileSync(args.file === "-" ? 0 : args.file, "utf8");
+      source = readFileSync(args.file === "-" ? 0 : args.file);
     } catch (error) {
       throw new Error("cannot read " + JSON.stringify(args.file) + ": " + error.message);
     }
+    if (!isUtf8(source)) {
+      throw new Error("invalid UTF-8 in " + JSON.stringify(args.file) + ": input must be UTF-8 encoded");
+    }
     let batch;
     try {
-      batch = parseBatch(source);
+      batch = parseBatch(source.toString("utf8"));
     } catch (error) {
       throw new Error("invalid JSON in " + JSON.stringify(args.file) + ": " + error.message);
     }

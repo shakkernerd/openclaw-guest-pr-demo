@@ -44,7 +44,8 @@ and remaining capacity, and an explicit unassigned section (even when empty).
 
 ## Input format
 
-Supply one UTF-8 JSON object containing both arrays:
+Supply one UTF-8 JSON object containing both arrays. Invalid UTF-8 bytes are
+rejected before decoding, never silently replaced in IDs, addresses, or other text:
 
 ```json
 {
@@ -116,7 +117,7 @@ extra capacity or a later batch; do not assume a successful run means all work f
 
 **Exit 0:** help or a valid plan, including a plan with unassigned deliveries.
 Automation must inspect `summary.unassignedDeliveries` to detect overflow.
-**Exit 1:** bad arguments, unreadable input, malformed JSON, or an invalid batch.
+**Exit 1:** bad arguments, unreadable input, invalid UTF-8, malformed JSON, or an invalid batch.
 Errors go to stderr; stdout stays empty and no partial plan is emitted. For example:
 
 ```text
