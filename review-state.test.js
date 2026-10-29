@@ -190,6 +190,42 @@ test("exports round-trip full data and replace rather than merge review snapshot
   assert.deepEqual(R.importJSON(R.exportJSON(withNotes)), withNotes);
 });
 
+test("selected export preserves exact IDs, all decisions, full values and working-array order", () => {
+  const ids = ["a", "A", " a ", "__proto__", "constructor", "toString", "unselected"];
+  let state = R.importJSON(JSON.stringify(ids.map(id => Object.fromEntries([
+    ["id", id], ["title", "雪 </script> " + id], ["__proto__", { safe: true }],
+    ["values", [null, false, 0, "003", { lines: "CR\rLF\nCRLF\r\n", empty: "" }]],
+    ["notes", "source note, not a review"], ["decision", "source decision"],
+  ]))));
+  ids.forEach((id, index) => { state = R.updateReview(state, id, {
+    decision: R.DECISIONS[index % R.DECISIONS.length], notes: '  "quoted" 雪 </textarea>\r\n' + id,
+  }); });
+  freeze(state);
+  const before = R.exportJSON(state);
+  const selection = freeze(["toString", "constructor", "__proto__", " a ", "A", "a"]);
+  const json = R.exportSelectedJSON(state, selection);
+  const expected = { format: R.FORMAT, version: 1, records: state.records.slice(0, -1),
+    reviews: Object.fromEntries(ids.slice(0, -1).map(id => [id, state.reviews[id]])) };
+  assert.deepEqual(R.importJSON(json, reviewed()), expected);
+  assert.deepEqual(R.parseSnapshotJSON(json), expected);
+  assert.equal(json, R.exportJSON(expected));
+  assert.equal(R.exportJSON(state), before);
+  assert.deepEqual(selection, ["toString", "constructor", "__proto__", " a ", "A", "a"]);
+  assert.equal(Object.hasOwn(JSON.parse(json).reviews, "unselected"), false);
+});
+
+test("selected export rejects empty, implicit, duplicate and stale selections without a full fallback", () => {
+  const state = freeze(reviewed());
+  const before = R.exportJSON(state);
+  for (const ids of [undefined, null, [], "a", new Set(["a"]), ["a", "a"], ["a", "missing"], ["a", 1], ["A"]]) {
+    assert.throws(() => R.exportSelectedJSON(state, ids));
+    assert.equal(R.exportJSON(state), before);
+  }
+  assert.throws(() => R.exportSelectedJSON(R.emptyState(), []), /Select at least one/);
+  const invalid = { ...state, reviews: { ...state.reviews, a: { decision: "bad", notes: "" } } };
+  assert.throws(() => R.exportSelectedJSON(invalid, ["a"]), /Invalid decision/);
+});
+
 test("invalid snapshots never partially replace accepted state", () => {
   const previous = freeze(reviewed());
   const before = R.exportJSON(previous);

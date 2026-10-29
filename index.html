@@ -97,7 +97,7 @@
 <main class="shell">
   <header class="topbar">
     <div><div class="eyebrow">A little clarity for your data</div><h1>Record Desk</h1><p class="muted">Import. Decide. Leave a useful note.</p></div>
-    <div class="row"><span class="pill">Offline · no uploads</span><button type="button" id="compare-open" aria-controls="compare-panel">Compare saved review</button><button type="button" id="export-open" class="primary">Export review</button></div>
+    <div class="row"><span class="pill">Offline · no uploads</span><button type="button" id="compare-open" aria-controls="compare-panel">Compare saved review</button><button type="button" id="export-open" class="primary" aria-controls="export-panel">Export full review</button></div>
   </header>
   <noscript><p class="notice">JavaScript is needed to review records. Open this HTML file in a browser with JavaScript enabled.</p></noscript>
   <p id="storage-status" class="notice" role="status" aria-live="polite">Checking browser storage…</p>
@@ -132,8 +132,8 @@
     <div class="stat panel"><strong id="count-follow-up">0</strong><span>Needs follow-up</span></div>
   </section>
   <section class="bulk panel" aria-labelledby="bulk-heading">
-    <h2 id="bulk-heading">Selected-record decisions</h2>
-    <p class="hint" id="bulk-policy">Use each row’s Select button to choose IDs independently of the open editor. Select visible adds all current matches, keeping hidden selections; it is disabled when there is nothing to add. Filters never change your set. Apply includes hidden selections.</p>
+    <h2 id="bulk-heading">Selected-record decisions &amp; handoff</h2>
+    <p class="hint" id="bulk-policy">Use each row’s Select button to choose IDs independently of the open editor. Select visible adds all current matches, keeping hidden selections; it is disabled when there is nothing to add. Filters never change your set. Apply and selected export include hidden selections.</p>
     <p id="bulk-count" class="message" role="status" aria-live="polite">0 selected · 0 hidden by current search/filter.</p>
     <div class="row">
       <button type="button" id="select-visible" aria-describedby="bulk-policy" disabled>Select visible</button>
@@ -145,7 +145,9 @@
     </div>
     <p id="bulk-result" class="message" role="status" aria-live="polite"></p>
     <p id="bulk-undo-status" class="hint" role="status">No bulk undo available.</p>
-    <p class="hint">Only decisions change. Select at least one ID to apply; an empty selection cannot be cleared. Undo restores only the last bulk action’s changed decisions, keeping later notes. Any later decision action replaces or clears undo. Accepted imports and reloads clear selection and undo; neither is saved or exported.</p>
+    <p class="hint">Apply changes only decisions. Select at least one ID to apply; an empty selection cannot be cleared. Undo restores only the last bulk action’s changed decisions, keeping later notes. Any later decision action replaces or clears undo. Accepted imports and reloads clear selection and undo; neither is saved or exported.</p>
+    <div class="row actions"><button type="button" id="export-selected" aria-controls="export-panel" aria-describedby="bulk-count selected-export-policy" disabled>Export selected records (0)</button></div>
+    <p class="hint" id="selected-export-policy">Select at least one record to export. Selected export includes exactly those IDs, even hidden ones, with complete records and current decisions/notes in original record order; no decision-status restriction. It changes no working data, selection, undo or comparison. No selection means no selected file, never a full-export fallback.</p>
   </section>
   <section class="workspace panel" aria-label="Review workspace">
     <aside class="sidebar">
@@ -200,11 +202,12 @@
     </section>
   </details>
   <details class="panel" id="export-panel">
-    <summary>Portable review JSON</summary>
-    <p class="hint">Includes every record, decision, and note—not just filtered results. Re-import it to restore this review.</p>
-    <div class="row actions"><button type="button" id="download">Try download JSON</button><button type="button" id="select-export">Select JSON to copy</button></div>
+    <summary id="export-summary">Portable review JSON · Full review</summary>
+    <p id="export-scope" class="message" role="status" aria-live="polite"></p>
+    <p class="hint" id="export-policy">Both scopes use ordinary version-1 review JSON. Import replaces the recipient’s list and restores these reviews; it does not merge. Selected output is prepared by Export selected records. Changing selection or working data clears that prepared output and disables download/copy until prepared again; changing search/filter or closing this panel does not change its contents. Export full review explicitly switches back to all current records.</p>
+    <div class="row actions"><button type="button" id="download" aria-describedby="export-scope export-policy">Try download full review JSON</button><button type="button" id="select-export" aria-describedby="export-scope">Select full JSON to copy</button></div>
     <p id="download-status" class="message" role="status">The embedded Files preview may block downloads silently. If no file appears, select the JSON below, copy it with Ctrl/Cmd+C, and save it in a text file.</p>
-    <label for="export-json">Review export (read-only)</label><textarea id="export-json" rows="10" readonly spellcheck="false"></textarea>
+    <label for="export-json">Review export (read-only; scope shown above)</label><textarea id="export-json" rows="10" readonly spellcheck="false" aria-describedby="export-scope export-policy"></textarea>
   </details>
   <footer>No network requests, accounts, or external assets. Browser storage is a convenience, not a backup. Keep an export before closing an embedded preview.</footer>
 </main>
@@ -455,6 +458,21 @@
 
   function exportJSON(state) { return JSON.stringify(validateSnapshot(state), null, 2); }
 
+  // Explicit IDs only; selection order and visibility never reorder the records.
+  // Reuse the version-1 serializer, including its complete snapshot validation.
+  function exportSelectedJSON(state, ids) {
+    if (!Array.isArray(ids) || !ids.length) throw new Error("Select at least one record to export. Nothing was exported.");
+    const selected = new Set(ids);
+    const accepted = new Set(state.records.map(record => record.id));
+    if (selected.size !== ids.length || ids.some(id => typeof id !== "string" || !accepted.has(id))) {
+      throw new Error("Choose each selected record ID exactly once from the working review.");
+    }
+    const records = state.records.filter(record => selected.has(record.id));
+    return exportJSON({ ...state, records,
+      reviews: Object.fromEntries(records.map(({ id }) => [id, state.reviews[id]])),
+    });
+  }
+
   // The getter itself can throw in an opaque-origin iframe, before getItem runs.
   function restore(getStorage) {
     let text;
@@ -474,7 +492,7 @@
 
   return Object.freeze({
     FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON, importCSV,
-    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, visibleRecords, counts, exportJSON, restore, persist,
+    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, visibleRecords, counts, exportJSON, exportSelectedJSON, restore, persist,
   });
 });
 
@@ -496,6 +514,9 @@
   let comparisonSequence = 0;
   let comparedSnapshot = null;
   let comparedSource = "";
+  let exportScope = "all";
+  let selectedExport = null; // Prepared JSON, never the live selection or textarea.
+  let exportReason = "";
   const decisionButtons = [...document.querySelectorAll("[data-decision]")];
   const memoryWarning = "Memory only — browser storage is blocked or full. Embedded Files previews may deny storage. Export before closing or reloading; an older saved copy may otherwise return.";
 
@@ -504,9 +525,36 @@
     $("storage-status").classList.toggle("saved", saved);
   }
 
-  function updateExport() { $("export-json").value = review.exportJSON(state); }
+  function updateExport() {
+    const all = exportScope === "all";
+    const ready = all || selectedExport !== null;
+    const scope = all ? "Full review" : "Selected records";
+    const filename = all ? "record-review.json" : "record-review-selected.json";
+    $("export-summary").textContent = "Portable review JSON · " + scope;
+    $("export-scope").textContent = all
+      ? "Full review: all " + state.records.length + " records, decisions and notes, regardless of selection or filters. Updates with working data. Suggested filename: " + filename + "."
+      : selectedExport
+        ? "Selected records: " + selectedExport.count + " records, including " + selectedExport.hidden +
+          " hidden by search/filter when prepared. All decision statuses included; original record order kept. Suggested filename: " + filename + "."
+        : "Selected export unavailable. " + exportReason + " Select at least one record and use Export selected records to prepare it again. Nothing will download; full export is a separate action.";
+    $("export-json").value = all ? review.exportJSON(state) : selectedExport?.json ?? "";
+    $("download").disabled = !ready;
+    $("select-export").disabled = !ready;
+    $("download").textContent = all ? "Try download full review JSON" : "Try download selected JSON";
+    $("select-export").textContent = all ? "Select full JSON to copy" : "Select selected JSON to copy";
+    return ready;
+  }
+
+  function invalidateSelectedExport(reason) {
+    if (exportScope !== "selected") return;
+    selectedExport = null;
+    exportReason = reason;
+    $("download-status").textContent = "Selected export needs preparation again. No download requested.";
+    updateExport();
+  }
 
   function save() {
+    invalidateSelectedExport("Working data changed.");
     const saved = review.persist(getStorage, state);
     storageMessage(saved ? "Saved in this browser — records, decisions, and notes will restore here when storage is available. Keep an export as a backup." : memoryWarning, saved);
     if ($("export-panel").open) updateExport();
@@ -632,6 +680,8 @@
       (selectedIds.size - selectedVisible) + " hidden by current search/filter.";
     $("select-visible").disabled = visible.length === selectedVisible;
     $("clear-selection").disabled = selectedIds.size === 0;
+    $("export-selected").disabled = selectedIds.size === 0;
+    $("export-selected").textContent = "Export selected records (" + selectedIds.size + ")";
     $("bulk-apply").disabled = selectedIds.size === 0;
     $("bulk-apply").textContent = "Apply to " + selectedIds.size + " selected";
     $("bulk-undo").disabled = !bulkUndo;
@@ -644,10 +694,12 @@
   $("select-visible").addEventListener("click", () => {
     // Resolve visibility after note completion, never replace hidden selections.
     const visible = matchingRecords();
+    if (visible.some(record => !selectedIds.has(record.id))) invalidateSelectedExport("Selection changed.");
     for (const record of visible) selectedIds.add(record.id);
     renderList(visible);
   });
   $("clear-selection").addEventListener("click", () => {
+    invalidateSelectedExport("Selection cleared.");
     selectedIds.clear();
     renderList(matchingRecords());
   });
@@ -702,6 +754,7 @@
         select.addEventListener("click", () => {
           // Capture the row ID, not its position or the open editor. This still
           // works when note-exit removes this row during click capture.
+          invalidateSelectedExport("Selection changed.");
           if (selectedIds.has(record.id)) selectedIds.delete(record.id);
           else selectedIds.add(record.id);
           renderList(matchingRecords());
@@ -716,7 +769,7 @@
       const select = item.children[1];
       const selected = selectedIds.has(record.id);
       select.setAttribute("aria-pressed", String(selected));
-      select.setAttribute("aria-label", "Select record " + record.id + " for bulk decision");
+      select.setAttribute("aria-label", "Select record " + record.id + " for bulk decision or export");
       select.textContent = selected ? "Selected" : "Select";
       const button = item.firstElementChild;
       button.setAttribute("aria-current", String(record.id === editorId));
@@ -857,28 +910,49 @@
   });
 
   function selectExport() {
-    updateExport();
+    if (!updateExport()) return;
     $("export-panel").open = true;
     $("export-json").focus();
     $("export-json").select();
   }
-  $("export-open").addEventListener("click", selectExport);
+  $("export-open").addEventListener("click", () => {
+    exportScope = "all";
+    selectedExport = null;
+    $("download-status").textContent = "Full review ready. No download requested yet.";
+    selectExport();
+  });
+  $("export-selected").addEventListener("click", () => {
+    exportScope = "selected";
+    selectedExport = null;
+    try {
+      const json = review.exportSelectedJSON(state, [...selectedIds]);
+      const visibleCount = matchingRecords().filter(record => selectedIds.has(record.id)).length;
+      selectedExport = { json, count: selectedIds.size, hidden: selectedIds.size - visibleCount };
+      $("download-status").textContent = "Selected review ready. No download requested yet.";
+    } catch (error) {
+      exportReason = error.message;
+      $("download-status").textContent = "Selected export unavailable. No download requested.";
+    }
+    $("export-panel").open = true;
+    selectExport();
+  });
   $("select-export").addEventListener("click", selectExport);
   $("export-panel").addEventListener("toggle", () => { if ($("export-panel").open) updateExport(); });
   $("download").addEventListener("click", () => {
-    updateExport();
+    if (!updateExport()) return;
+    const scope = exportScope === "all" ? "Full review" : "Selected records";
     let url;
     let link;
     try {
       url = URL.createObjectURL(new Blob([$("export-json").value], { type: "application/json" }));
       link = document.createElement("a");
       link.href = url;
-      link.download = "record-review.json";
+      link.download = exportScope === "all" ? "record-review.json" : "record-review-selected.json";
       document.body.append(link);
       link.click();
-      $("download-status").textContent = "Download requested, not confirmed. The embedded Files preview may block it silently. If no file appears, use Select JSON to copy, then Ctrl/Cmd+C and save it in a text file.";
+      $("download-status").textContent = scope + " — Download requested, not confirmed (" + link.download + "). The embedded Files preview may block it silently. If no file appears, select the JSON, then Ctrl/Cmd+C and save it in a text file. Clipboard fidelity is not verified.";
     } catch {
-      $("download-status").textContent = "Download is unavailable here. Use Select JSON to copy, then Ctrl/Cmd+C and save it in a text file.";
+      $("download-status").textContent = scope + " — Download is unavailable here. Select the JSON, then Ctrl/Cmd+C and save it in a text file. Clipboard fidelity is not verified.";
     } finally {
       if (link) link.remove();
       if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);

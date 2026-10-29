@@ -61,9 +61,48 @@ four-record walkthrough.
    press and release. This includes record selection, decisions, export/copy,
    download, and record details. Dragging off cancels the action; keyboard focus
    changes still refresh immediately.
-3. Use **Export review** for a versioned JSON snapshot containing **all** records,
+3. Use **Export full review** for a versioned JSON snapshot containing **all** records,
    decisions, and notes, regardless of filters. Download it or select/copy the
    JSON into a UTF-8 text file. Import that export to restore the exact snapshot.
+   Use **Export selected records (N)** for a handoff of only explicitly selected
+   IDs, as described below. Both use the same version-1 snapshot and JSON import.
+
+### Selected-record handoff
+
+- Use the existing row **Select** toggles or **Select visible** to choose exact
+  IDs. **Export selected records (N)** prepares exactly that set, including IDs
+  hidden by search or decision filters. The selection count shows currently
+  hidden IDs; the export panel reports the number included that were hidden
+  **when prepared**. There is no additional decision-status restriction:
+  unreviewed, approved, rejected and follow-up records are all eligible.
+- Complete original record values and current decisions/notes are preserved.
+  Records keep their original working-array order, not selection-click order.
+  The result is an ordinary `record-review` version-1 snapshot with precisely
+  one review per included ID; no selection metadata or new schema is added.
+- No selection disables the selected-export button and explains why. It
+  produces no selected file and never falls back to all records.
+- The existing export panel serves both scopes. Its summary, scope notice,
+  download/copy controls and feedback distinguish full from selected output.
+  Suggested filenames are `record-review.json` for full and
+  `record-review-selected.json` for selected. **Export full review** explicitly
+  switches to all records and retains its live updates, regardless of filters.
+- Selected output is prepared at activation, after the existing note-exit
+  ordering. It stays identical across filter/search changes and panel
+  close/reopen. Changing selection or working data (notes, decisions, bulk
+  undo, or an accepted import) clears the prepared output and disables
+  download/copy with an explanation. Use **Export selected records (N)** again
+  to prepare current values. Rejected, unreadable and superseded imports do
+  not invalidate it. Opening/selecting JSON never silently switches scopes.
+- Preparing, selecting or requesting a download writes no working data or
+  storage. It preserves selected and unselected records/reviews, the selected
+  set, pending bulk undo, editor and fixed compared snapshot. Prepared output
+  and export scope are transient and are not restored on reload.
+- Downloads remain **requested, not confirmed**: embedded previews may block
+  them silently. Selecting JSON is a manual-copy fallback, not proof of
+  clipboard fidelity or a successful file. For decisive client verification,
+  use an **actual downloaded file**, then **Choose JSON file** in an isolated
+  recipient state. Check exact included IDs, order, full fields and reviews.
+  Normal snapshot import **replaces** the recipient list; it does not merge.
 
 ### Explicit selected-record decisions and one-step undo
 
@@ -88,7 +127,7 @@ only changes the editor, not the set. Select buttons support Tab and Enter/Space
 - **Undo last bulk action (N)** restores only those N changed decisions, keeping
   later notes and all other data. There is one transient undo entry, not a
   history or redo stack. Search/filter, selection, editor navigation, notes and
-  comparison do not consume it. Undo does not restore an earlier selection.
+  comparison and export do not consume it. Undo does not restore an earlier selection.
 - Any later single-record decision clears undo, even a same-decision click on an
   unrelated record. A later bulk action replaces it; a nonempty but no-op bulk
   action clears it and reports zero changes, without writing storage. Empty
@@ -174,8 +213,9 @@ import/export contract and format/version are unchanged.
   origin, and last write wins; use one review tab and export important work.
 - The embedded **Files preview may block browser storage and downloads**. Its
   sandbox is unchanged. A download click cannot prove that a file was saved, so
-  the app says “requested, not confirmed.” If nothing downloads, use **Select JSON
-  to copy**, then Ctrl/Cmd+C, and save the text yourself. Export **before closing
+  the app says “requested, not confirmed.” If nothing downloads, select the
+  displayed full/selected JSON, then Ctrl/Cmd+C, and save the text yourself.
+  Clipboard fidelity is not verified. Export **before closing
   or reloading** a memory-only preview. Direct-file storage also varies by browser;
   moving the HTML file may change its storage location.
 - Intended for modest datasets that fit in browser memory; the entire input is
@@ -243,7 +283,7 @@ After editing those sources, run:
 ```sh
 node build-review.js
 node build-review.js --check
-node --test
+node --test review-state.test.js review-app.test.js
 git diff --check
 ```
 
@@ -257,6 +297,14 @@ actual DOM adapter against a small Node harness for complete text rendering,
 working/editor/storage isolation, live updates, and deterministic file-read
 success/failure/supersession races. This harness does not test browser layout or
 native keyboard/Undo behavior.
+Selected-handoff Node checks cover exact membership and original order, all
+decision statuses, complete nested/special-key values and notes, empty/invalid
+selection, hidden selections, explicit scope switching and invalidation,
+download Blob contents/filenames, normal JSON file-control recipient import,
+working/undo/comparison isolation and unchanged live full export. Blob requests
+in this harness are not proof of an actual browser download; client file proof
+remains separate. Run only the named Node files with browser-launch opt-ins
+unset for this contribution; do not launch the optional browser/baseline suite.
 CSV checks cover lossless string/quote/line-ending handling, strict header and row
 errors, shared JSON-array validation/reconciliation, ordinary metadata-like column
 names, atomic UI/storage rejection, explicit format routing, mixed-format pending

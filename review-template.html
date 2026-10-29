@@ -97,7 +97,7 @@
 <main class="shell">
   <header class="topbar">
     <div><div class="eyebrow">A little clarity for your data</div><h1>Record Desk</h1><p class="muted">Import. Decide. Leave a useful note.</p></div>
-    <div class="row"><span class="pill">Offline · no uploads</span><button type="button" id="compare-open" aria-controls="compare-panel">Compare saved review</button><button type="button" id="export-open" class="primary">Export review</button></div>
+    <div class="row"><span class="pill">Offline · no uploads</span><button type="button" id="compare-open" aria-controls="compare-panel">Compare saved review</button><button type="button" id="export-open" class="primary" aria-controls="export-panel">Export full review</button></div>
   </header>
   <noscript><p class="notice">JavaScript is needed to review records. Open this HTML file in a browser with JavaScript enabled.</p></noscript>
   <p id="storage-status" class="notice" role="status" aria-live="polite">Checking browser storage…</p>
@@ -132,8 +132,8 @@
     <div class="stat panel"><strong id="count-follow-up">0</strong><span>Needs follow-up</span></div>
   </section>
   <section class="bulk panel" aria-labelledby="bulk-heading">
-    <h2 id="bulk-heading">Selected-record decisions</h2>
-    <p class="hint" id="bulk-policy">Use each row’s Select button to choose IDs independently of the open editor. Select visible adds all current matches, keeping hidden selections; it is disabled when there is nothing to add. Filters never change your set. Apply includes hidden selections.</p>
+    <h2 id="bulk-heading">Selected-record decisions &amp; handoff</h2>
+    <p class="hint" id="bulk-policy">Use each row’s Select button to choose IDs independently of the open editor. Select visible adds all current matches, keeping hidden selections; it is disabled when there is nothing to add. Filters never change your set. Apply and selected export include hidden selections.</p>
     <p id="bulk-count" class="message" role="status" aria-live="polite">0 selected · 0 hidden by current search/filter.</p>
     <div class="row">
       <button type="button" id="select-visible" aria-describedby="bulk-policy" disabled>Select visible</button>
@@ -145,7 +145,9 @@
     </div>
     <p id="bulk-result" class="message" role="status" aria-live="polite"></p>
     <p id="bulk-undo-status" class="hint" role="status">No bulk undo available.</p>
-    <p class="hint">Only decisions change. Select at least one ID to apply; an empty selection cannot be cleared. Undo restores only the last bulk action’s changed decisions, keeping later notes. Any later decision action replaces or clears undo. Accepted imports and reloads clear selection and undo; neither is saved or exported.</p>
+    <p class="hint">Apply changes only decisions. Select at least one ID to apply; an empty selection cannot be cleared. Undo restores only the last bulk action’s changed decisions, keeping later notes. Any later decision action replaces or clears undo. Accepted imports and reloads clear selection and undo; neither is saved or exported.</p>
+    <div class="row actions"><button type="button" id="export-selected" aria-controls="export-panel" aria-describedby="bulk-count selected-export-policy" disabled>Export selected records (0)</button></div>
+    <p class="hint" id="selected-export-policy">Select at least one record to export. Selected export includes exactly those IDs, even hidden ones, with complete records and current decisions/notes in original record order; no decision-status restriction. It changes no working data, selection, undo or comparison. No selection means no selected file, never a full-export fallback.</p>
   </section>
   <section class="workspace panel" aria-label="Review workspace">
     <aside class="sidebar">
@@ -200,11 +202,12 @@
     </section>
   </details>
   <details class="panel" id="export-panel">
-    <summary>Portable review JSON</summary>
-    <p class="hint">Includes every record, decision, and note—not just filtered results. Re-import it to restore this review.</p>
-    <div class="row actions"><button type="button" id="download">Try download JSON</button><button type="button" id="select-export">Select JSON to copy</button></div>
+    <summary id="export-summary">Portable review JSON · Full review</summary>
+    <p id="export-scope" class="message" role="status" aria-live="polite"></p>
+    <p class="hint" id="export-policy">Both scopes use ordinary version-1 review JSON. Import replaces the recipient’s list and restores these reviews; it does not merge. Selected output is prepared by Export selected records. Changing selection or working data clears that prepared output and disables download/copy until prepared again; changing search/filter or closing this panel does not change its contents. Export full review explicitly switches back to all current records.</p>
+    <div class="row actions"><button type="button" id="download" aria-describedby="export-scope export-policy">Try download full review JSON</button><button type="button" id="select-export" aria-describedby="export-scope">Select full JSON to copy</button></div>
     <p id="download-status" class="message" role="status">The embedded Files preview may block downloads silently. If no file appears, select the JSON below, copy it with Ctrl/Cmd+C, and save it in a text file.</p>
-    <label for="export-json">Review export (read-only)</label><textarea id="export-json" rows="10" readonly spellcheck="false"></textarea>
+    <label for="export-json">Review export (read-only; scope shown above)</label><textarea id="export-json" rows="10" readonly spellcheck="false" aria-describedby="export-scope export-policy"></textarea>
   </details>
   <footer>No network requests, accounts, or external assets. Browser storage is a convenience, not a backup. Keep an export before closing an embedded preview.</footer>
 </main>

@@ -244,6 +244,21 @@
 
   function exportJSON(state) { return JSON.stringify(validateSnapshot(state), null, 2); }
 
+  // Explicit IDs only; selection order and visibility never reorder the records.
+  // Reuse the version-1 serializer, including its complete snapshot validation.
+  function exportSelectedJSON(state, ids) {
+    if (!Array.isArray(ids) || !ids.length) throw new Error("Select at least one record to export. Nothing was exported.");
+    const selected = new Set(ids);
+    const accepted = new Set(state.records.map(record => record.id));
+    if (selected.size !== ids.length || ids.some(id => typeof id !== "string" || !accepted.has(id))) {
+      throw new Error("Choose each selected record ID exactly once from the working review.");
+    }
+    const records = state.records.filter(record => selected.has(record.id));
+    return exportJSON({ ...state, records,
+      reviews: Object.fromEntries(records.map(({ id }) => [id, state.reviews[id]])),
+    });
+  }
+
   // The getter itself can throw in an opaque-origin iframe, before getItem runs.
   function restore(getStorage) {
     let text;
@@ -263,6 +278,6 @@
 
   return Object.freeze({
     FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON, importCSV,
-    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, visibleRecords, counts, exportJSON, restore, persist,
+    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, visibleRecords, counts, exportJSON, exportSelectedJSON, restore, persist,
   });
 });

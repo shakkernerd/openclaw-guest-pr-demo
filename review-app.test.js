@@ -9,8 +9,9 @@ const R = require("./review-state.js");
 
 // Small adapter harness, not a browser substitute. It runs the actual app and
 // records editor writes/storage effects while controlling asynchronous reads.
-function app(initial) {
+function app(initial, { downloadError = false } = {}) {
   let document;
+  const downloads = [], urls = new Map(), timers = [], documentListeners = new Map();
   class Element {
     constructor(tag) {
       this.tag = tag; this.children = []; this.listeners = new Map();
@@ -50,13 +51,27 @@ function app(initial) {
       if (old && old !== this) old.emit("blur");
     }
     select() { this.selectionStart = 0; this.selectionEnd = this.value.length; }
+    closest(selector) {
+      assert.equal(selector, "button:not(:disabled), summary");
+      return (this.tag === "button" && !this.disabled) || this.tag === "summary" ? this : this.parent?.closest(selector);
+    }
+    click() {
+      assert.equal(this.tag, "a");
+      assert.equal(this.parent, document.body);
+      downloads.push({ filename: this.download, blob: urls.get(this.href) });
+    }
   }
   const template = fs.readFileSync(path.join(__dirname, "review-template.html"), "utf8");
   const nodes = new Map([...template.matchAll(/<([a-z]+)[^>]*\bid="([^"]+)"/g)].map(([, tag, id]) => [id, new Element(tag)]));
   const $ = id => { assert.ok(nodes.has(id), "Unknown template ID: " + id); return nodes.get(id); };
   const buttons = R.DECISIONS.map(decision => { const node = new Element("button"); node.dataset.decision = decision; return node; });
   document = { getElementById: $, createElement: tag => new Element(tag),
-    querySelectorAll: selector => { assert.equal(selector, "[data-decision]"); return buttons; }, addEventListener() {} };
+    querySelectorAll: selector => { assert.equal(selector, "[data-decision]"); return buttons; },
+    body: new Element("body"),
+    addEventListener(type, handler) {
+      if (!documentListeners.has(type)) documentListeners.set(type, []);
+      documentListeners.get(type).push(handler);
+    } };
   $("empty").append(new Element("h2"), new Element("p"));
   $("filter").value = "all";
   $("paste-format").value = "json";
@@ -66,6 +81,14 @@ function app(initial) {
   const storage = { getItem: () => saved, setItem: (key, value) => { assert.equal(key, R.STORAGE_KEY); writes++; saved = value; } };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "review-app.js"), "utf8"), {
     RecordReview: R, document, window: { localStorage: storage },
+    Blob, URL: {
+      createObjectURL(blob) {
+        if (downloadError) throw new Error("Download blocked");
+        const url = "blob:test-" + urls.size; urls.set(url, blob); return url;
+      },
+      revokeObjectURL(url) { urls.delete(url); },
+    },
+    setTimeout(callback, delay) { timers.push({ callback, delay }); },
   });
   const fire = (id, type = "click") => $(id).emit(type);
   const compare = async text => { $("compare-json").value = text; await fire("compare-paste"); };
@@ -84,7 +107,12 @@ function app(initial) {
     noteWrites: $("notes").valueWrites, search: $("search").value, filter: $("filter").value,
     count: $("list-count").textContent, storageStatus: $("storage-status").textContent,
     activity: $("activity").textContent, exported: $("export-json").value });
-  return { $, fire, compare, paste, pendingFile, working, document, buttons };
+  const activate = async id => {
+    const target = $(id);
+    for (const handler of documentListeners.get("click") || []) handler({ target });
+    await target.emit("click");
+  };
+  return { $, fire, activate, compare, paste, pendingFile, working, document, buttons, downloads, urls, timers };
 }
 
 const fixture = () => R.importJSON(JSON.stringify({ format: R.FORMAT, version: R.VERSION,
@@ -344,6 +372,225 @@ test("comparison follows live working edits/imports without taking ownership of 
 
 const selectRow = (ui, index) => ui.$("record-list").children[index].children[1].emit("click");
 const applyBulk = async (ui, decision) => { ui.$("bulk-decision").value = decision; await ui.fire("bulk-apply"); };
+
+test("selected download contains exact working records in original order and imports via the normal JSON file control", async () => {
+  const ids = ["a", "__proto__", "constructor", " A ", "leave"];
+  let initial = R.importJSON(JSON.stringify(ids.map(id => Object.fromEntries([
+    ["id", id], ["title", "Record " + id], ["__proto__", { own: true }],
+    ["payload", [false, null, "003", { html: "</textarea> 雪", lines: "a\rb\r\nc\n" }]],
+    ["notes", "source notes"], ["decision", "source decision"],
+  ]))));
+  ids.forEach((id, index) => { initial = R.updateReview(initial, id, {
+    decision: index === 0 ? "approved" : R.DECISIONS[index % 4], notes: '  "雪"\r\n' + id,
+  }); });
+  const ui = app(initial);
+  const { $, fire } = ui;
+  await fire("compare-open"); await ui.compare(R.exportJSON(initial));
+  await selectRow(ui, 0); await applyBulk(ui, "unreviewed");
+  await fire("clear-selection");
+  for (const index of [3, 2, 1, 0]) await selectRow(ui, index);
+  $("search").value = "leave"; await fire("search", "input");
+  $("filter").value = "unreviewed"; await fire("filter", "change");
+  const before = ui.working();
+  const selection = $("bulk-count").textContent;
+  const comparison = $("compare-list").firstElementChild;
+  const compareStatus = $("compare-status").textContent;
+  await fire("export-selected");
+  assert.match($("export-scope").textContent, /Selected records: 4 records, including 4 hidden/);
+  assert.match($("export-scope").textContent, /when prepared.*All decision statuses included/);
+  assert.match($("export-summary").textContent, /Selected records/);
+  assert.match($("download").textContent, /selected/);
+  await fire("select-export");
+  assert.equal($("export-json").selectionEnd, $("export-json").value.length);
+  await fire("download");
+  assert.equal(ui.downloads.length, 1);
+  const { blob, filename } = ui.downloads[0];
+  assert.equal(filename, "record-review-selected.json");
+  assert.equal(blob.type, "application/json");
+  const json = await blob.text();
+  const current = JSON.parse(before.saved);
+  const expected = { ...current, records: current.records.slice(0, 4),
+    reviews: Object.fromEntries(ids.slice(0, 4).map(id => [id, current.reviews[id]])) };
+  assert.deepEqual(JSON.parse(json), expected);
+  assert.equal(json, $("export-json").value);
+  assert.match($("download-status").textContent, /Selected records — Download requested, not confirmed/);
+  assert.match($("download-status").textContent, /Clipboard fidelity is not verified/);
+  const { exported: beforeJSON, ...beforeWorking } = before;
+  const { exported: afterJSON, ...afterWorking } = ui.working();
+  assert.deepEqual(afterWorking, beforeWorking);
+  assert.equal($("bulk-count").textContent, selection);
+  assert.equal($("bulk-undo").disabled, false);
+  assert.equal($("compare-list").firstElementChild, comparison);
+  assert.equal($("compare-status").textContent, compareStatus);
+  assert.equal(ui.document.body.children.length, 0);
+  assert.equal(ui.timers[0].delay, 60000);
+  ui.timers[0].callback(); assert.equal(ui.urls.size, 0);
+
+  // Node Blob/request proof, not a claim that a browser saved a file.
+  const recipient = app(R.importJSON('[{"id":"recipient-only","title":"Replace me"}]'));
+  recipient.$("file-input").files = [{ name: filename, text: () => blob.text() }];
+  await recipient.fire("file-input", "change");
+  assert.deepEqual(JSON.parse(recipient.working().saved), expected);
+  assert.equal(recipient.working().writes, 1);
+  assert.match(recipient.$("activity").textContent, /Accepted 4 records from record-review-selected.json/);
+  assert.equal(recipient.$("import-error").textContent, "");
+  assert.match(recipient.$("bulk-count").textContent, /0 selected/);
+  await fire("bulk-undo");
+  assert.deepEqual(JSON.parse(ui.working().saved), initial); // export did not consume undo
+  assert.equal($("compare-empty").hidden, false);
+});
+
+test("empty selected export cannot download or silently fall back to an already open full export", async () => {
+  for (const initial of [fixture(), R.emptyState()]) {
+    const ui = app(initial);
+    const { $, fire } = ui;
+    await fire("export-open");
+    assert.equal($("export-selected").disabled, true);
+    await fire("export-selected"); // defense even if invoked despite disabled UI
+    assert.equal($("export-json").value, "");
+    assert.match($("export-scope").textContent, /Select at least one record/);
+    assert.equal($("download").disabled, true);
+    assert.equal($("select-export").disabled, true);
+    await fire("download"); await fire("select-export");
+    assert.equal(ui.downloads.length, 0);
+    assert.equal(ui.urls.size, 0);
+    assert.equal(ui.working().writes, 0);
+    await fire("export-open"); await fire("download");
+    assert.equal(ui.downloads[0].filename, "record-review.json");
+    assert.deepEqual(JSON.parse(await ui.downloads[0].blob.text()), initial);
+  }
+});
+
+test("reload restores working data but not selection, bulk undo or prepared selected export", async () => {
+  const ui = app(fixture());
+  await selectRow(ui, 1); await applyBulk(ui, "rejected");
+  await ui.fire("export-selected");
+  assert.deepEqual(JSON.parse(ui.$("export-json").value).records.map(record => record.id), ["b"]);
+  assert.equal(ui.$("bulk-undo").disabled, false);
+  const saved = ui.working().saved;
+  const reloaded = app(JSON.parse(saved));
+  assert.equal(reloaded.working().saved, saved);
+  assert.equal(reloaded.working().writes, 0);
+  assert.match(reloaded.$("bulk-count").textContent, /0 selected · 0 hidden/);
+  assert.equal(reloaded.$("export-selected").disabled, true);
+  assert.equal(reloaded.$("bulk-undo").disabled, true);
+  assert.match(reloaded.$("export-summary").textContent, /Full review/);
+  assert.match(reloaded.$("export-scope").textContent, /Full review: all 2/);
+  assert.equal(reloaded.$("export-json").value, saved);
+  await reloaded.fire("download");
+  assert.equal(reloaded.downloads[0].filename, "record-review.json");
+  assert.equal(await reloaded.downloads[0].blob.text(), saved);
+  assert.equal(reloaded.working().writes, 0);
+});
+
+test("filtering and panel reopening preserve selected scope; only explicit full export switches it", async () => {
+  const ui = app(fixture());
+  const { $, fire } = ui;
+  await selectRow(ui, 1); await fire("export-selected");
+  const json = $("export-json").value;
+  $("search").value = "Alpha"; await fire("search", "input");
+  $("filter").value = "rejected"; await fire("filter", "change");
+  assert.match($("bulk-count").textContent, /1 selected · 1 hidden/);
+  $("export-panel").open = false; await fire("export-panel", "toggle");
+  $("export-panel").open = true; await fire("export-panel", "toggle");
+  await fire("select-export"); await fire("download");
+  assert.equal($("export-json").value, json);
+  assert.equal(await ui.downloads[0].blob.text(), json);
+  assert.match($("export-scope").textContent, /including 0 hidden.*when prepared/);
+  await fire("export-open");
+  assert.equal($("export-json").value, R.exportJSON(fixture()));
+  assert.match($("export-scope").textContent, /Full review: all 2/);
+  await fire("clear-selection"); // never switches all to selected
+  await ui.paste(JSON.stringify([...fixture().records, { id: "new", title: "New" }]));
+  await fire("download");
+  assert.equal(ui.downloads[1].filename, "record-review.json");
+  assert.equal(await ui.downloads[1].blob.text(), ui.working().saved);
+  assert.match($("download-status").textContent, /Full review — Download requested, not confirmed/);
+});
+
+test("selection and data changes explicitly invalidate prepared selected output, never retarget it", async () => {
+  const changes = [
+    ui => selectRow(ui, 1), ui => selectRow(ui, 0), ui => ui.fire("select-visible"), ui => ui.fire("clear-selection"),
+    async ui => { ui.$("notes").value = "New selected note"; await ui.fire("notes", "input"); },
+    async ui => { await ui.$("record-list").children[1].firstElementChild.emit("click");
+      ui.$("notes").value = "New unselected note"; await ui.fire("notes", "input"); },
+    ui => ui.buttons.find(button => button.dataset.decision === "follow-up").emit("click"),
+    ui => applyBulk(ui, "approved"), ui => ui.fire("bulk-undo"),
+    ui => ui.paste(R.exportJSON(fixture())), ui => ui.paste("id,title\nx,Replacement", "csv"),
+    ui => ui.fire("sample"), ui => ui.paste("[]"),
+    async ui => { const file = ui.pendingFile("file-input"); file.resolve(R.exportJSON(fixture())); await file.done; },
+  ];
+  for (const change of changes) {
+    const ui = app(fixture());
+    const { $, fire } = ui;
+    await selectRow(ui, 0); await applyBulk(ui, "rejected"); await fire("export-selected");
+    assert.equal($("download").disabled, false);
+    await change(ui);
+    assert.equal($("export-json").value, "");
+    assert.equal($("download").disabled, true);
+    assert.equal($("select-export").disabled, true);
+    assert.match($("export-scope").textContent, /Selected export unavailable.*Selection|Selected export unavailable.*Working data/);
+    $("export-panel").open = false; await fire("export-panel", "toggle");
+    $("export-panel").open = true; await fire("export-panel", "toggle");
+    await fire("download"); await fire("select-export");
+    assert.equal(ui.downloads.length, 0);
+    assert.equal($("export-json").value, "");
+    await fire("select-visible");
+    if ($("export-selected").disabled) continue; // accepted empty data
+    await fire("export-selected"); await fire("download");
+    assert.equal(ui.downloads[0].filename, "record-review-selected.json");
+    assert.deepEqual(JSON.parse(await ui.downloads[0].blob.text()), JSON.parse(ui.working().saved));
+  }
+});
+
+test("rejected, unreadable and superseded imports and comparison never invalidate selected output", async () => {
+  const ui = app(fixture());
+  const { $, fire, paste, pendingFile } = ui;
+  await selectRow(ui, 1); await fire("export-selected");
+  const json = $("export-json").value;
+  const stale = pendingFile("file-input");
+  await paste("{bad"); stale.resolve("[]"); await stale.done;
+  await paste("id,title\na,A\na,Duplicate", "csv");
+  const failure = pendingFile("file-input"); failure.reject(new Error("Denied")); await failure.done;
+  await fire("compare-open"); await ui.compare(R.exportJSON(fixture()));
+  await ui.compare("invalid"); await fire("compare-close");
+  assert.equal($("download").disabled, false);
+  await fire("download");
+  assert.equal(await ui.downloads[0].blob.text(), json);
+  assert.equal(ui.working().writes, 0);
+  assert.match($("bulk-count").textContent, /1 selected/);
+});
+
+test("selected preparation uses shared note-exit capture before resolving hidden IDs", async () => {
+  const ui = app(fixture());
+  const { $, fire } = ui;
+  await selectRow(ui, 0); await applyBulk(ui, "rejected");
+  $("search").value = "keep"; await fire("search", "input");
+  $("notes").focus(); $("notes").value = "No longer matches 雪"; await fire("notes", "input");
+  const before = ui.working();
+  await ui.activate("export-selected"); // actual registered click-capture handler
+  assert.match($("export-scope").textContent, /1 records, including 1 hidden/);
+  assert.match($("bulk-count").textContent, /1 selected · 1 hidden/);
+  assert.equal($("record-id").textContent, "a");
+  assert.equal($("notes").valueWrites, before.noteWrites);
+  assert.equal(ui.working().writes, before.writes);
+  assert.deepEqual(JSON.parse($("export-json").value).reviews.a, { decision: "rejected", notes: "No longer matches 雪" });
+  assert.equal($("bulk-undo").disabled, false);
+  await fire("bulk-undo");
+  assert.equal(JSON.parse(ui.working().saved).reviews.a.notes, "No longer matches 雪");
+});
+
+test("download failure keeps the same selected JSON and reports no confirmation or clipboard fidelity", async () => {
+  const ui = app(fixture(), { downloadError: true });
+  await selectRow(ui, 1); await ui.fire("export-selected");
+  const before = ui.working();
+  await ui.fire("download");
+  assert.deepEqual(ui.working(), before);
+  assert.equal(ui.downloads.length, 0);
+  assert.match(ui.$("download-status").textContent, /Selected records — Download is unavailable/);
+  assert.match(ui.$("download-status").textContent, /Clipboard fidelity is not verified/);
+  assert.equal(ui.$("download").disabled, false);
+});
 
 test("explicit selection is independent of editor, additive across filters, and never saved", async () => {
   const ui = app(fixture());
