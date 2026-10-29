@@ -1,0 +1,57 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #19212a;
+  background: #f6f8fa;
+  line-height: 1.5;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; }
+
+main {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1rem;
+  overflow-wrap: anywhere;
+}
+
+h1 { font-size: 1.75rem; }
+h2 { font-size: 1.25rem; }
+
+ol { padding-inline-start: 1.75rem; }
+li { margin-block: 1rem; }
+label { display: block; font-weight: 600; }
+
+textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin-block: 0.4rem;
+  padding: 0.6rem;
+  border: 1px solid #596572;
+  border-radius: 0.25rem;
+  font: inherit;
+  color: inherit;
+  background: #fff;
+  resize: vertical;
+}
+
+[hidden] { display: none; }
+
+button {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid #596572;
+  border-radius: 0.25rem;
+  font: inherit;
+  color: inherit;
+  background: #fff;
+  cursor: pointer;
+}
+
+:focus-visible { outline: 3px solid #005fcc; outline-offset: 3px; }
+.actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+#address-status { min-height: 1.5em; font-weight: 600; }
+#address-status[data-state="error"] { color: #a31515; }
+#formatted-address { font-family: ui-monospace, monospace; }

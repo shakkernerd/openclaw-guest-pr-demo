@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Delivery-address line editor</title>
+  <link rel="stylesheet" href="delivery-address.css">
+  <script src="delivery-address.js" defer></script>
+  <script src="delivery-address-editor.js" defer></script>
+</head>
+<body>
+  <main>
+    <h1>Delivery-address line editor</h1>
+    <p id="draft-help">Enter one address line per box, in the order wanted. One nonblank
+      line is enough. Line breaks stay in the draft but must be corrected before
+      formatting. Spaces and accepted text are preserved.</p>
+    <p>Formatting does not verify a postal address or authorize dispatch.
+      This page works offline and does not save or send your draft.</p>
+    <noscript>JavaScript is needed to add lines and format this draft.</noscript>
+    <h2 id="draft-heading">Draft lines</h2>
+    <ol id="address-lines" aria-labelledby="draft-heading"></ol>
+    <div class="actions">
+      <button id="add-line" type="button">Add line</button>
+      <button id="format-address" type="button">Format address</button>
+    </div>
+    <p id="address-status" role="status" aria-live="polite" aria-atomic="true">Draft not formatted.</p>
+    <h2><label for="formatted-address">Formatted address</label></h2>
+    <p id="output-help">After formatting, select the plain text below. Any draft change
+      clears it until you choose Format address again.</p>
+    <textarea id="formatted-address" rows="6" readonly hidden
+      aria-describedby="output-help" spellcheck="false"></textarea>
+  </main>
+</body>
+</html>

@@ -69,3 +69,37 @@ checks still apply.
 
 `delivery-address.test.js` covers this contract using the same `node --test`
 command above.
+
+## Offline line editor
+
+Open `delivery-address.html` directly as a local file in a browser, keeping
+`delivery-address.css`, `delivery-address.js`, and `delivery-address-editor.js`
+beside it. No server, build, installation, or network connection is needed.
+The page loads the canonical helper as a classic script, exposing the same
+`formatDeliveryAddress` function globally; its CommonJS export is unchanged.
+
+The editor starts with one empty draft textarea. Add line appends a blank row
+and focuses it. Remove preserves the remaining values and order, focusing the
+next row, the previous row if last, or Add line when none remain. Labels follow
+the current order. There is no required street/city/postcode schema.
+
+Only Format address passes the browser-held textarea values, unchanged, to the
+canonical formatter. Embedded line breaks remain draft data and cause its
+normal errors, as do blank lines or removing every row. Errors preserve all
+drafts and are announced in the status area. Any edit, addition, or removal
+immediately clears the old result and obsolete error without revalidating.
+Draft controls are not rebuilt while typing. Browsers may normalize textarea
+line endings; the editor does not transform the values they expose.
+
+Successful output is read-only, selectable plain text, not HTML, with exact LF
+separators and no final newline. Tab to the output and use the browser's normal
+text-selection keys if needed. Formatting does not verify a postal address or
+authorize dispatch. There is no printing, clipboard API, storage, import/export,
+network request, postal verification, dispatch, or extra address field.
+
+`delivery-address-editor.test.js` uses Node's built-in VM and a small DOM test
+double to load the real HTML entry's scripts and exercise the event lifecycle.
+It is not browser, rendering, accessibility, native Files, standalone, or narrow
+viewport proof; those need separate checks in an approved browser. The PR43
+base (`047eba34abd79b0af1f1d9caa0602d8f671b6bdd`) had only the helper and no
+editor or browser UI. This new page's empty draft is not a pre-change UI.

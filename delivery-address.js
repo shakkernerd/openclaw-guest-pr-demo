@@ -37,4 +37,6 @@ function formatDeliveryAddress(lines) {
   return labelLines.join("\n");
 }
 
-module.exports = { formatDeliveryAddress };
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { formatDeliveryAddress };
+}
