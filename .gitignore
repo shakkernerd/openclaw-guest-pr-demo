@@ -1,0 +1,7 @@
+# Local dependency/cache files (not required to run the tool).
+node_modules/
+.npm/
+
+# Default saved reports may contain private delivery details.
+/dispatch-report.txt
+/dispatch-manifest.json

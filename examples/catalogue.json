@@ -1,0 +1,8 @@
+{
+  "items": [
+    { "sku": "SOCK-ADULT", "name": "Adult thermal socks (pair)", "location": "Clothing / B2" },
+    { "sku": "HYGIENE-KIT", "name": "Sealed personal hygiene kit", "location": "Essentials / A1" },
+    { "sku": "BLANKET-FLEECE", "name": "Fleece blanket", "location": "Bedding / C3" },
+    { "sku": "MUG-REUSABLE", "name": "Reusable mug", "location": "Kitchen / D1" }
+  ]
+}

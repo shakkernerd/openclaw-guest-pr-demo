@@ -1,0 +1,17 @@
+{
+  "name": "donation-dispatch-manifest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dependency-free pick lists and carton labels for a donation stockroom",
+  "type": "commonjs",
+  "main": "index.js",
+  "bin": {
+    "dispatch-manifest": "bin/dispatch-manifest.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

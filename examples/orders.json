@@ -1,0 +1,41 @@
+{
+  "orders": [
+    {
+      "id": "DON-1042",
+      "recipient": "Example Harbour Community Pantry",
+      "address": {
+        "lines": ["14 Example Quay", "Sampleford"],
+        "postcode": "ZZ1 1ZZ",
+        "country": "United Kingdom"
+      },
+      "items": [
+        { "sku": "SOCK-ADULT", "quantity": 4 },
+        { "sku": "HYGIENE-KIT", "quantity": 3 },
+        { "sku": "SOCK-ADULT", "quantity": 2 }
+      ]
+    },
+    {
+      "id": "DON-1043",
+      "recipient": "Example Meadow Night Shelter",
+      "address": {
+        "lines": ["Stores Entrance", "8 Demonstration Lane", "Sampleford"],
+        "postcode": "ZZ1 2ZZ",
+        "country": "United Kingdom"
+      },
+      "items": [
+        { "sku": "BLANKET-FLEECE", "quantity": 2 },
+        { "sku": "HYGIENE-KIT", "quantity": 2 }
+      ]
+    },
+    {
+      "id": "DON-1044",
+      "recipient": "Example Welcome Desk",
+      "address": {
+        "lines": ["2 Training Square", "Sampleford"],
+        "postcode": "ZZ1 3ZZ",
+        "country": "United Kingdom"
+      },
+      "items": [{ "sku": "HYGIENE-KIT", "quantity": 1 }]
+    }
+  ]
+}
