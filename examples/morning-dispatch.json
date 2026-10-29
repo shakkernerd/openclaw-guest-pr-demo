@@ -1,0 +1,57 @@
+{
+  "deliveries": [
+    {
+      "id": "E11-106",
+      "address": "6 Willow Mews, Leytonstone, London E11 4AA, UK",
+      "priority": "normal",
+      "notes": "Office stationery; reception open until 17:00"
+    },
+    {
+      "id": "E11-102",
+      "address": "22 Alder Road, Leytonstone, London E11 3BB, UK",
+      "priority": "urgent",
+      "notes": "Replacement cafe card reader; ask for duty manager"
+    },
+    {
+      "id": "E11-104",
+      "address": "14 Grove Lane, Leytonstone, London E11 2CC, UK",
+      "priority": "normal",
+      "notes": "Bookshop restock; use front entrance"
+    },
+    {
+      "id": "E11-101",
+      "address": "8 Birch Court, Leytonstone, London E11 1DD, UK",
+      "priority": "urgent",
+      "notes": "Repair part for community kitchen"
+    },
+    {
+      "id": "E11-105",
+      "address": "31 Cedar Walk, Leytonstone, London E11 3EE, UK",
+      "priority": "normal",
+      "notes": "Florist packaging supplies"
+    },
+    {
+      "id": "E11-103",
+      "address": "19 Elm Terrace, Leytonstone, London E11 4FF, UK",
+      "priority": "normal",
+      "notes": "Bakery dry goods; ring loading-bay bell"
+    }
+  ],
+  "couriers": [
+    {
+      "id": "bike-02",
+      "name": "Morgan",
+      "capacity": 2
+    },
+    {
+      "id": "bike-01",
+      "name": "Alex",
+      "capacity": 2
+    },
+    {
+      "id": "van-01",
+      "name": "Sam",
+      "capacity": 1
+    }
+  ]
+}
