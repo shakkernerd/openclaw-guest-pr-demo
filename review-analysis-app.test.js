@@ -6,13 +6,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const { build } = require("./build-review.js");
-const { analyzeReturns } = require("./review-analysis.js");
+const { analyzeReturns, parseReportJSON } = require("./review-analysis.js");
 const source = name => fs.readFileSync(path.join(__dirname, name), "utf8");
 
 // Like the existing app harness: actual production scripts and event handlers,
 // with controlled reads and a small DOM. Not native browser/layout proof.
-function app({ built = false, savedOnly = false } = {}) {
-  let document;
+function app({ built = false, savedOnly = false, downloadError = "" } = {}) {
+  let document, analysisCalls = 0;
+  const downloads = [], urls = new Map(), timers = [];
+  let nextURL = 0;
   class Element {
     constructor(tag) {
       this.tag = tag; this.children = []; this.listeners = new Map();
@@ -22,8 +24,21 @@ function app({ built = false, savedOnly = false } = {}) {
     get textContent() { return this._text + this.children.map(child => child.textContent).join(""); }
     set textContent(value) { this._text = String(value); this.children = []; }
     set innerHTML(value) { throw new Error("HTML injection: " + value); }
-    append(...children) { this.children.push(...children); }
-    replaceChildren(...children) { this._text = ""; this.children = children; }
+    append(...children) {
+      for (const child of children) { child.remove(); child.parent = this; this.children.push(child); }
+    }
+    replaceChildren(...children) {
+      this._text = "";
+      for (const child of [...this.children]) child.remove();
+      this.append(...children);
+    }
+    remove() { if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1); this.parent = null; }
+    click() {
+      assert.equal(this.tag, "a");
+      assert.equal(this.parent, document.body);
+      if (downloadError === "click") throw new Error("Click blocked");
+      downloads.push({ filename: this.download, url: this.href, blob: urls.get(this.href) });
+    }
     setAttribute(name, value) { this.attributes[name] = value; }
     querySelectorAll(tag) {
       return this.children.flatMap(child => [child, ...child.querySelectorAll("*")])
@@ -47,11 +62,17 @@ function app({ built = false, savedOnly = false } = {}) {
   const $ = id => { assert.ok(nodes.has(id), "Unknown template ID: " + id); return nodes.get(id); };
   $("overlap-filter").value = "all";
   $("workflow").value = "analyze";
-  document = { getElementById: $, createElement: tag => new Element(tag) };
+  document = { getElementById: $, createElement: tag => new Element(tag), body: new Element("body") };
   const forbidden = name => () => { throw new Error("Forbidden side effect: " + name); };
-  const context = { document, console };
-  for (const name of ["fetch", "XMLHttpRequest", "WebSocket", "Blob", "Worker", "open", "setTimeout"]) context[name] = forbidden(name);
-  for (const name of ["localStorage", "sessionStorage", "indexedDB", "navigator", "URL", "caches"]) {
+  const context = { document, console, Blob, URL: {
+    createObjectURL(blob) {
+      if (downloadError === "url") throw new Error("Download blocked");
+      const url = "blob:analysis-test-" + nextURL++; urls.set(url, blob); return url;
+    },
+    revokeObjectURL(url) { assert.ok(urls.has(url)); urls.delete(url); },
+  }, setTimeout(callback, delay) { timers.push({ callback, delay }); } };
+  for (const name of ["fetch", "XMLHttpRequest", "WebSocket", "Worker", "open"]) context[name] = forbidden(name);
+  for (const name of ["localStorage", "sessionStorage", "indexedDB", "navigator", "caches"]) {
     Object.defineProperty(context, name, { get: forbidden(name) });
   }
   context.window = context;
@@ -59,8 +80,12 @@ function app({ built = false, savedOnly = false } = {}) {
   const scripts = built ? [...build("analysis").matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]) :
     ["review-state.js", "review-analysis.js", "review-analysis-app.js"].map(source);
   for (const script of scripts) vm.runInContext(script, context);
-  if (savedOnly) context.RecordReturnAnalysis = { ...context.RecordReturnAnalysis,
-    analyzeReturns: forbidden("fresh analysis in saved workflow") };
+  const owner = context.RecordReturnAnalysis;
+  context.RecordReturnAnalysis = { ...owner, analyzeReturns(...inputs) {
+    analysisCalls++;
+    if (savedOnly) forbidden("fresh analysis in saved workflow")();
+    return owner.analyzeReturns(...inputs);
+  } };
   const choose = async (id, files) => { $(id).files = files; await $(id).emit("change"); };
   const working = file => choose("working-file", file ? [file] : []);
   const saved = file => choose("saved-file", file ? [file] : []);
@@ -69,7 +94,8 @@ function app({ built = false, savedOnly = false } = {}) {
   const fire = (id, event) => $(id).emit(event);
   const control = (index, label) => $("returned-files").children[index].querySelectorAll("button")
     .find(button => button.textContent === label);
-  return { $, fire, working, saved, workflow, add, control, document };
+  return { $, fire, working, saved, workflow, add, control, document, downloads, urls, timers,
+    get analysisCalls() { return analysisCalls; } };
 }
 
 function snapshot(count = 1) {
@@ -93,9 +119,24 @@ async function ready(ui, current = snapshot(), returns = [current, current]) {
 }
 const proposals = ui => ui.$("overlap-results").querySelectorAll("section");
 const notes = ui => proposals(ui).map(section => section.querySelectorAll("pre")[0].textContent);
-const visibleState = ui => ["analysis-error", "analysis-status", "results-heading", "result-context", "working-summary", "source-results", "overlap-results", "page-status"]
+const visibleState = ui => ["analysis-error", "analysis-status", "results-heading", "result-context", "working-summary", "source-results", "overlap-results", "page-status", "download-status"]
   .map(id => ui.$(id).textContent);
+function downloadUnavailable(ui) {
+  assert.equal(ui.$("download-analysis").hidden, true);
+  assert.equal(ui.$("download-analysis").disabled, true);
+  const count = ui.downloads.length, urls = ui.urls.size, timers = ui.timers.length;
+  // Invoke the real handler even when native hidden/disabled UI prevents clicks.
+  ui.$("download-analysis").listeners.get("click")();
+  assert.equal(ui.downloads.length, count);
+  assert.equal(ui.urls.size, urls);
+  assert.equal(ui.timers.length, timers);
+}
+function downloadReady(ui) {
+  assert.equal(ui.$("download-analysis").hidden, false);
+  assert.equal(ui.$("download-analysis").disabled, false);
+}
 function invalidated(ui) {
+  downloadUnavailable(ui);
   assert.equal(ui.$("results").hidden, true);
   for (const id of ["result-context", "working-summary", "source-results", "overlap-results", "analysis-error"]) assert.equal(ui.$(id).textContent, "");
   for (const id of ["overlap-filter", "previous-page", "next-page"]) assert.equal(ui.$(id).disabled, true);
@@ -135,10 +176,12 @@ test("every choice replacement, addition and removal clears results, errors, fil
     ui => ui.add(file("added.json")), ui => ui.control(0, "Remove").emit(),
     ui => ui.control(0, "Move down").emit(), ui => ui.control(1, "Move up").emit(),
     ui => ui.fire("clear-working"), ui => ui.fire("clear-returns")];
-  for (const mutate of mutations) {
-    const ui = app(); await ready(ui, snapshot(11)); await ui.fire("analyze");
+  for (const built of [false, true]) for (const mutate of mutations) {
+    const ui = app({ built }); await ready(ui, snapshot(11)); await ui.fire("analyze");
+    downloadReady(ui);
     await ui.fire("next-page");
-    await mutate(ui); invalidated(ui);
+    const changed = mutate(ui); invalidated(ui); // synchronous, before awaiting a read/event
+    await changed; invalidated(ui);
     assert.equal(ui.$("overlap-filter").value, "all");
   }
   const ui = app(); await ready(ui, snapshot(), ["{"]);
@@ -167,22 +210,28 @@ test("late success or read failure cannot replace newer success or validation er
 });
 
 test("pending working reads, reorder and removal cannot resurrect results or unlock a newer read", async () => {
-  for (const mutate of [ui => ui.working(file("replacement.json")), ui => ui.control(0, "Move down").emit(),
-    ui => ui.control(0, "Remove").emit(), ui => ui.fire("clear-working"), ui => ui.fire("clear-returns")]) {
-    const ui = app(); const old = deferred("working.json");
+  for (const built of [false, true]) for (const mutate of [ui => ui.working(file("replacement.json")),
+    ui => ui.working(null), ui => ui.add(file("added.json")), ui => ui.control(0, "Move down").emit(),
+    ui => ui.control(1, "Move up").emit(), ui => ui.control(0, "Remove").emit(),
+    ui => ui.fire("clear-working"), ui => ui.fire("clear-returns"), ui => ui.workflow("saved")]) {
+    const ui = app({ built }); const old = deferred("working.json");
     await ui.working(old.file); await ui.add(file("a.json"), file("b.json"));
     const pending = ui.fire("analyze"); await mutate(ui);
     old.resolve(JSON.stringify(snapshot())); await pending; invalidated(ui);
   }
-  const ui = app(); await ui.working(file("working.json"));
-  const old = deferred("old.json"), fresh = deferred("new.json");
-  await ui.add(old.file); const oldRun = ui.fire("analyze");
-  await ui.fire("clear-returns"); await ui.add(fresh.file); const freshRun = ui.fire("analyze");
-  old.reject(new Error("late failure")); await oldRun;
-  assert.equal(ui.$("analyze").disabled, true);
-  assert.equal(ui.$("analysis-error").textContent, "");
-  fresh.resolve(JSON.stringify(snapshot())); await freshRun;
-  assert.equal(ui.$("results").hidden, false);
+  for (const built of [false, true]) for (const oldFails of [false, true]) {
+    const ui = app({ built }); await ui.working(file("working.json"));
+    const old = deferred("old.json"), fresh = deferred("new.json");
+    await ui.add(old.file); const oldRun = ui.fire("analyze");
+    await ui.fire("clear-returns"); await ui.add(fresh.file); const freshRun = ui.fire("analyze");
+    if (oldFails) old.reject(new Error("late failure")); else old.resolve(JSON.stringify(snapshot()));
+    await oldRun;
+    assert.equal(ui.$("analyze").disabled, true);
+    downloadUnavailable(ui);
+    assert.equal(ui.$("analysis-error").textContent, "");
+    fresh.resolve(JSON.stringify(snapshot())); await freshRun;
+    assert.equal(ui.$("results").hidden, false); downloadReady(ui);
+  }
 });
 
 test("current read errors and every canonical invalid snapshot position remain visible and retryable", async () => {
@@ -193,6 +242,7 @@ test("current read errors and every canonical invalid snapshot position remain v
       files[position] = file("invalid.json", bad);
       await ui.working(files[0]); await ui.add(...files.slice(1)); await ui.fire("analyze");
       assert.ok(ui.$("analysis-error").textContent); assert.equal(ui.$("results").hidden, true);
+      downloadUnavailable(ui);
       assert.equal(ui.$("analyze").disabled, false);
       assert.equal(ui.$("overlap-results").textContent, "");
     }
@@ -201,6 +251,7 @@ test("current read errors and every canonical invalid snapshot position remain v
     await ui.working(files[0]); await ui.add(...files.slice(1)); const pending = ui.fire("analyze");
     broken.reject(new Error("denied <literal>")); await pending;
     assert.match(ui.$("analysis-error").textContent, /Could not read.*<bad file>.*denied <literal>/);
+    downloadUnavailable(ui);
     assert.equal(ui.$("analyze").disabled, false);
   }
 });
@@ -304,9 +355,11 @@ test("standard build stays self-contained, preserves desk output and accessible 
   assert.match(html, /connect-src 'none'; form-action 'none'; base-uri 'none'/);
   for (const id of ["workflow", "saved-file", "working-file", "returned-input", "overlap-filter"]) assert.ok(html.includes('for="' + id + '"'));
   assert.match(html, /id="analysis-error"[^>]+role="alert"/);
+  assert.match(html, /id="download-analysis"[^>]+aria-describedby="download-status"[^>]+hidden disabled>Download analysis report<\/button>/);
+  assert.match(html, /id="download-status"[^>]+role="status"[^>]+aria-live="polite"/);
   assert.match(html, /white-space: break-spaces/);
   assert.match(html, /@media \(max-width: 720px\)/);
-  assert.doesNotMatch(source("review-analysis-app.js"), /innerHTML|localStorage|sessionStorage|indexedDB|clipboard|fetch\(|XMLHttpRequest|createObjectURL|\.download|applyReviewUpdates|exportJSON|\.persist\(/);
+  assert.doesNotMatch(source("review-analysis-app.js"), /innerHTML|localStorage|sessionStorage|indexedDB|clipboard|fetch\(|XMLHttpRequest|applyReviewUpdates|exportJSON|\.persist\(/);
 });
 
 
@@ -347,6 +400,7 @@ function savedReport(count = 23) {
 }
 async function openSaved(ui, value = savedReport()) {
   await ui.workflow("saved"); await ui.saved(file("saved-report.json", value)); await ui.fire("view-saved");
+  downloadUnavailable(ui);
 }
 
 test("saved and generated-page paths render every literal field without reading originals or analyzing", async () => {
@@ -374,6 +428,7 @@ test("saved and generated-page paths render every literal field without reading 
     assert.equal(saved.reads, 0); assert.equal(ui.$("view-saved").disabled, false);
     assert.equal(ui.$("analyze").disabled, true);
     await ui.fire("view-saved"); assert.equal(saved.reads, 1);
+    downloadUnavailable(ui);
     assert.equal(ui.$("results").hidden, false);
     assert.match(ui.$("results-heading").textContent, /SAVED/);
     assert.ok(ui.$("result-context").textContent.includes(saved.name));
@@ -449,6 +504,7 @@ test("saved replacement, clearing, workflow switch and failed reread invalidate 
     assert.equal(ui.$("source-results").textContent, ""); assert.equal(ui.$("overlap-results").textContent, "");
     assert.match(ui.$("analysis-error").textContent, /invalid JSON/);
     assert.match(ui.$("analysis-status").textContent, /No results retained/);
+    downloadUnavailable(ui);
     assert.equal(ui.$("view-saved").disabled, false);
     await ui.fire("clear-saved"); invalidated(ui);
     assert.equal(ui.document.activeElement, ui.$("saved-file"));
@@ -468,12 +524,14 @@ test("current saved input failures retain no partial report, remain literal and 
     assert.equal(ui.$("results").hidden, true); assert.equal(ui.$("source-results").textContent, "");
     assert.equal(ui.$("result-context").textContent, "");
     assert.match(ui.$("analysis-error").textContent, /Saved report/);
+    downloadUnavailable(ui);
     assert.equal(ui.$("view-saved").disabled, false);
   }
   const ui = app(); await ui.workflow("saved"); const bad = deferred("<bad>.json");
   await ui.saved(bad.file); const pending = ui.fire("view-saved"); bad.reject(new Error("denied <literal>")); await pending;
   assert.match(ui.$("analysis-error").textContent, /Could not read.*<bad>.*denied <literal>/);
   assert.equal(ui.$("results").hidden, true); assert.equal(ui.$("view-saved").disabled, false);
+  downloadUnavailable(ui);
 });
 
 test("saved and fresh late successes/failures never replace newer choices, results or errors", async () => {
@@ -493,6 +551,13 @@ test("saved and fresh late successes/failures never replace newer choices, resul
       await pending;
       assert.deepEqual(visibleState(ui), expected); assert.equal(ui.$("results").hidden, newFails);
       assert.equal(ui.$(newMode === "saved" ? "view-saved" : "analyze").disabled, false);
+      if (newMode === "analyze" && !newFails) {
+        downloadReady(ui); await ui.fire("download-analysis");
+        const text = await ui.downloads[0].blob.text();
+        const expectedReport = analyzeReturns({ filename: "new.json", text: JSON.stringify(snapshot()) },
+          [0, 1].map(i => ({ filename: "return-" + i + ".json", text: JSON.stringify(snapshot()) })));
+        assert.equal(text, JSON.stringify(expectedReport, null, 2) + "\n");
+      } else downloadUnavailable(ui);
     }
   }
 });
@@ -510,5 +575,119 @@ test("saved clearing discards pending reads and old completion cannot unlock a n
     const pending = deferred("cleared.json"); await ui.saved(pending.file); const run = ui.fire("view-saved");
     await ui.saved(null); pending.resolve(JSON.stringify(savedReport())); await run; invalidated(ui);
     assert.equal(ui.$("view-saved").disabled, true);
+  }
+});
+
+
+test("explicit FRESH download preserves the whole real report, CLI bytes and literal values beyond filters/pages", async () => {
+  const current = snapshot(24);
+  for (const [i, id] of ["__proto__", "constructor", "  <id>雪\r\n  ", "0007"].entries()) current.records[i].id = id;
+  current.reviews = Object.fromEntries(current.records.map(({ id }) => [id, { decision: "unreviewed", notes: "" }]));
+  const first = structuredClone(current), second = structuredClone(current);
+  const literals = ["", "\r", "\r\n", "  <script>literal</script>\r\n雪 e\u0301\t  ", " ", "end\n"];
+  first.records.reverse();
+  for (const [i, { id }] of current.records.entries()) {
+    first.reviews[id].notes = literals[i % literals.length];
+    second.reviews[id].notes = i % 2 ? "different\n" : literals[i % literals.length];
+    first.reviews[id].decision = second.reviews[id].decision = ["unreviewed", "approved", "rejected", "follow-up"][i % 4];
+  }
+  first.records[0].title = "Changed record";
+  first.records.push({ id: "unknown", title: "Unknown" });
+  first.reviews.unknown = { decision: "approved", notes: "not a proposal" };
+  const values = [current, first, second], before = JSON.stringify(values);
+  const inputs = values.map((v, i) => ({ filename: i ? "  same\r\n<return>雪.json  " : "<working>雪.json", text: JSON.stringify(v) }));
+  const expected = analyzeReturns(inputs[0], inputs.slice(1));
+  const expectedText = JSON.stringify(expected, null, 2) + "\n";
+  // Pin the existing CLI expression by source inspection; do not execute it.
+  assert.ok(source("review-return-analysis.js").includes('const json = JSON.stringify(report, null, 2) + "\\n";'));
+  for (const built of [false, true]) {
+    const ui = app({ built }); downloadUnavailable(ui);
+    const files = inputs.map(input => file(input.filename, input.text));
+    await ui.working(files[0]); await ui.add(...files.slice(1)); downloadUnavailable(ui);
+    const pending = ui.fire("analyze"); downloadUnavailable(ui); await pending;
+    downloadReady(ui); assert.equal(ui.downloads.length, 0); assert.equal(ui.urls.size, 0);
+    assert.match(ui.$("download-status").textContent, /FRESH report ready/);
+    await ui.fire("next-page");
+    for (const filter of ["all", "identical", "disagreement"]) {
+      ui.$("overlap-filter").value = filter; await ui.fire("overlap-filter", "change");
+      await ui.fire("next-page");
+      await ui.fire("download-analysis");
+      const download = ui.downloads.at(-1);
+      assert.equal(download.filename, "record-review-return-analysis.json");
+      assert.equal(download.blob.type, "application/json");
+      assert.deepEqual(Buffer.from(await download.blob.arrayBuffer()), Buffer.from(expectedText, "utf8"));
+      assert.deepEqual(JSON.parse(await download.blob.text()), expected);
+      assert.deepEqual(parseReportJSON(await download.blob.text()), expected);
+      assert.equal(ui.document.body.children.length, 0);
+      assert.match(ui.$("download-status").textContent, /requested, not confirmed/);
+      assert.equal(ui.analysisCalls, 1); assert.deepEqual(files.map(f => f.reads), [1, 1, 1]);
+      downloadReady(ui);
+    }
+    assert.equal(ui.downloads.length, 3);
+    assert.equal(new Set(ui.downloads.map(d => d.url)).size, 3);
+    assert.equal(ui.urls.size, 3); assert.equal(ui.timers.length, 3);
+    for (const timer of ui.timers) { assert.equal(timer.delay, 60000); timer.callback(); }
+    assert.equal(ui.urls.size, 0);
+    const savedUI = app({ built, savedOnly: true });
+    await openSaved(savedUI, await ui.downloads[0].blob.text());
+    assert.equal(savedUI.analysisCalls, 0); assert.equal(savedUI.downloads.length, 0);
+    assert.match(savedUI.$("result-context").textContent, /^SAVED/);
+    assert.equal(savedUI.$("source-results").children.length, expected.sources.length);
+    // Switching away drops the fresh report; returning cannot revive it.
+    await ui.workflow("saved"); downloadUnavailable(ui);
+    await ui.saved(file("downloaded.json", expectedText)); await ui.fire("view-saved"); downloadUnavailable(ui);
+    await ui.workflow("analyze"); downloadUnavailable(ui);
+    await ui.fire("analyze"); downloadReady(ui);
+    assert.equal(ui.analysisCalls, 2);
+  }
+  assert.equal(JSON.stringify(values), before);
+});
+
+test("a new analysis immediately removes download readiness; current failure and pending retry never expose the old report", async () => {
+  for (const built of [false, true]) for (const failure of ["read", "validation"]) {
+    const ui = app({ built }); const current = snapshot();
+    let read = async () => JSON.stringify(current);
+    await ui.working({ name: "working.json", text: () => read() });
+    await ui.add(file("a.json"), file("b.json")); await ui.fire("analyze"); downloadReady(ui);
+    await ui.fire("download-analysis");
+    // A cancelled append did not alter the choices or invalidate their report.
+    await ui.add(); downloadReady(ui);
+    const next = deferred("reread"); read = next.file.text;
+    const pending = ui.fire("analyze"); invalidated(ui);
+    if (failure === "read") next.reject(new Error("read failed")); else next.resolve("{");
+    await pending; downloadUnavailable(ui);
+    assert.match(ui.$("analysis-status").textContent, /Analysis failed.*No results retained/);
+    assert.match(ui.$("download-status").textContent, /No current FRESH report/);
+    assert.equal(ui.downloads.length, 1);
+    const retry = deferred("retry"); read = retry.file.text;
+    const retrying = ui.fire("analyze"); invalidated(ui);
+    retry.resolve(JSON.stringify(current)); await retrying; downloadReady(ui);
+    await ui.fire("download-analysis");
+    assert.equal(await ui.downloads[1].blob.text(), await ui.downloads[0].blob.text());
+    // A valid empty analysis, including zero overlaps, is also a ready report.
+    await ui.working(file("empty-working.json", snapshot(0))); downloadUnavailable(ui);
+    await ui.fire("clear-returns"); await ui.add(file("empty-return.json", snapshot(0)));
+    await ui.fire("analyze"); downloadReady(ui); await ui.fire("download-analysis");
+    assert.deepEqual(JSON.parse(await ui.downloads[2].blob.text()).overlaps, []);
+  }
+});
+
+test("download failures give honest retry guidance and clean links/URLs without invalidating valid analysis", async () => {
+  for (const built of [false, true]) for (const downloadError of ["url", "click"]) {
+    const ui = app({ built, downloadError }); await ready(ui); await ui.fire("analyze");
+    const before = visibleState(ui).slice(0, -1);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await ui.fire("download-analysis");
+      assert.match(ui.$("download-status").textContent, /could not be requested.*Try again/);
+      assert.doesNotMatch(ui.$("download-status").textContent, /saved successfully|overwrit|clipboard/i);
+      assert.equal(ui.downloads.length, 0); assert.equal(ui.document.body.children.length, 0);
+      assert.equal(ui.urls.size, downloadError === "click" ? attempt + 1 : 0);
+      downloadReady(ui); assert.equal(ui.analysisCalls, 1);
+      assert.deepEqual(visibleState(ui).slice(0, -1), before);
+    }
+    for (const timer of ui.timers) { assert.equal(timer.delay, 60000); timer.callback(); }
+    assert.equal(ui.urls.size, 0);
+    await ui.control(0, "Remove").emit(); invalidated(ui);
+    assert.match(ui.$("download-status").textContent, /No current FRESH report/);
   }
 });

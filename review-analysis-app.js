@@ -21,9 +21,15 @@
     return element;
   }
 
+  function freshReportReady() {
+    return workflow === "analyze" && !savedResult && !busy && report !== null;
+  }
+
   function updateAnalyze() {
     $("analyze").disabled = busy || workflow !== "analyze" || !workingFile || !returnedFiles.length;
     $("view-saved").disabled = busy || workflow !== "saved" || !savedFile;
+    $("download-analysis").hidden = !freshReportReady();
+    $("download-analysis").disabled = !freshReportReady();
   }
 
   // Every input change and each Analyze attempt supersedes BOTH pending success
@@ -49,6 +55,7 @@
     $("overlap-empty").textContent = "";
     $("analysis-error").textContent = "";
     $("analysis-status").textContent = message;
+    $("download-status").textContent = "No current FRESH report is ready. Analyze the chosen files to enable download.";
     updateAnalyze();
   }
 
@@ -230,15 +237,38 @@
       $("results").hidden = false;
       $("analysis-status").textContent = saved ? "SAVED report loaded for the current choice. No original records revalidated. No reviews applied." :
         "Analysis complete for the current choices. No reviews applied.";
+      if (!saved) $("download-status").textContent = "FRESH report ready. Download the complete analysis JSON, including all sources and overlaps regardless of filter or page.";
     } catch (error) {
       if (attempt !== revision) return;
+      invalidate((saved ? "Saved report could not be loaded." : "Analysis failed.") +
+        " Check the chosen files and try again. No results retained.");
       $("analysis-error").textContent = error.message;
-      $("analysis-status").textContent = (saved ? "Saved report could not be loaded." : "Analysis failed.") +
-        " Check the chosen files and try again. No results retained.";
     } finally {
       if (attempt === revision) { busy = false; updateAnalyze(); }
     }
   }
+  $("download-analysis").addEventListener("click", () => {
+    if (!freshReportReady()) return;
+    let url;
+    let link;
+    try {
+      // Exactly the existing CLI serialization of the accepted report. Never
+      // reread inputs, recompute analysis, or serialize the filtered/paged DOM.
+      const json = JSON.stringify(report, null, 2) + "\n";
+      url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+      link = document.createElement("a");
+      link.href = url;
+      link.download = "record-review-return-analysis.json";
+      document.body.append(link);
+      link.click();
+      $("download-status").textContent = "Download requested, not confirmed (" + link.download + "). Check your browser downloads for the file before handing it on. An embedded preview may block downloads silently; if needed, open this HTML directly and analyze your chosen files there.";
+    } catch {
+      $("download-status").textContent = "Download could not be requested here. Try again, or open this HTML directly in a browser that permits downloads and analyze your chosen files there.";
+    } finally {
+      if (link) link.remove();
+      if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  });
   $("analyze").addEventListener("click", readCurrent);
   $("view-saved").addEventListener("click", readCurrent);
   $("overlap-filter").addEventListener("change", () => { page = 0; renderOverlaps(); });

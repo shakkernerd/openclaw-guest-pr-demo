@@ -560,7 +560,7 @@ separate from Record Desk: it does not edit the working snapshot or choose a
 winning proposal.
 
 The **Report workflow** control offers **Analyze input files** (below) and
-**View saved report**. To read a previously saved CLI analysis, select **View
+**View saved report**. To read a CLI-produced or downloaded analysis, select **View
 saved report**, choose its JSON file, then click **View saved report**. No working
 or returned snapshot is needed, and no original filename in the report is opened.
 The result stays labeled **SAVED report data**, including its counts, overlap
@@ -578,6 +578,8 @@ saved classifications or claim the report is authentic. There is no new format
 version. Strings and array order are retained unchanged, including empty notes,
 Unicode, CR/CRLF, markup-like text, duplicate filenames and prototype-like IDs.
 The same literal renderer, filters and 10-overlap pages serve both workflows.
+Saved-report mode remains a reader only: no download or re-export action, even
+after switching from a completed fresh analysis.
 
 1. Choose one complete version-1 working review file.
 2. Add one or more complete returned review files. Each selection appends to the
@@ -594,6 +596,25 @@ The same literal renderer, filters and 10-overlap pages serve both workflows.
    **Identical** filter these overlaps without changing their order. Pagination
    shows at most 10 overlaps per page, with matching/total counts and disabled
    bounds. Every proposal on the page is shown in full, in source order.
+5. Once the current **FRESH** analysis succeeds, **Download analysis report**
+   appears beside Analyze. It requests `record-review-return-analysis.json`,
+   containing the entire accepted report, not just the current filter or page.
+   Hand the actual downloaded JSON to the recipient; they can open it with
+   **View saved report**, without your original snapshots.
+
+The explicit download serializes the existing report exactly as the CLI does:
+`JSON.stringify(report, null, 2) + "\n"` (UTF-8 JSON, two-space indentation and a
+trailing newline). It preserves all report values, field/source/proposal order
+and literal strings, with no new fields or version. It does not reread files,
+reanalyze snapshots, choose winners or apply reviews. This report contains
+filenames, IDs and proposal notes: share it only with the intended recipient.
+
+Readiness and download guidance are visible status messages. A download request
+is **not confirmation of a saved file**; check your browser downloads before
+handoff. An embedded preview may silently block downloads. If needed, open the
+self-contained HTML directly and analyze the chosen files there. Browser filename
+collision/overwrite behavior is not asserted; the CLI's exclusive-new-file guarantee
+does not extend to browser downloads. No clipboard fallback or permission is added.
 
 Filenames, IDs and notes render as literal text, including whitespace and
 markup-like content. Empty notes have a separate label; **Exact note string
@@ -601,10 +622,14 @@ markup-like content. Empty notes have a separate label; **Exact note string
 inspectable. The primary notes retain their exact text. Record order comes from
 the working snapshot. Equality is exact, not trimmed or normalized.
 
-In **Analyze input files**, changing, reordering or removing any input invalidates
-prior results and errors immediately; click Analyze again. Older asynchronous read successes and failures
-cannot replace newer choices or results. The page has no persistence, network
-submission, clipboard access, apply action or report download/export. Reloading
+In **Analyze input files**, adding, replacing, reordering or removing any working
+or returned input invalidates prior results and download readiness immediately;
+click Analyze again. Starting a new analysis also removes the download action
+while reads are pending. Failed or stale analysis cannot offer an earlier report.
+Older asynchronous read successes and failures cannot replace newer choices or
+results or unlock a newer pending download. Download readiness uses the existing
+report/revision/workflow owner, not a separate export state. The page has no
+persistence, network submission, clipboard access or apply action. Reloading
 starts empty. It never loads the Record Desk editing app.
 
 Replacing or removing a saved report, rereading it, or switching workflow also
@@ -623,7 +648,8 @@ The owner delegates complete version-1 validation and record comparison to
 Its **parseReportJSON** boundary accepts saved analysis text without calling
 snapshot analysis. Both entry points feed the same adapter state and renderer.
 
-Focused saved-viewer checks (ordinary Node only, no CLI replay or browser):
+Focused analysis/download and saved-viewer checks (ordinary Node only, no CLI
+replay or browser):
 
 ~~~sh
 node --test review-analysis.test.js review-analysis-app.test.js
@@ -633,8 +659,19 @@ node build-review.js --check
 These cover producer-output compatibility using synthetic in-memory inputs,
 invalid report rejection, literal fields, saved/fresh labels, workflow changes,
 filters/paging, and asynchronous success/failure races across both workflows.
-They are not proof of native file selection, keyboard dispatch or layout; those
-remain client acceptance work in the retained approved browser.
+The actual source and generated-page handlers also exercise FRESH-only readiness,
+every input invalidation, pending/late success/error behavior, saved-mode exclusion,
+whole-report Blob bytes, repeat requests and link/object-URL cleanup. No production
+test API is added. These are not proof of native file selection, a saved download,
+keyboard dispatch or layout; those remain client acceptance work in the retained
+approved browser. The decisive handoff uses the real chosen snapshots, captures
+the actual downloaded file and opens that exact file in the immutable recipient
+saved viewer, comparing every value with the retained report oracle. Do not
+substitute a fabricated report or serializer-only test for that acceptance. Keep
+private inputs, reports, command receipts and media outside Git. For this download
+contribution, do not launch a native browser, enable optional browser/sandbox
+switches, export histories/transcripts, or replay the unchanged CLI producer;
+reuse its existing valid proof.
 
 The existing standard build now produces both self-contained pages:
 
@@ -645,17 +682,19 @@ node build-review.js --check
 
 The existing `build()` API and unaffected **index.html** output are preserved;
 `build("analysis")` supplies the separate analysis page. No dependencies or
-package scripts are added. For source/Node checks without any native browser:
+package scripts are added. For this contribution, use the focused checks above
+and the unchanged canonical owner checks without replaying either terminal adapter:
 
 ~~~sh
-node --test parcel-label.test.js review-state.test.js review-app.test.js review-return.test.js review-return-analysis.test.js review-analysis.test.js review-analysis-app.test.js
+node --test review-state.test.js
 ~~~
 
 The new adapter harness executes the actual source and bundled scripts with
 controlled asynchronous file reads and forbidden side-effect guards. It covers
 invalidation, stale success/error races, literal values, source controls/focus,
-complete proposals, filtering/paging and empty states. Real child-process CLI
-tests verify shared-owner delegation and exact report output. These checks do
+complete proposals, filtering/paging and empty states. Existing child-process CLI
+proof covers shared-owner delegation and exact report output; it is not replayed
+for this unchanged producer. These checks do
 not claim native Files, layout or visual proof; those require a separately
 approved browser review. Do not set the optional browser-test switches for a
 source-only check.

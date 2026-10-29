@@ -67,7 +67,7 @@
     <span class="pill">Offline · memory only · no uploads</span>
   </header>
   <noscript><p class="notice">JavaScript is needed to analyze snapshots or view saved reports. Open this self-contained HTML file with JavaScript enabled.</p></noscript>
-  <p class="notice">Analysis only: no winners chosen and no reviews applied. Nothing is saved, exported, copied to a clipboard or sent over a network. Reloading clears all choices and results.</p>
+  <p class="notice">Analysis only: no winners chosen and no reviews applied. Nothing is saved automatically, copied to a clipboard or sent over a network. A completed FRESH analysis can be downloaded explicitly as a JSON report. Reloading clears all choices and results.</p>
   <section class="panel" aria-labelledby="inputs-heading">
     <h2 id="inputs-heading">1. Choose a workflow</h2>
     <div class="filters">
@@ -94,12 +94,16 @@
       </section>
     </div>
     <p id="input-policy" class="hint">Choose one working file and at least one returned file, then Analyze. JSON arrays and CSV are not snapshots. All records and reviews must validate, including conflicts and unknown IDs. Changing, reordering or removing a choice clears prior results immediately.</p>
-    <button id="analyze" type="button" class="primary" disabled>Analyze</button>
+    <div class="row">
+      <button id="analyze" type="button" class="primary" disabled>Analyze</button>
+      <button id="download-analysis" type="button" aria-describedby="download-status" hidden disabled>Download analysis report</button>
+    </div>
+    <p id="download-status" class="message" role="status" aria-live="polite">No current FRESH report is ready. Analyze the chosen files to enable download.</p>
     </div>
     <div id="saved-inputs" hidden>
       <label for="saved-file">Saved analysis report JSON file</label>
       <input id="saved-file" type="file" accept=".json,application/json" aria-describedby="saved-policy">
-      <p id="saved-policy" class="hint">Choose an existing record-review-return-analysis JSON report, then View saved report. Its complete structure is checked, but its counts and classifications remain recorded claims, not a fresh comparison. No original files named in it are opened. Replacing or removing this choice clears prior results immediately.</p>
+      <p id="saved-policy" class="hint">Choose an existing record-review-return-analysis JSON report, then View saved report. Its complete structure is checked, but its counts and classifications remain recorded claims, not a fresh comparison. No original files named in it are opened. Saved-report mode is a reader only, with no download or re-export action. Replacing or removing this choice clears prior results immediately.</p>
       <p class="hint">Chosen report file:</p><p id="saved-name" class="literal">None chosen</p>
       <div class="row">
         <button id="clear-saved" type="button" disabled>Remove saved report</button>
