@@ -559,6 +559,26 @@ Open **review-analysis.html** directly as a self-contained offline file. This is
 separate from Record Desk: it does not edit the working snapshot or choose a
 winning proposal.
 
+The **Report workflow** control offers **Analyze input files** (below) and
+**View saved report**. To read a previously saved CLI analysis, select **View
+saved report**, choose its JSON file, then click **View saved report**. No working
+or returned snapshot is needed, and no original filename in the report is opened.
+The result stays labeled **SAVED report data**, including its counts, overlap
+classifications and page status. These are recorded claims, not a fresh comparison
+or revalidation of original records. Multiple sources do not establish independent
+reviewers; a synthetic alternative is still synthetic. No winners are chosen.
+
+Saved input must match the existing unversioned
+`record-review-return-analysis` producer shape: working filename/count, ordered
+sources with ordinals/counts/issues, and ordered overlaps with status and complete
+proposals. The shared analysis owner validates the entire structure, required and
+allowed fields, types, decision/status vocabulary, count/issue summaries, source
+references and proposal ordering before the page accepts it. It does not recompute
+saved classifications or claim the report is authentic. There is no new format
+version. Strings and array order are retained unchanged, including empty notes,
+Unicode, CR/CRLF, markup-like text, duplicate filenames and prototype-like IDs.
+The same literal renderer, filters and 10-overlap pages serve both workflows.
+
 1. Choose one complete version-1 working review file.
 2. Add one or more complete returned review files. Each selection appends to the
    visible ordered list. **Move up**, **Move down**, and **Remove** are keyboard
@@ -581,11 +601,17 @@ markup-like content. Empty notes have a separate label; **Exact note string
 inspectable. The primary notes retain their exact text. Record order comes from
 the working snapshot. Equality is exact, not trimmed or normalized.
 
-Changing, reordering or removing any input invalidates prior results and errors
-immediately; click Analyze again. Older asynchronous read successes and failures
+In **Analyze input files**, changing, reordering or removing any input invalidates
+prior results and errors immediately; click Analyze again. Older asynchronous read successes and failures
 cannot replace newer choices or results. The page has no persistence, network
 submission, clipboard access, apply action or report download/export. Reloading
 starts empty. It never loads the Record Desk editing app.
+
+Replacing or removing a saved report, rereading it, or switching workflow also
+clears the prior result immediately. A failed read or invalid report leaves no
+partial or stale result. Late successes and failures cannot overwrite newer
+choices, labels or errors, or unlock a newer pending read. Switching workflows
+keeps file choices only in page memory; results must be explicitly loaded again.
 
 ### Shared analysis and checks
 
@@ -594,6 +620,21 @@ exclusive new-file output, report schema and serialization. It and the browser
 adapter **review-analysis-app.js** both call the pure **review-analysis.js** owner.
 The owner delegates complete version-1 validation and record comparison to
 **review-state.js**; the adapters do not duplicate classification policy.
+Its **parseReportJSON** boundary accepts saved analysis text without calling
+snapshot analysis. Both entry points feed the same adapter state and renderer.
+
+Focused saved-viewer checks (ordinary Node only, no CLI replay or browser):
+
+~~~sh
+node --test review-analysis.test.js review-analysis-app.test.js
+node build-review.js --check
+~~~
+
+These cover producer-output compatibility using synthetic in-memory inputs,
+invalid report rejection, literal fields, saved/fresh labels, workflow changes,
+filters/paging, and asynchronous success/failure races across both workflows.
+They are not proof of native file selection, keyboard dispatch or layout; those
+remain client acceptance work in the retained approved browser.
 
 The existing standard build now produces both self-contained pages:
 
@@ -607,7 +648,7 @@ The existing `build()` API and unaffected **index.html** output are preserved;
 package scripts are added. For source/Node checks without any native browser:
 
 ~~~sh
-node --test parcel-label.test.js review-state.test.js review-app.test.js review-return.test.js review-return-analysis.test.js review-analysis-app.test.js
+node --test parcel-label.test.js review-state.test.js review-app.test.js review-return.test.js review-return-analysis.test.js review-analysis.test.js review-analysis-app.test.js
 ~~~
 
 The new adapter harness executes the actual source and bundled scripts with

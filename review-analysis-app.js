@@ -6,6 +6,9 @@
   const PAGE_SIZE = 10;
   let workingFile = null;
   let returnedFiles = [];
+  let savedFile = null;
+  let workflow = "analyze";
+  let savedResult = false;
   let revision = 0;
   let report = null;
   let page = 0;
@@ -19,7 +22,8 @@
   }
 
   function updateAnalyze() {
-    $("analyze").disabled = busy || !workingFile || !returnedFiles.length;
+    $("analyze").disabled = busy || workflow !== "analyze" || !workingFile || !returnedFiles.length;
+    $("view-saved").disabled = busy || workflow !== "saved" || !savedFile;
   }
 
   // Every input change and each Analyze attempt supersedes BOTH pending success
@@ -28,8 +32,11 @@
     revision++;
     busy = false;
     report = null;
+    savedResult = false;
     page = 0;
     $("results").hidden = true;
+    $("results-heading").textContent = "2. Results";
+    $("result-context").textContent = "";
     $("working-summary").textContent = "";
     $("source-results").replaceChildren();
     $("overlap-results").replaceChildren();
@@ -37,7 +44,7 @@
     $("overlap-filter").disabled = true;
     $("previous-page").disabled = true;
     $("next-page").disabled = true;
-    $("page-status").textContent = "No analysis yet.";
+    $("page-status").textContent = "No report loaded or analysis yet.";
     $("overlap-empty").hidden = true;
     $("overlap-empty").textContent = "";
     $("analysis-error").textContent = "";
@@ -46,11 +53,14 @@
   }
 
   function choicesChanged() {
-    invalidate("Choices changed. Analyze to read the current files.");
+    invalidate(workflow === "saved" ? "Choices changed. View saved report to read the chosen JSON file." :
+      "Choices changed. Analyze to read the current files.");
     renderChoices();
   }
 
   function renderChoices() {
+    $("saved-name").textContent = savedFile ? savedFile.name : "None chosen";
+    $("clear-saved").disabled = !savedFile;
     $("working-name").textContent = workingFile ? workingFile.name : "None chosen";
     $("clear-working").disabled = !workingFile;
     $("clear-returns").disabled = !returnedFiles.length;
@@ -93,9 +103,10 @@
       const item = node("li", undefined, "panel");
       item.append(node("h3", "Source " + source.ordinal + ": " + source.filename, "literal"));
       const c = source.counts;
-      item.append(node("p", "Total: " + c.total + " · Eligible: " + c.eligible + " · Unchanged: " + c.unchanged +
+      item.append(node("p", (savedResult ? "SAVED recorded counts · " : "") +
+        "Total: " + c.total + " · Eligible: " + c.eligible + " · Unchanged: " + c.unchanged +
         " · Changed-record conflicts: " + c.conflict + " · Unknown IDs: " + c.unknown, "message"));
-      if (!source.issues.length) item.append(node("p", "No issues.", "hint"));
+      if (!source.issues.length) item.append(node("p", savedResult ? "No issues recorded." : "No issues.", "hint"));
       else {
         const issues = node("ul", undefined, "issues");
         for (const issue of source.issues) {
@@ -118,18 +129,21 @@
     page = Math.max(0, Math.min(page, pages - 1));
     const start = page * PAGE_SIZE;
     const end = Math.min(start + PAGE_SIZE, matches.length);
-    $("page-status").textContent = (matches.length ? "Showing " + (start + 1) + "–" + end : "Showing 0") +
+    $("page-status").textContent = (savedResult ? "SAVED report · " : "") +
+      (matches.length ? "Showing " + (start + 1) + "–" + end : "Showing 0") +
       " of " + matches.length + " matching overlaps · " + report.overlaps.length + " total · Page " +
       (pages ? page + 1 : 0) + " of " + pages + " · Up to " + PAGE_SIZE + " per page";
     $("previous-page").disabled = !matches.length || page === 0;
     $("next-page").disabled = !matches.length || page >= pages - 1;
     $("overlap-empty").hidden = matches.length !== 0;
     $("overlap-empty").textContent = report.overlaps.length ? "No overlaps match this filter." :
-      "No overlapping proposals. An overlap needs at least two eligible or unchanged returned proposals for a working record.";
+      savedResult ? "No overlapping proposals recorded in this saved report." :
+        "No overlapping proposals. An overlap needs at least two eligible or unchanged returned proposals for a working record.";
     $("overlap-results").replaceChildren(...matches.slice(start, end).map(overlap => {
       const item = node("li", undefined, "panel");
       item.append(node("h3", "Record ID: " + overlap.id, "literal"),
-        node("p", (overlap.status === "identical" ? "Identical" : "Disagreement") +
+        node("p", (savedResult ? "SAVED recorded classification: " : "") +
+          (overlap.status === "identical" ? "Identical" : "Disagreement") +
           " · " + overlap.proposals.length + " proposals", "message"));
       for (const proposal of overlap.proposals) {
         const section = node("section", undefined, "proposal");
@@ -148,6 +162,22 @@
     }));
   }
 
+  $("workflow").addEventListener("change", () => {
+    workflow = $("workflow").value;
+    $("analyze-inputs").hidden = workflow !== "analyze";
+    $("saved-inputs").hidden = workflow !== "saved";
+    choicesChanged();
+  });
+  $("saved-file").addEventListener("change", () => {
+    savedFile = $("saved-file").files[0] || null;
+    choicesChanged();
+  });
+  $("clear-saved").addEventListener("click", () => {
+    savedFile = null;
+    $("saved-file").value = "";
+    choicesChanged();
+    $("saved-file").focus();
+  });
   $("working-file").addEventListener("change", () => {
     workingFile = $("working-file").files[0] || null;
     choicesChanged();
@@ -171,11 +201,12 @@
     choicesChanged();
     $("returned-input").focus();
   });
-  $("analyze").addEventListener("click", async () => {
-    if (busy || !workingFile || !returnedFiles.length) return;
-    invalidate("Reading the current files…");
+  async function readCurrent() {
+    const saved = workflow === "saved";
+    if (busy || (saved ? !savedFile : !workingFile || !returnedFiles.length)) return;
+    invalidate(saved ? "Reading the chosen saved report…" : "Reading the current files…");
     const attempt = revision;
-    const files = [workingFile, ...returnedFiles];
+    const files = saved ? [savedFile] : [workingFile, ...returnedFiles];
     busy = true;
     updateAnalyze();
     try {
@@ -184,22 +215,32 @@
         catch (error) { throw new Error("Could not read " + JSON.stringify(file.name) + ": " + error.message); }
       }));
       if (attempt !== revision) return;
-      const result = RecordReturnAnalysis.analyzeReturns(inputs[0], inputs.slice(1));
+      const result = saved ? RecordReturnAnalysis.parseReportJSON(inputs[0].text) :
+        RecordReturnAnalysis.analyzeReturns(inputs[0], inputs.slice(1));
       if (attempt !== revision) return;
       report = result;
+      savedResult = saved;
+      $("results-heading").textContent = saved ? "2. SAVED report data" : "2. Fresh analysis";
+      $("result-context").textContent = saved ? "SAVED report file: " + inputs[0].filename +
+        "\nCounts, eligibility, issues and classifications are recorded claims from this report, not a fresh comparison or revalidation of original records. Only this report file was read; no named working or returned file was opened." :
+        "FRESH analysis of the currently chosen working and returned snapshots. All complete snapshots were validated and compared for this run.";
       renderSources();
       $("overlap-filter").disabled = false;
       renderOverlaps();
       $("results").hidden = false;
-      $("analysis-status").textContent = "Analysis complete for the current choices. No reviews applied.";
+      $("analysis-status").textContent = saved ? "SAVED report loaded for the current choice. No original records revalidated. No reviews applied." :
+        "Analysis complete for the current choices. No reviews applied.";
     } catch (error) {
       if (attempt !== revision) return;
       $("analysis-error").textContent = error.message;
-      $("analysis-status").textContent = "Analysis failed. Check the chosen files and try again. No results retained.";
+      $("analysis-status").textContent = (saved ? "Saved report could not be loaded." : "Analysis failed.") +
+        " Check the chosen files and try again. No results retained.";
     } finally {
       if (attempt === revision) { busy = false; updateAnalyze(); }
     }
-  });
+  }
+  $("analyze").addEventListener("click", readCurrent);
+  $("view-saved").addEventListener("click", readCurrent);
   $("overlap-filter").addEventListener("change", () => { page = 0; renderOverlaps(); });
   $("previous-page").addEventListener("click", () => {
     if (!$("previous-page").disabled) { page--; renderOverlaps(); }

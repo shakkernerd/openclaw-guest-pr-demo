@@ -66,10 +66,17 @@
     <div><div class="eyebrow">Record Desk · read-only</div><h1>Returned review analysis</h1><p class="muted">Compare proposals. Keep every source visible.</p></div>
     <span class="pill">Offline · memory only · no uploads</span>
   </header>
-  <noscript><p class="notice">JavaScript is needed to analyze snapshots. Open this self-contained HTML file with JavaScript enabled.</p></noscript>
+  <noscript><p class="notice">JavaScript is needed to analyze snapshots or view saved reports. Open this self-contained HTML file with JavaScript enabled.</p></noscript>
   <p class="notice">Analysis only: no winners chosen and no reviews applied. Nothing is saved, exported, copied to a clipboard or sent over a network. Reloading clears all choices and results.</p>
   <section class="panel" aria-labelledby="inputs-heading">
-    <h2 id="inputs-heading">1. Choose complete version-1 snapshots</h2>
+    <h2 id="inputs-heading">1. Choose a workflow</h2>
+    <div class="filters">
+      <label for="workflow">Report workflow</label>
+      <select id="workflow" aria-describedby="workflow-policy"><option value="analyze">Analyze input files</option><option value="saved">View saved report</option></select>
+    </div>
+    <p id="workflow-policy" class="hint">Analyze complete version-1 snapshots, or read an existing analysis report without the originals. Changing workflow clears the displayed result; choices remain in memory until removed or reloaded.</p>
+    <div id="analyze-inputs">
+    <h3>Choose complete version-1 snapshots</h3>
     <div class="input-grid">
       <section aria-label="Working snapshot">
         <label for="working-file">Working review file</label>
@@ -88,24 +95,37 @@
     </div>
     <p id="input-policy" class="hint">Choose one working file and at least one returned file, then Analyze. JSON arrays and CSV are not snapshots. All records and reviews must validate, including conflicts and unknown IDs. Changing, reordering or removing a choice clears prior results immediately.</p>
     <button id="analyze" type="button" class="primary" disabled>Analyze</button>
+    </div>
+    <div id="saved-inputs" hidden>
+      <label for="saved-file">Saved analysis report JSON file</label>
+      <input id="saved-file" type="file" accept=".json,application/json" aria-describedby="saved-policy">
+      <p id="saved-policy" class="hint">Choose an existing record-review-return-analysis JSON report, then View saved report. Its complete structure is checked, but its counts and classifications remain recorded claims, not a fresh comparison. No original files named in it are opened. Replacing or removing this choice clears prior results immediately.</p>
+      <p class="hint">Chosen report file:</p><p id="saved-name" class="literal">None chosen</p>
+      <div class="row">
+        <button id="clear-saved" type="button" disabled>Remove saved report</button>
+        <button id="view-saved" type="button" class="primary" disabled>View saved report</button>
+      </div>
+    </div>
     <p id="analysis-status" class="message" role="status" aria-live="polite">Choose files to begin.</p>
     <p id="analysis-error" class="message literal" role="alert"></p>
   </section>
   <section id="results" hidden aria-labelledby="results-heading">
-    <h2 id="results-heading">2. Analysis</h2>
+    <h2 id="results-heading">2. Results</h2>
+    <p id="result-context" class="notice literal"></p>
+    <p class="hint">No winners are chosen. Source numbers identify files in report order, not reviewer identities. Repeated files and synthetic alternatives are not independent reviewers.</p>
     <p id="working-summary" class="message literal"></p>
     <h3>Each returned source</h3>
-    <p class="hint">Eligible and unchanged reviews can propose values. Changed-record conflicts and unknown IDs are issues, never proposals. All issues are shown below in analysis order.</p>
+    <p class="hint">In the producer format, eligible and unchanged reviews can propose values. Changed-record conflicts and unknown IDs are issues, never proposals. All stored counts and issues appear below in report order. For SAVED data, these are recorded claims only.</p>
     <ol id="source-results" aria-label="Source counts and issues"></ol>
     <h3>Overlapping proposals</h3>
-    <p class="hint">An overlap needs at least two eligible or unchanged proposals for the same working record. Order follows the working records, then source order. Identical means exact decision and note equality, including whitespace. Every proposal is shown in full; empty notes are labeled separately.</p>
+    <p class="hint">The producer records overlaps with at least two eligible or unchanged proposals for the same working record. Report and proposal order are preserved. The producer uses exact decision and note equality, including whitespace; SAVED classifications are displayed as recorded, not recomputed. Every proposal is shown in full; empty notes are labeled separately.</p>
     <div class="filters">
       <label for="overlap-filter">Show overlaps</label>
       <select id="overlap-filter" disabled><option value="all">All</option><option value="disagreement">Disagreements</option><option value="identical">Identical</option></select>
     </div>
     <div class="row pager" role="group" aria-label="Overlap pages">
       <button id="previous-page" type="button" disabled>Previous</button>
-      <p id="page-status" role="status" aria-live="polite">No analysis yet.</p>
+      <p id="page-status" role="status" aria-live="polite">No report loaded or analysis yet.</p>
       <button id="next-page" type="button" disabled>Next</button>
     </div>
     <p id="overlap-empty" class="message" hidden></p>

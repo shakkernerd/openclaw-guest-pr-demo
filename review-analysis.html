@@ -66,10 +66,17 @@
     <div><div class="eyebrow">Record Desk · read-only</div><h1>Returned review analysis</h1><p class="muted">Compare proposals. Keep every source visible.</p></div>
     <span class="pill">Offline · memory only · no uploads</span>
   </header>
-  <noscript><p class="notice">JavaScript is needed to analyze snapshots. Open this self-contained HTML file with JavaScript enabled.</p></noscript>
+  <noscript><p class="notice">JavaScript is needed to analyze snapshots or view saved reports. Open this self-contained HTML file with JavaScript enabled.</p></noscript>
   <p class="notice">Analysis only: no winners chosen and no reviews applied. Nothing is saved, exported, copied to a clipboard or sent over a network. Reloading clears all choices and results.</p>
   <section class="panel" aria-labelledby="inputs-heading">
-    <h2 id="inputs-heading">1. Choose complete version-1 snapshots</h2>
+    <h2 id="inputs-heading">1. Choose a workflow</h2>
+    <div class="filters">
+      <label for="workflow">Report workflow</label>
+      <select id="workflow" aria-describedby="workflow-policy"><option value="analyze">Analyze input files</option><option value="saved">View saved report</option></select>
+    </div>
+    <p id="workflow-policy" class="hint">Analyze complete version-1 snapshots, or read an existing analysis report without the originals. Changing workflow clears the displayed result; choices remain in memory until removed or reloaded.</p>
+    <div id="analyze-inputs">
+    <h3>Choose complete version-1 snapshots</h3>
     <div class="input-grid">
       <section aria-label="Working snapshot">
         <label for="working-file">Working review file</label>
@@ -88,24 +95,37 @@
     </div>
     <p id="input-policy" class="hint">Choose one working file and at least one returned file, then Analyze. JSON arrays and CSV are not snapshots. All records and reviews must validate, including conflicts and unknown IDs. Changing, reordering or removing a choice clears prior results immediately.</p>
     <button id="analyze" type="button" class="primary" disabled>Analyze</button>
+    </div>
+    <div id="saved-inputs" hidden>
+      <label for="saved-file">Saved analysis report JSON file</label>
+      <input id="saved-file" type="file" accept=".json,application/json" aria-describedby="saved-policy">
+      <p id="saved-policy" class="hint">Choose an existing record-review-return-analysis JSON report, then View saved report. Its complete structure is checked, but its counts and classifications remain recorded claims, not a fresh comparison. No original files named in it are opened. Replacing or removing this choice clears prior results immediately.</p>
+      <p class="hint">Chosen report file:</p><p id="saved-name" class="literal">None chosen</p>
+      <div class="row">
+        <button id="clear-saved" type="button" disabled>Remove saved report</button>
+        <button id="view-saved" type="button" class="primary" disabled>View saved report</button>
+      </div>
+    </div>
     <p id="analysis-status" class="message" role="status" aria-live="polite">Choose files to begin.</p>
     <p id="analysis-error" class="message literal" role="alert"></p>
   </section>
   <section id="results" hidden aria-labelledby="results-heading">
-    <h2 id="results-heading">2. Analysis</h2>
+    <h2 id="results-heading">2. Results</h2>
+    <p id="result-context" class="notice literal"></p>
+    <p class="hint">No winners are chosen. Source numbers identify files in report order, not reviewer identities. Repeated files and synthetic alternatives are not independent reviewers.</p>
     <p id="working-summary" class="message literal"></p>
     <h3>Each returned source</h3>
-    <p class="hint">Eligible and unchanged reviews can propose values. Changed-record conflicts and unknown IDs are issues, never proposals. All issues are shown below in analysis order.</p>
+    <p class="hint">In the producer format, eligible and unchanged reviews can propose values. Changed-record conflicts and unknown IDs are issues, never proposals. All stored counts and issues appear below in report order. For SAVED data, these are recorded claims only.</p>
     <ol id="source-results" aria-label="Source counts and issues"></ol>
     <h3>Overlapping proposals</h3>
-    <p class="hint">An overlap needs at least two eligible or unchanged proposals for the same working record. Order follows the working records, then source order. Identical means exact decision and note equality, including whitespace. Every proposal is shown in full; empty notes are labeled separately.</p>
+    <p class="hint">The producer records overlaps with at least two eligible or unchanged proposals for the same working record. Report and proposal order are preserved. The producer uses exact decision and note equality, including whitespace; SAVED classifications are displayed as recorded, not recomputed. Every proposal is shown in full; empty notes are labeled separately.</p>
     <div class="filters">
       <label for="overlap-filter">Show overlaps</label>
       <select id="overlap-filter" disabled><option value="all">All</option><option value="disagreement">Disagreements</option><option value="identical">Identical</option></select>
     </div>
     <div class="row pager" role="group" aria-label="Overlap pages">
       <button id="previous-page" type="button" disabled>Previous</button>
-      <p id="page-status" role="status" aria-live="polite">No analysis yet.</p>
+      <p id="page-status" role="status" aria-live="polite">No report loaded or analysis yet.</p>
       <button id="next-page" type="button" disabled>Next</button>
     </div>
     <p id="overlap-empty" class="message" hidden></p>
@@ -478,7 +498,117 @@
       sources, overlaps };
   }
 
-  return Object.freeze({ analyzeReturns });
+  // Saved reports use the producer above’s unversioned JSON shape, not a
+  // snapshot. Validate the entire boundary before exposing any result. These
+  // are recorded claims: no original records are available to reclassify them.
+  function parseReportJSON(text) {
+    const fail = (where, message) => { throw new Error("Saved report " + where + ": " + message); };
+    const shape = (value, keys, where) => {
+      if (!value || typeof value !== "object" || Array.isArray(value) ||
+          Object.keys(value).length !== keys.length ||
+          !keys.every(key => Object.prototype.hasOwnProperty.call(value, key))) {
+        fail(where, "expected exactly " + keys.join(", ") + ".");
+      }
+    };
+    const string = (value, where) => {
+      if (typeof value !== "string") fail(where, "expected text.");
+    };
+    const id = (value, where) => {
+      string(value, where);
+      if (!value.trim()) fail(where, "expected a non-empty record ID.");
+    };
+    const count = (value, where) => {
+      if (!Number.isSafeInteger(value) || value < 0) fail(where, "expected a non-negative integer.");
+    };
+    const array = (value, where) => {
+      if (!Array.isArray(value)) fail(where, "expected an array.");
+    };
+    if (typeof text !== "string" || !text.trim()) fail("input", "choose a saved analysis JSON file.");
+    let value;
+    try { value = JSON.parse(text.replace(/^\uFEFF/, "")); }
+    catch { fail("input", "invalid JSON. Check commas, quotes and brackets."); }
+    shape(value, ["kind", "working", "sources", "overlaps"], "root");
+    if (value.kind !== "record-review-return-analysis") fail("kind", "expected record-review-return-analysis.");
+    shape(value.working, ["filename", "recordCount"], "working");
+    string(value.working.filename, "working.filename");
+    count(value.working.recordCount, "working.recordCount");
+    array(value.sources, "sources");
+    if (!value.sources.length) fail("sources", "expected at least one returned source.");
+    const sourceIssues = [];
+    const workingIds = new Set(), unknownIds = new Set();
+    value.sources.forEach((source, index) => {
+      const where = "source " + (index + 1);
+      shape(source, ["ordinal", "filename", "counts", "issues"], where);
+      if (source.ordinal !== index + 1) fail(where, "ordinals must follow source order starting at 1.");
+      string(source.filename, where + " filename");
+      const c = source.counts;
+      const keys = ["total", "eligible", "unchanged", "unknown", "conflict"];
+      shape(c, keys, where + " counts");
+      keys.forEach(key => count(c[key], where + " counts." + key));
+      if (c.total !== c.eligible + c.unchanged + c.unknown + c.conflict ||
+          c.total - c.unknown > value.working.recordCount) fail(where, "inconsistent recorded counts.");
+      array(source.issues, where + " issues");
+      const ids = new Set();
+      let conflicts = 0, unknowns = 0;
+      source.issues.forEach(issue => {
+        shape(issue, ["id", "kind"], where + " issue");
+        id(issue.id, where + " issue ID");
+        if (ids.has(issue.id)) fail(where, "duplicate issue ID.");
+        ids.add(issue.id);
+        if (issue.kind === "conflict" && !unknowns) conflicts++;
+        else if (issue.kind === "unknown") unknowns++;
+        else fail(where, "issues must be conflicts followed by unknown IDs.");
+        (issue.kind === "conflict" ? workingIds : unknownIds).add(issue.id);
+      });
+      if (conflicts !== c.conflict || unknowns !== c.unknown) fail(where, "issue counts do not match recorded counts.");
+      sourceIssues.push(ids);
+    });
+    array(value.overlaps, "overlaps");
+    if (value.overlaps.length > value.working.recordCount) fail("overlaps", "exceeds the recorded working count.");
+    const overlapIds = new Set();
+    const proposalCounts = value.sources.map(() => 0);
+    value.overlaps.forEach((overlap, index) => {
+      const where = "overlap " + (index + 1);
+      shape(overlap, ["id", "status", "proposals"], where);
+      id(overlap.id, where + " ID");
+      if (overlapIds.has(overlap.id)) fail(where, "duplicate overlap ID.");
+      overlapIds.add(overlap.id);
+      workingIds.add(overlap.id);
+      // Deliberately do not recompute the saved classification.
+      if (!["identical", "disagreement"].includes(overlap.status)) fail(where, "unknown recorded status.");
+      array(overlap.proposals, where + " proposals");
+      if (overlap.proposals.length < 2) fail(where, "expected at least two proposals.");
+      let previousOrdinal = 0;
+      overlap.proposals.forEach(proposal => {
+        shape(proposal, ["sourceOrdinal", "filename", "decision", "notes"], where + " proposal");
+        const ordinal = proposal.sourceOrdinal;
+        if (!Number.isSafeInteger(ordinal) || ordinal <= previousOrdinal || ordinal > value.sources.length) {
+          fail(where, "proposal sources must exist and follow source order without repeats.");
+        }
+        previousOrdinal = ordinal;
+        if (proposal.filename !== value.sources[ordinal - 1].filename) fail(where, "proposal filename differs from its source.");
+        if (!review.DECISIONS.includes(proposal.decision)) fail(where, "unknown decision.");
+        string(proposal.notes, where + " notes");
+        if (sourceIssues[ordinal - 1].has(overlap.id)) fail(where, "an issue cannot also propose from the same source.");
+        proposalCounts[ordinal - 1]++;
+      });
+    });
+    proposalCounts.forEach((total, index) => {
+      const c = value.sources[index].counts;
+      if (total > c.eligible + c.unchanged) fail("source " + (index + 1), "too many overlapping proposals for its recorded counts.");
+    });
+    // All sources refer to one working snapshot. Check only internal ID claims,
+    // not original record equality or the saved identical/disagreement status.
+    for (const id of workingIds) {
+      if (unknownIds.has(id)) fail("IDs", "a working-record ID cannot also be recorded as unknown.");
+    }
+    if (workingIds.size > value.working.recordCount) fail("IDs", "known working IDs exceed the recorded working count.");
+    // Return the parsed values and array order untouched, including empty notes,
+    // whitespace, line endings, duplicate filenames and prototype-like IDs.
+    return value;
+  }
+
+  return Object.freeze({ analyzeReturns, parseReportJSON });
 });
 
 </script>
@@ -491,6 +621,9 @@
   const PAGE_SIZE = 10;
   let workingFile = null;
   let returnedFiles = [];
+  let savedFile = null;
+  let workflow = "analyze";
+  let savedResult = false;
   let revision = 0;
   let report = null;
   let page = 0;
@@ -504,7 +637,8 @@
   }
 
   function updateAnalyze() {
-    $("analyze").disabled = busy || !workingFile || !returnedFiles.length;
+    $("analyze").disabled = busy || workflow !== "analyze" || !workingFile || !returnedFiles.length;
+    $("view-saved").disabled = busy || workflow !== "saved" || !savedFile;
   }
 
   // Every input change and each Analyze attempt supersedes BOTH pending success
@@ -513,8 +647,11 @@
     revision++;
     busy = false;
     report = null;
+    savedResult = false;
     page = 0;
     $("results").hidden = true;
+    $("results-heading").textContent = "2. Results";
+    $("result-context").textContent = "";
     $("working-summary").textContent = "";
     $("source-results").replaceChildren();
     $("overlap-results").replaceChildren();
@@ -522,7 +659,7 @@
     $("overlap-filter").disabled = true;
     $("previous-page").disabled = true;
     $("next-page").disabled = true;
-    $("page-status").textContent = "No analysis yet.";
+    $("page-status").textContent = "No report loaded or analysis yet.";
     $("overlap-empty").hidden = true;
     $("overlap-empty").textContent = "";
     $("analysis-error").textContent = "";
@@ -531,11 +668,14 @@
   }
 
   function choicesChanged() {
-    invalidate("Choices changed. Analyze to read the current files.");
+    invalidate(workflow === "saved" ? "Choices changed. View saved report to read the chosen JSON file." :
+      "Choices changed. Analyze to read the current files.");
     renderChoices();
   }
 
   function renderChoices() {
+    $("saved-name").textContent = savedFile ? savedFile.name : "None chosen";
+    $("clear-saved").disabled = !savedFile;
     $("working-name").textContent = workingFile ? workingFile.name : "None chosen";
     $("clear-working").disabled = !workingFile;
     $("clear-returns").disabled = !returnedFiles.length;
@@ -578,9 +718,10 @@
       const item = node("li", undefined, "panel");
       item.append(node("h3", "Source " + source.ordinal + ": " + source.filename, "literal"));
       const c = source.counts;
-      item.append(node("p", "Total: " + c.total + " · Eligible: " + c.eligible + " · Unchanged: " + c.unchanged +
+      item.append(node("p", (savedResult ? "SAVED recorded counts · " : "") +
+        "Total: " + c.total + " · Eligible: " + c.eligible + " · Unchanged: " + c.unchanged +
         " · Changed-record conflicts: " + c.conflict + " · Unknown IDs: " + c.unknown, "message"));
-      if (!source.issues.length) item.append(node("p", "No issues.", "hint"));
+      if (!source.issues.length) item.append(node("p", savedResult ? "No issues recorded." : "No issues.", "hint"));
       else {
         const issues = node("ul", undefined, "issues");
         for (const issue of source.issues) {
@@ -603,18 +744,21 @@
     page = Math.max(0, Math.min(page, pages - 1));
     const start = page * PAGE_SIZE;
     const end = Math.min(start + PAGE_SIZE, matches.length);
-    $("page-status").textContent = (matches.length ? "Showing " + (start + 1) + "–" + end : "Showing 0") +
+    $("page-status").textContent = (savedResult ? "SAVED report · " : "") +
+      (matches.length ? "Showing " + (start + 1) + "–" + end : "Showing 0") +
       " of " + matches.length + " matching overlaps · " + report.overlaps.length + " total · Page " +
       (pages ? page + 1 : 0) + " of " + pages + " · Up to " + PAGE_SIZE + " per page";
     $("previous-page").disabled = !matches.length || page === 0;
     $("next-page").disabled = !matches.length || page >= pages - 1;
     $("overlap-empty").hidden = matches.length !== 0;
     $("overlap-empty").textContent = report.overlaps.length ? "No overlaps match this filter." :
-      "No overlapping proposals. An overlap needs at least two eligible or unchanged returned proposals for a working record.";
+      savedResult ? "No overlapping proposals recorded in this saved report." :
+        "No overlapping proposals. An overlap needs at least two eligible or unchanged returned proposals for a working record.";
     $("overlap-results").replaceChildren(...matches.slice(start, end).map(overlap => {
       const item = node("li", undefined, "panel");
       item.append(node("h3", "Record ID: " + overlap.id, "literal"),
-        node("p", (overlap.status === "identical" ? "Identical" : "Disagreement") +
+        node("p", (savedResult ? "SAVED recorded classification: " : "") +
+          (overlap.status === "identical" ? "Identical" : "Disagreement") +
           " · " + overlap.proposals.length + " proposals", "message"));
       for (const proposal of overlap.proposals) {
         const section = node("section", undefined, "proposal");
@@ -633,6 +777,22 @@
     }));
   }
 
+  $("workflow").addEventListener("change", () => {
+    workflow = $("workflow").value;
+    $("analyze-inputs").hidden = workflow !== "analyze";
+    $("saved-inputs").hidden = workflow !== "saved";
+    choicesChanged();
+  });
+  $("saved-file").addEventListener("change", () => {
+    savedFile = $("saved-file").files[0] || null;
+    choicesChanged();
+  });
+  $("clear-saved").addEventListener("click", () => {
+    savedFile = null;
+    $("saved-file").value = "";
+    choicesChanged();
+    $("saved-file").focus();
+  });
   $("working-file").addEventListener("change", () => {
     workingFile = $("working-file").files[0] || null;
     choicesChanged();
@@ -656,11 +816,12 @@
     choicesChanged();
     $("returned-input").focus();
   });
-  $("analyze").addEventListener("click", async () => {
-    if (busy || !workingFile || !returnedFiles.length) return;
-    invalidate("Reading the current files…");
+  async function readCurrent() {
+    const saved = workflow === "saved";
+    if (busy || (saved ? !savedFile : !workingFile || !returnedFiles.length)) return;
+    invalidate(saved ? "Reading the chosen saved report…" : "Reading the current files…");
     const attempt = revision;
-    const files = [workingFile, ...returnedFiles];
+    const files = saved ? [savedFile] : [workingFile, ...returnedFiles];
     busy = true;
     updateAnalyze();
     try {
@@ -669,22 +830,32 @@
         catch (error) { throw new Error("Could not read " + JSON.stringify(file.name) + ": " + error.message); }
       }));
       if (attempt !== revision) return;
-      const result = RecordReturnAnalysis.analyzeReturns(inputs[0], inputs.slice(1));
+      const result = saved ? RecordReturnAnalysis.parseReportJSON(inputs[0].text) :
+        RecordReturnAnalysis.analyzeReturns(inputs[0], inputs.slice(1));
       if (attempt !== revision) return;
       report = result;
+      savedResult = saved;
+      $("results-heading").textContent = saved ? "2. SAVED report data" : "2. Fresh analysis";
+      $("result-context").textContent = saved ? "SAVED report file: " + inputs[0].filename +
+        "\nCounts, eligibility, issues and classifications are recorded claims from this report, not a fresh comparison or revalidation of original records. Only this report file was read; no named working or returned file was opened." :
+        "FRESH analysis of the currently chosen working and returned snapshots. All complete snapshots were validated and compared for this run.";
       renderSources();
       $("overlap-filter").disabled = false;
       renderOverlaps();
       $("results").hidden = false;
-      $("analysis-status").textContent = "Analysis complete for the current choices. No reviews applied.";
+      $("analysis-status").textContent = saved ? "SAVED report loaded for the current choice. No original records revalidated. No reviews applied." :
+        "Analysis complete for the current choices. No reviews applied.";
     } catch (error) {
       if (attempt !== revision) return;
       $("analysis-error").textContent = error.message;
-      $("analysis-status").textContent = "Analysis failed. Check the chosen files and try again. No results retained.";
+      $("analysis-status").textContent = (saved ? "Saved report could not be loaded." : "Analysis failed.") +
+        " Check the chosen files and try again. No results retained.";
     } finally {
       if (attempt === revision) { busy = false; updateAnalyze(); }
     }
-  });
+  }
+  $("analyze").addEventListener("click", readCurrent);
+  $("view-saved").addEventListener("click", readCurrent);
   $("overlap-filter").addEventListener("change", () => { page = 0; renderOverlaps(); });
   $("previous-page").addEventListener("click", () => {
     if (!$("previous-page").disabled) { page--; renderOverlaps(); }

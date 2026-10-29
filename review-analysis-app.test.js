@@ -11,7 +11,7 @@ const source = name => fs.readFileSync(path.join(__dirname, name), "utf8");
 
 // Like the existing app harness: actual production scripts and event handlers,
 // with controlled reads and a small DOM. Not native browser/layout proof.
-function app({ built = false } = {}) {
+function app({ built = false, savedOnly = false } = {}) {
   let document;
   class Element {
     constructor(tag) {
@@ -37,7 +37,7 @@ function app({ built = false } = {}) {
     focus() { document.activeElement = this; }
   }
   const template = source("review-analysis-template.html");
-  const nodes = new Map([...template.matchAll(/<([a-z]+)\b([^>]*\bid="([^"]+)"[^>]*)>/g)]
+  const nodes = new Map([...template.matchAll(/<([a-z][a-z0-9]*)\b([^>]*\bid="([^"]+)"[^>]*)>/g)]
     .map(([, tag, attrs, id]) => {
       const element = new Element(tag);
       element.hidden = /\bhidden\b/.test(attrs);
@@ -46,6 +46,7 @@ function app({ built = false } = {}) {
     }));
   const $ = id => { assert.ok(nodes.has(id), "Unknown template ID: " + id); return nodes.get(id); };
   $("overlap-filter").value = "all";
+  $("workflow").value = "analyze";
   document = { getElementById: $, createElement: tag => new Element(tag) };
   const forbidden = name => () => { throw new Error("Forbidden side effect: " + name); };
   const context = { document, console };
@@ -58,13 +59,17 @@ function app({ built = false } = {}) {
   const scripts = built ? [...build("analysis").matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]) :
     ["review-state.js", "review-analysis.js", "review-analysis-app.js"].map(source);
   for (const script of scripts) vm.runInContext(script, context);
+  if (savedOnly) context.RecordReturnAnalysis = { ...context.RecordReturnAnalysis,
+    analyzeReturns: forbidden("fresh analysis in saved workflow") };
   const choose = async (id, files) => { $(id).files = files; await $(id).emit("change"); };
   const working = file => choose("working-file", file ? [file] : []);
+  const saved = file => choose("saved-file", file ? [file] : []);
+  const workflow = async value => { $("workflow").value = value; await $("workflow").emit("change"); };
   const add = (...files) => choose("returned-input", files);
   const fire = (id, event) => $(id).emit(event);
   const control = (index, label) => $("returned-files").children[index].querySelectorAll("button")
     .find(button => button.textContent === label);
-  return { $, fire, working, add, control, document };
+  return { $, fire, working, saved, workflow, add, control, document };
 }
 
 function snapshot(count = 1) {
@@ -88,11 +93,11 @@ async function ready(ui, current = snapshot(), returns = [current, current]) {
 }
 const proposals = ui => ui.$("overlap-results").querySelectorAll("section");
 const notes = ui => proposals(ui).map(section => section.querySelectorAll("pre")[0].textContent);
-const visibleState = ui => ["analysis-error", "analysis-status", "working-summary", "source-results", "overlap-results", "page-status"]
+const visibleState = ui => ["analysis-error", "analysis-status", "results-heading", "result-context", "working-summary", "source-results", "overlap-results", "page-status"]
   .map(id => ui.$(id).textContent);
 function invalidated(ui) {
   assert.equal(ui.$("results").hidden, true);
-  for (const id of ["working-summary", "source-results", "overlap-results", "analysis-error"]) assert.equal(ui.$(id).textContent, "");
+  for (const id of ["result-context", "working-summary", "source-results", "overlap-results", "analysis-error"]) assert.equal(ui.$(id).textContent, "");
   for (const id of ["overlap-filter", "previous-page", "next-page"]) assert.equal(ui.$(id).disabled, true);
 }
 
@@ -297,7 +302,7 @@ test("standard build stays self-contained, preserves desk output and accessible 
   assert.equal([...html.matchAll(/<script>/g)].length, 3);
   assert.doesNotMatch(html, /<(?:script|link|img|iframe)[^>]+(?:src|href)=|<form\b|\bon(?:click|change)=/i);
   assert.match(html, /connect-src 'none'; form-action 'none'; base-uri 'none'/);
-  for (const id of ["working-file", "returned-input", "overlap-filter"]) assert.ok(html.includes('for="' + id + '"'));
+  for (const id of ["workflow", "saved-file", "working-file", "returned-input", "overlap-filter"]) assert.ok(html.includes('for="' + id + '"'));
   assert.match(html, /id="analysis-error"[^>]+role="alert"/);
   assert.match(html, /white-space: break-spaces/);
   assert.match(html, /@media \(max-width: 720px\)/);
@@ -325,5 +330,185 @@ test("reorder boundaries focus a neutral source label, never the opposite action
     await ui.fire("analyze");
     assert.deepEqual(proposals(ui).map(section => section.querySelectorAll("h4")[0].textContent),
       ["Source 1: return-1.json", "Source 2: return-0.json"]);
+  }
+});
+
+
+function savedReport(count = 23) {
+  const current = snapshot(count), second = structuredClone(current);
+  if (count) {
+    current.records[0].id = "__proto__"; second.records[0].id = "__proto__";
+    current.reviews = Object.fromEntries(current.records.map(({ id }) => [id, { decision: "unreviewed", notes: "" }]));
+    second.reviews = structuredClone(current.reviews);
+  }
+  for (let i = 1; i < count; i += 2) second.reviews[current.records[i].id].notes = "different";
+  return analyzeReturns({ filename: "not-opened-working.json", text: JSON.stringify(current) },
+    [current, second].map(value => ({ filename: "not-opened-return.json", text: JSON.stringify(value) })));
+}
+async function openSaved(ui, value = savedReport()) {
+  await ui.workflow("saved"); await ui.saved(file("saved-report.json", value)); await ui.fire("view-saved");
+}
+
+test("saved and generated-page paths render every literal field without reading originals or analyzing", async () => {
+  const value = savedReport(3);
+  value.working.filename = " <working>\r\n雪 ";
+  value.overlaps[1].id = "constructor";
+  value.overlaps[2].id = " <img src=x>\r\n雪 ";
+  for (const source of value.sources) {
+    source.filename = " <b>same\r\n雪.json</b> ";
+    source.counts.conflict = 1; source.counts.unknown = 1; source.counts.total += 2;
+    source.issues = [{ id: "<conflict>\r\n雪", kind: "conflict" }, { id: "unknown constructor", kind: "unknown" }];
+  }
+  value.working.recordCount++;
+  const exact = ["", "\r", "\r\n", "  <script>literal</script>\r\n雪 e\u0301\t  ", " ", "end\n"];
+  value.overlaps.forEach((row, i) => row.proposals.forEach((p, j) => {
+    p.filename = value.sources[j].filename; p.notes = exact[i * 2 + j];
+    p.decision = ["unreviewed", "approved", "rejected", "follow-up"][(i * 2 + j) % 4];
+  }));
+  for (const built of [false, true]) {
+    const ui = app({ built, savedOnly: true });
+    const original = { name: value.working.filename, text() { throw new Error("Original must not be read"); } };
+    await ui.working(original); await ui.add(original);
+    await ui.workflow("saved");
+    const saved = file(" <saved>\r\n雪.json ", value); await ui.saved(saved);
+    assert.equal(saved.reads, 0); assert.equal(ui.$("view-saved").disabled, false);
+    assert.equal(ui.$("analyze").disabled, true);
+    await ui.fire("view-saved"); assert.equal(saved.reads, 1);
+    assert.equal(ui.$("results").hidden, false);
+    assert.match(ui.$("results-heading").textContent, /SAVED/);
+    assert.ok(ui.$("result-context").textContent.includes(saved.name));
+    assert.match(ui.$("result-context").textContent, /recorded claims.*not a fresh comparison/);
+    assert.match(ui.$("result-context").textContent, /no named working or returned file was opened/);
+    assert.equal(ui.$("working-summary").textContent, "Working: " + value.working.filename +
+      " · 4 records · 2 returned source(s).");
+    assert.deepEqual(ui.$("source-results").querySelectorAll("h3").map(n => n.textContent),
+      value.sources.map(s => "Source " + s.ordinal + ": " + s.filename));
+    for (const [i, item] of ui.$("source-results").children.entries()) {
+      const c = value.sources[i].counts;
+      assert.equal(item.querySelectorAll("p")[0].textContent, "SAVED recorded counts · Total: " + c.total +
+        " · Eligible: " + c.eligible + " · Unchanged: " + c.unchanged + " · Changed-record conflicts: " + c.conflict + " · Unknown IDs: " + c.unknown);
+      assert.deepEqual(item.querySelectorAll("li").map(n => n.textContent),
+        ["Changed-record conflict: <conflict>\r\n雪", "Unknown ID: unknown constructor"]);
+    }
+    assert.deepEqual(ui.$("overlap-results").querySelectorAll("h3").map(n => n.textContent), value.overlaps.map(r => "Record ID: " + r.id));
+    assert.deepEqual(notes(ui), exact);
+    assert.deepEqual(proposals(ui).map(s => s.querySelectorAll("p")[0].textContent),
+      value.overlaps.flatMap(r => r.proposals.map(p => "Decision: " + p.decision)));
+    assert.deepEqual(proposals(ui).map(s => s.querySelectorAll("h4")[0].textContent),
+      value.overlaps.flatMap(r => r.proposals.map(p => "Source " + p.sourceOrdinal + ": " + p.filename)));
+    assert.deepEqual(proposals(ui).map(s => JSON.parse(s.querySelectorAll("pre")[1].textContent)), exact);
+    assert.match(ui.$("overlap-results").textContent, /SAVED recorded classification: Identical/);
+    assert.match(ui.$("overlap-results").textContent, /SAVED recorded classification: Disagreement/);
+    assert.match(ui.$("overlap-results").textContent, /Notes: empty \(0 characters\)/);
+    assert.equal(ui.$("overlap-results").querySelectorAll("script").length, 0);
+  }
+});
+
+test("saved reports reuse bounded ordered paging, all filters, and honest empty states", async () => {
+  for (const built of [false, true]) {
+    const ui = app({ built }); await openSaved(ui);
+    const ids = () => ui.$("overlap-results").querySelectorAll("h3").map(n => n.textContent);
+    assert.equal(ids().length, 10); assert.equal(ui.$("previous-page").disabled, true);
+    await ui.fire("next-page"); await ui.fire("next-page");
+    assert.deepEqual(ids(), [20, 21, 22].map(i => "Record ID: id-" + i));
+    assert.equal(ui.$("next-page").disabled, true);
+    for (const [filter, count, last] of [["disagreement", 11, [21]], ["identical", 12, [20, 22]]]) {
+      ui.$("overlap-filter").value = filter; await ui.fire("overlap-filter", "change");
+      assert.match(ui.$("page-status").textContent, new RegExp("SAVED report.*of " + count + " matching overlaps.*Page 1 of 2"));
+      assert.equal(ids().length, 10);
+      await ui.fire("next-page"); assert.deepEqual(ids(), last.map(i => "Record ID: id-" + i));
+      assert.match(ui.$("result-context").textContent, /^SAVED/);
+    }
+    ui.$("overlap-filter").value = "all"; await ui.fire("overlap-filter", "change");
+    assert.equal(ids()[0], "Record ID: __proto__");
+    await openSaved(ui, savedReport(0));
+    assert.match(ui.$("overlap-empty").textContent, /No overlapping proposals recorded/);
+    assert.match(ui.$("page-status").textContent, /SAVED report.*Showing 0.*Page 0 of 0/);
+    assert.equal(ui.$("next-page").disabled, true); assert.equal(ui.$("previous-page").disabled, true);
+    await openSaved(ui, savedReport(1));
+    ui.$("overlap-filter").value = "disagreement"; await ui.fire("overlap-filter", "change");
+    assert.match(ui.$("overlap-empty").textContent, /No overlaps match this filter/);
+  }
+});
+
+test("saved replacement, clearing, workflow switch and failed reread invalidate all previous values", async () => {
+  for (const built of [false, true]) {
+    for (const mutate of [ui => ui.saved(file("new.json", savedReport())), ui => ui.saved(null),
+      ui => ui.fire("clear-saved"), ui => ui.workflow("analyze")]) {
+      const ui = app({ built }); await openSaved(ui); await ui.fire("next-page");
+      await mutate(ui); invalidated(ui); assert.equal(ui.$("overlap-filter").value, "all");
+    }
+    const ui = app({ built }); await ready(ui); await ui.fire("analyze");
+    assert.match(ui.$("result-context").textContent, /^FRESH/);
+    await ui.workflow("saved"); invalidated(ui);
+    assert.equal(ui.$("analyze-inputs").hidden, true); assert.equal(ui.$("saved-inputs").hidden, false);
+    let text = JSON.stringify(savedReport());
+    await ui.saved({ name: "reread.json", text: async () => text }); await ui.fire("view-saved");
+    text = "{"; await ui.fire("view-saved");
+    assert.equal(ui.$("results").hidden, true); assert.equal(ui.$("result-context").textContent, "");
+    assert.equal(ui.$("source-results").textContent, ""); assert.equal(ui.$("overlap-results").textContent, "");
+    assert.match(ui.$("analysis-error").textContent, /invalid JSON/);
+    assert.match(ui.$("analysis-status").textContent, /No results retained/);
+    assert.equal(ui.$("view-saved").disabled, false);
+    await ui.fire("clear-saved"); invalidated(ui);
+    assert.equal(ui.document.activeElement, ui.$("saved-file"));
+    assert.equal(ui.$("view-saved").disabled, true);
+    await ui.workflow("analyze"); await ui.fire("analyze");
+    assert.match(ui.$("results-heading").textContent, /Fresh analysis/);
+    assert.doesNotMatch(ui.$("source-results").textContent + ui.$("page-status").textContent, /SAVED/);
+    const fresh = app({ built }); assert.equal(fresh.$("saved-name").textContent, "None chosen");
+    assert.equal(fresh.$("results").hidden, true);
+  }
+});
+
+test("current saved input failures retain no partial report, remain literal and retryable", async () => {
+  for (const value of ["{", snapshot(), { ...savedReport(), kind: "wrong" },
+    { ...savedReport(), overlaps: [{ id: "late invalid", status: "identical", proposals: [] }] }]) {
+    const ui = app(); await openSaved(ui); await ui.saved(file("bad.json", value)); await ui.fire("view-saved");
+    assert.equal(ui.$("results").hidden, true); assert.equal(ui.$("source-results").textContent, "");
+    assert.equal(ui.$("result-context").textContent, "");
+    assert.match(ui.$("analysis-error").textContent, /Saved report/);
+    assert.equal(ui.$("view-saved").disabled, false);
+  }
+  const ui = app(); await ui.workflow("saved"); const bad = deferred("<bad>.json");
+  await ui.saved(bad.file); const pending = ui.fire("view-saved"); bad.reject(new Error("denied <literal>")); await pending;
+  assert.match(ui.$("analysis-error").textContent, /Could not read.*<bad>.*denied <literal>/);
+  assert.equal(ui.$("results").hidden, true); assert.equal(ui.$("view-saved").disabled, false);
+});
+
+test("saved and fresh late successes/failures never replace newer choices, results or errors", async () => {
+  for (const built of [false, true]) for (const oldMode of ["saved", "analyze"]) for (const newMode of ["saved", "analyze"]) {
+    for (const oldFails of [false, true]) for (const newFails of [false, true]) {
+      const ui = app({ built }); const old = deferred("old.json");
+      await ready(ui); await ui.workflow(oldMode);
+      if (oldMode === "saved") await ui.saved(old.file); else await ui.working(old.file);
+      const pending = ui.fire(oldMode === "saved" ? "view-saved" : "analyze");
+      await ui.workflow(newMode); invalidated(ui);
+      if (newMode === "saved") await ui.saved(file("new.json", newFails ? "[]" : savedReport()));
+      else await ui.working(file("new.json", newFails ? "[]" : snapshot()));
+      await ui.fire(newMode === "saved" ? "view-saved" : "analyze");
+      const expected = visibleState(ui);
+      if (oldFails) old.reject(new Error("stale <error>"));
+      else old.resolve(JSON.stringify(oldMode === "saved" ? savedReport() : snapshot()));
+      await pending;
+      assert.deepEqual(visibleState(ui), expected); assert.equal(ui.$("results").hidden, newFails);
+      assert.equal(ui.$(newMode === "saved" ? "view-saved" : "analyze").disabled, false);
+    }
+  }
+});
+
+test("saved clearing discards pending reads and old completion cannot unlock a newer saved read", async () => {
+  for (const fails of [false, true]) {
+    const ui = app(); await ui.workflow("saved"); const old = deferred("old.json"), fresh = deferred("fresh.json");
+    await ui.saved(old.file); const older = ui.fire("view-saved");
+    await ui.fire("clear-saved"); invalidated(ui);
+    await ui.saved(fresh.file); const newer = ui.fire("view-saved");
+    if (fails) old.reject(new Error("old")); else old.resolve(JSON.stringify(savedReport()));
+    await older; assert.equal(ui.$("view-saved").disabled, true); invalidated(ui);
+    fresh.resolve(JSON.stringify(savedReport())); await newer;
+    assert.equal(ui.$("results").hidden, false); assert.equal(ui.$("view-saved").disabled, false);
+    const pending = deferred("cleared.json"); await ui.saved(pending.file); const run = ui.fire("view-saved");
+    await ui.saved(null); pending.resolve(JSON.stringify(savedReport())); await run; invalidated(ui);
+    assert.equal(ui.$("view-saved").disabled, true);
   }
 });
