@@ -852,6 +852,151 @@ captures. Two real descriptor-failure checks use Linux `/dev/full` for report an
 usage writes (skipped outside Linux or if that device is absent); they do not
 simulate writes or claim coverage of every platform or sink failure.
 
+### Printable handoff from saved reader reports (example)
+
+The sequence is **capture → saved-stream reader → HTML handoff**. The
+[capture command](examples/capture-batch-run.md) runs one producer and saves raw
+stdout/stderr plus capture intent and the observed producer process result. The
+reader then reads those saved streams into a JSON report; the companion renders
+that already saved report into HTML. Keep the original input, streams, sidecars
+and report: neither the reader nor the renderer consumes the capture sidecars.
+
+Run these stages **separately**, stopping at each checkpoint; this is not an
+unattended success chain. Use an existing trusted parent `runs` directory.
+Maintain ownership and stability of the selected new attempt path and its files;
+unrelated attempts may share that parent. Choose unused names for every new
+attempt, reader report and HTML output. If a reader report is already saved,
+start at the HTML checkpoint instead of recapturing or rereading. The subshells below scope
+`set -C` (no-clobber) to output creation, leaving interactive shell options alone.
+
+**1. Capture a new attempt; retain the capture-command status.**
+
+```sh
+capture_dir=runs/attempt-001
+capture_status=not-run
+if [ -e "$capture_dir" ] || [ -L "$capture_dir" ]; then
+  printf 'STOP: capture path exists; choose a new name.\n' >&2
+else
+  if node examples/capture-batch-run.js orders.jsonl "$capture_dir"; then
+    capture_status=0
+  else
+    capture_status=$?
+  fi
+fi
+printf 'capture command status: %s\n' "$capture_status"
+```
+
+**Checkpoint before the reader:** confirm the path was absent beforehand and
+this invocation created it; inspect the capture-command diagnostics and correlate
+`attempt.json`'s executable, arguments/input and cwd with this invocation. Intent
+is not proof of launch or freshness by itself. An existing-path refusal, setup
+failure before directory creation, `not-run`, or uncertain ownership means **stop**:
+never feed an old directory to the reader as this attempt. The precheck is not
+race protection; concurrent changes to the selected path or files make this
+correlation unresolved.
+
+Inspect `result.json` as valid version-1 `state: "observed"` metadata and inspect
+**all three** of `exitCode`, `signal` and `launchError`. A normal exit has an
+integer code and null signal/error; signal or launch failure is not a normal
+exit. Missing, partial, invalid or inconsistent results remain **unresolved**.
+The capture-command status is separate from the producer result. Once the new
+attempt is identified and no longer being written, deliberately choose whether
+to present its evidence: nonzero capture/producer status or an unresolved result
+does not prohibit presenting genuine failed or incomplete captures.
+
+**2. Only after that checkpoint, save a reader report to a new file.**
+
+```sh
+if (set -C; node examples/read-batch-captures.js \
+    "$capture_dir/stdout.jsonl" "$capture_dir/stderr.jsonl" > reader-attempt-001.json); then
+  reader_status=0
+else
+  reader_status=$?
+fi
+printf 'reader/output status: %s\n' "$reader_status"
+```
+
+**Checkpoint before HTML:** for a report just produced in step 2, inspect that
+invocation's `reader_status` and newly created output, not a pre-existing
+destination. For an already-saved or received report, deliberately select the
+existing file, retain whatever status and provenance are available, and leave
+unavailable information unresolved. Do not rerun capture or the reader merely
+to obtain that history. In either case, reader exit 0 means only a report was
+produced; exit 1 can still leave a valid JSON error report
+(e.g. a missing capture stream), which may deliberately be rendered with its
+failures intact. Empty, partial or invalid JSON is not a usable report. A
+no-clobber refusal means the command did not run, not that the old file is new.
+
+**3. Render the deliberately selected saved report to a distinct new HTML.**
+
+```sh
+if (set -C; node examples/render-batch-report.js reader-attempt-001.json > handoff-attempt-001.html); then
+  html_status=0
+else
+  html_status=$?
+fi
+printf 'HTML/output status: %s\n' "$html_status"
+```
+
+**Alternative multi-report presentation — different output, not a follow-on
+overwrite:** apply the appropriate HTML checkpoint above (newly produced or
+already-saved/received) to each report. Use `reader-attempt-001.json` and a
+separately saved `reader-attempt-002.json`.
+Keep them separate in argument order and retain this alternative's own status:
+
+```sh
+if (set -C; node examples/render-batch-report.js \
+    reader-attempt-001.json reader-attempt-002.json > handoff-combined-001.html); then
+  multi_html_status=0
+else
+  multi_html_status=$?
+fi
+printf 'multi-report HTML/output status: %s\n' "$multi_html_status"
+```
+
+Inspect the selected HTML status and newly written output before sharing. Shell
+redirection failures are not renderer results; renderer exit 0 means only HTML
+written, never batch success. A rejected input can leave an empty new HTML file,
+and output failure can leave a partial one. Preserve it and choose another unused
+name for any deliberate retry. No stage requires every earlier status to be zero:
+keep intent, producer result, capture status, reader status and HTML generation
+distinct, and carry failures and evidence limits into the handoff.
+
+This standalone, dependency-free Node.js 22+ companion reads **already saved**
+reader JSON; it never runs or imports the reader, producer or packing code. It
+accepts one or more explicit paths, no options or stdin (`./` for dash-leading
+names). Open the HTML locally and use the browser’s Print command. Inline styles,
+expanded evidence and print rules require no scripts, network or external assets.
+
+Each report and its stdout/stderr counts stay distinct. Every row outcome,
+terminal record, issue detail (including raw text and previous locations) and
+saved limit remains visible. No deduplication, merged timeline, inferred gaps,
+packing recalculation or process-success verdict is added. Completion is not an
+observed process exit, and zero reader issues is not proof of batch success.
+Raw issue `text` strings are labelled **text (JSON string)** and displayed as
+HTML-escaped JSON string literals, including quotes: a bare carriage return is
+shown as `\r` rather than being normalized to a line feed by HTML parsing.
+For example, `"A\rB"` decodes with `JSON.parse` to the reader's original warning
+string. This represents the saved reader string, not the original capture bytes;
+the reader has already decoded UTF-8 and removed the frame's final LF. Ordinary
+fields keep their readable presentation; raw warning strings use JSON notation.
+
+Filenames, keys and report text are HTML-escaped as data, never markup or links;
+a restrictive content policy adds defense in depth. Reports may still contain
+sensitive text and paths: inspect before sharing. This whole-file example uses
+UTF-8 replacement decoding and `JSON.parse`, checks presentation containers, and
+rejects unknown container fields rather than dropping them. It is not a producer
+protocol validator, duplicate-JSON-key audit or unbounded-input guarantee.
+
+Exit **0** means only HTML written; **2** is argument misuse; **1** is read, JSON,
+shape or output failure. All inputs are checked before emitting HTML; write
+failures can leave partial stdout and attempt a brief stderr diagnostic. Redirect
+to a **different** file: shell redirection can truncate an input before Node starts.
+The focused CLI checks use synthetic saved reports, including hostile markup,
+conflicts, separate warnings and real Linux `/dev/full` failures (skipped elsewhere),
+plus a bare-CR saved capture passed through the actual unchanged reader. This
+regression does not run a producer or establish broader character-case coverage.
+
 ### Memory and streaming limits
 
 Records are processed sequentially, with Node stream backpressure for stdout and
