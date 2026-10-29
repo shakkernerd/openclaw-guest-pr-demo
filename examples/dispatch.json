@@ -1,0 +1,44 @@
+{
+  "parcels": [
+    {
+      "id": "E10-001",
+      "recipient": "Zoë O’Example",
+      "address": {
+        "street": "12 Example Lane, Flat #4-B",
+        "city": "London",
+        "postcode": "E10 0ZZ",
+        "country": "United Kingdom"
+      },
+      "itemCount": 3,
+      "orderItemCount": 3,
+      "checks": {
+        "securelyPacked": true,
+        "cushioningUsed": true,
+        "sealed": true,
+        "addressMatchesOrder": true,
+        "recipientReadable": true,
+        "labelAttached": true
+      }
+    },
+    {
+      "id": "E10-002",
+      "recipient": "山田・サンプル",
+      "address": {
+        "street": "見本町 1-2-3, 例示ビル #5",
+        "city": "東京都",
+        "postcode": "000-0000",
+        "country": "日本"
+      },
+      "itemCount": 1,
+      "orderItemCount": 1,
+      "checks": {
+        "securelyPacked": true,
+        "cushioningUsed": true,
+        "sealed": true,
+        "addressMatchesOrder": true,
+        "recipientReadable": true,
+        "labelAttached": true
+      }
+    }
+  ]
+}

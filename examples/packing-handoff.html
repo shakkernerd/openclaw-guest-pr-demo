@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>E10 Dispatch Desk — packing handoff</title>
+<style>
+@page { margin: 14mm; }
+* { box-sizing: border-box; }
+body { max-width: 56rem; margin: 0 auto; padding: 1.5rem; color: #111; background: #fff; font: 11pt/1.4 sans-serif; }
+h1 { font-size: 20pt; margin: 0 0 .5rem; }
+h2 { font-size: 14pt; margin: 0 0 .4rem; break-after: avoid; }
+h3 { font-size: 11pt; margin: .7rem 0 .3rem; break-after: avoid; }
+p { margin: .4rem 0; }
+.summary { border: 2px solid #111; padding: .7rem 1rem; margin: 1rem 0; break-inside: avoid; }
+dl { display: grid; grid-template-columns: 12rem minmax(0, 1fr); gap: .2rem .7rem; margin: .5rem 0; }
+dt { font-weight: bold; } dd { margin: 0; }
+.value { white-space: pre-wrap; }
+.value, dd, li, code { overflow-wrap: anywhere; }
+.parcel { border-top: 1px solid #555; padding-top: .7rem; margin-top: 1rem; break-inside: avoid-page; page-break-inside: avoid; }
+.checks { list-style: none; padding: 0; columns: 2; column-gap: 1.5rem; }
+li { margin-bottom: .25rem; break-inside: avoid; }
+.anomalies { padding-left: 1.3rem; }
+footer { border-top: 1px solid #555; margin-top: 1rem; padding-top: .5rem; font-size: 9pt; }
+@media (max-width: 36rem) { dl { display: block; } dd { margin-bottom: .4rem; } .checks { columns: 1; } }
+@media print { body { max-width: none; margin: 0; padding: 0; font-size: 10pt; } h1 { font-size: 17pt; } }
+</style>
+</head>
+<body><main>
+<h1>E10 Dispatch Desk — packing handoff</h1>
+<section class="summary" aria-labelledby="readiness">
+<h2 id="readiness">Result: READY</h2>
+<p>All recorded checks passed.</p>
+<dl>
+<dt>Parcels</dt><dd>2</dd>
+<dt>All counted items</dt><dd>4</dd>
+<dt>Ready-to-dispatch items</dt><dd>4</dd>
+<dt>Ready parcels</dt><dd>2</dd>
+<dt>Needs attention</dt><dd>0</dd>
+<dt>Anomalies</dt><dd>0</dd>
+</dl></section>
+<p>[x] Recorded check passed. [ ] Requires attention.</p>
+<section class="parcel">
+<h2>Parcel 1 — <bdi class="value">E10-001</bdi></h2>
+<p><strong>READY</strong></p>
+<dl><dt>Recipient</dt><dd><bdi class="value">Zoë O’Example</bdi></dd>
+<dt>street</dt><dd><bdi class="value">12 Example Lane, Flat #4-B</bdi></dd>
+<dt>city</dt><dd><bdi class="value">London</bdi></dd>
+<dt>postcode</dt><dd><bdi class="value">E10 0ZZ</bdi></dd>
+<dt>country</dt><dd><bdi class="value">United Kingdom</bdi></dd>
+<dt>Contents</dt><dd>3 items (order: 3 items)</dd></dl>
+<h3>Recorded checks</h3>
+<ul class="checks">
+<li>[x] Unique parcel ID provided</li>
+<li>[x] Recipient name provided</li>
+<li>[x] Complete delivery address provided</li>
+<li>[x] Item count matches order</li>
+<li>[x] Items securely packed</li>
+<li>[x] Suitable cushioning used</li>
+<li>[x] Parcel sealed</li>
+<li>[x] Address checked against order</li>
+<li>[x] Recipient name readable on label</li>
+<li>[x] Label securely attached</li>
+</ul>
+<p>Anomalies: none</p>
+</section>
+<section class="parcel">
+<h2>Parcel 2 — <bdi class="value">E10-002</bdi></h2>
+<p><strong>READY</strong></p>
+<dl><dt>Recipient</dt><dd><bdi class="value">山田・サンプル</bdi></dd>
+<dt>street</dt><dd><bdi class="value">見本町 1-2-3, 例示ビル #5</bdi></dd>
+<dt>city</dt><dd><bdi class="value">東京都</bdi></dd>
+<dt>postcode</dt><dd><bdi class="value">000-0000</bdi></dd>
+<dt>country</dt><dd><bdi class="value">日本</bdi></dd>
+<dt>Contents</dt><dd>1 item (order: 1 item)</dd></dl>
+<h3>Recorded checks</h3>
+<ul class="checks">
+<li>[x] Unique parcel ID provided</li>
+<li>[x] Recipient name provided</li>
+<li>[x] Complete delivery address provided</li>
+<li>[x] Item count matches order</li>
+<li>[x] Items securely packed</li>
+<li>[x] Suitable cushioning used</li>
+<li>[x] Parcel sealed</li>
+<li>[x] Address checked against order</li>
+<li>[x] Recipient name readable on label</li>
+<li>[x] Label securely attached</li>
+</ul>
+<p>Anomalies: none</p>
+</section>
+<footer><p>Recorded checks only — physical verification and sign-off are still required.</p>
+<p>Reviewed by: ____________________ &nbsp; Date: ____________________</p></footer>
+</main></body>
+</html>

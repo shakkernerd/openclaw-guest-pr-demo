@@ -1,0 +1,5 @@
+id,recipient,street,city,region,postcode,country,itemCount,readiness,anomalies
+"00042","O'Neill, Zoë","Via Esempio 12, <front desk> & ""Scala B""","Roma","Lazio","00123","Italia",3,"READY",""
+"E10-TRAIN-02","André D’Essai","24 Training Lane, Unit ""C""","London","","E10 0ZZ","United Kingdom",2,"NEEDS ATTENTION","parcels[1].itemCount: packed count 2 does not match orderItemCount 3 | parcels[1].checks.sealed: must be explicitly true (boolean)"
+"E10-TRAIN-DUP","山田・サンプル","見本町 1-2-3, 例示ビル #5","東京都","","000-0000","日本",1,"NEEDS ATTENTION","parcels[2].id: duplicates another parcel ID"
+"E10-TRAIN-DUP","Mina Exemplo","Rua do Exemplo 40, Bloco ""A"" & recepção","São Paulo","SP","00000-000","Brasil",4,"NEEDS ATTENTION","parcels[3].id: duplicates another parcel ID"

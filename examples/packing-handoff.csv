@@ -1,0 +1,3 @@
+id,recipient,street,city,region,postcode,country,itemCount,readiness,anomalies
+"E10-001","Zoë O’Example","12 Example Lane, Flat #4-B","London","","E10 0ZZ","United Kingdom",3,"READY",""
+"E10-002","山田・サンプル","見本町 1-2-3, 例示ビル #5","東京都","","000-0000","日本",1,"READY",""

@@ -1,0 +1,86 @@
+{
+  "parcels": [
+    {
+      "id": "00042",
+      "recipient": "O'Neill, Zoë",
+      "address": {
+        "street": "Via Esempio 12, <front desk> & \"Scala B\"",
+        "city": "Roma",
+        "region": "Lazio",
+        "postcode": "00123",
+        "country": "Italia"
+      },
+      "itemCount": 3,
+      "orderItemCount": 3,
+      "checks": {
+        "securelyPacked": true,
+        "cushioningUsed": true,
+        "sealed": true,
+        "addressMatchesOrder": true,
+        "recipientReadable": true,
+        "labelAttached": true
+      }
+    },
+    {
+      "id": "E10-TRAIN-02",
+      "recipient": "André D’Essai",
+      "address": {
+        "street": "24 Training Lane, Unit \"C\"",
+        "city": "London",
+        "postcode": "E10 0ZZ",
+        "country": "United Kingdom"
+      },
+      "itemCount": 2,
+      "orderItemCount": 3,
+      "checks": {
+        "securelyPacked": true,
+        "cushioningUsed": true,
+        "sealed": false,
+        "addressMatchesOrder": true,
+        "recipientReadable": true,
+        "labelAttached": true
+      }
+    },
+    {
+      "id": "E10-TRAIN-DUP",
+      "recipient": "山田・サンプル",
+      "address": {
+        "street": "見本町 1-2-3, 例示ビル #5",
+        "city": "東京都",
+        "postcode": "000-0000",
+        "country": "日本"
+      },
+      "itemCount": 1,
+      "orderItemCount": 1,
+      "checks": {
+        "securelyPacked": true,
+        "cushioningUsed": true,
+        "sealed": true,
+        "addressMatchesOrder": true,
+        "recipientReadable": true,
+        "labelAttached": true
+      }
+    },
+    {
+      "id": "E10-TRAIN-DUP",
+      "recipient": "Mina Exemplo",
+      "address": {
+        "street": "Rua do Exemplo 40, Bloco \"A\" & recepção",
+        "city": "São Paulo",
+        "region": "SP",
+        "postcode": "00000-000",
+        "country": "Brasil"
+      },
+      "itemCount": 4,
+      "orderItemCount": 4,
+      "checks": {
+        "securelyPacked": true,
+        "cushioningUsed": true,
+        "sealed": true,
+        "addressMatchesOrder": true,
+        "recipientReadable": true,
+        "labelAttached": true
+      }
+    }
+  ]
+}

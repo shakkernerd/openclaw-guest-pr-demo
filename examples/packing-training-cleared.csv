@@ -1,0 +1,5 @@
+id,recipient,street,city,region,postcode,country,itemCount,readiness,anomalies
+"00042","O'Neill, Zoë","Via Esempio 12, <front desk> & ""Scala B""","Roma","Lazio","00123","Italia",3,"READY",""
+"E10-TRAIN-02","André D’Essai","24 Training Lane, Unit ""C""","London","","E10 0ZZ","United Kingdom",3,"READY",""
+"E10-TRAIN-03","山田・サンプル","見本町 1-2-3, 例示ビル #5","東京都","","000-0000","日本",1,"READY",""
+"E10-TRAIN-04","Mina Exemplo","Rua do Exemplo 40, Bloco ""A"" & recepção","São Paulo","SP","00000-000","Brasil",4,"READY",""

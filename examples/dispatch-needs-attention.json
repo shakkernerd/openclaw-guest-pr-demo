@@ -1,0 +1,24 @@
+{
+  "parcels": [
+    {
+      "id": "E10-001",
+      "recipient": "Zoë O’Example",
+      "address": {
+        "street": "12 Example Lane, Flat #4-B",
+        "city": "London",
+        "postcode": "",
+        "country": "United Kingdom"
+      },
+      "itemCount": 1,
+      "orderItemCount": 2,
+      "checks": {
+        "securelyPacked": true,
+        "cushioningUsed": true,
+        "sealed": true,
+        "addressMatchesOrder": true,
+        "recipientReadable": true,
+        "labelAttached": false
+      }
+    }
+  ]
+}
