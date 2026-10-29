@@ -145,7 +145,7 @@
     </div>
     <p id="bulk-result" class="message" role="status" aria-live="polite"></p>
     <p id="bulk-undo-status" class="hint" role="status">No bulk undo available.</p>
-    <p class="hint">Bulk Apply changes only decisions. Select at least one ID to apply; an empty selection cannot be cleared. Undo restores only the last bulk action’s changed decisions, keeping later notes. Any later decision action replaces or clears undo. Applying returned-review updates also clears old bulk undo, even for notes-only updates; those updates have no undo. Accepted imports and reloads clear selection and undo; neither is saved or exported.</p>
+    <p class="hint">Bulk Apply changes only decisions. Select at least one ID to apply; an empty selection cannot be cleared. Undo restores only the last bulk action’s changed decisions, keeping later notes. Any later decision action replaces or clears undo. Applying returned-review updates also clears old bulk undo, even for notes-only updates; returned batches have their own separate one-step Undo. Accepted imports and reloads clear selection and undo; neither is saved or exported.</p>
     <div class="row actions"><button type="button" id="export-selected" aria-controls="export-panel" aria-describedby="bulk-count selected-export-policy" disabled>Export selected records (0)</button></div>
     <p class="hint" id="selected-export-policy">Select at least one record to export. Selected export includes exactly those IDs, even hidden ones, with complete records and current decisions/notes in original record order; no decision-status restriction. It changes no working data, selection, undo or comparison. No selection means no selected file, never a full-export fallback.</p>
   </section>
@@ -198,11 +198,13 @@
       <p class="hint">Expand each ID to inspect full current and returned records, decisions and notes. Eligible updates replace only that ID’s decision and notes, including empty notes or Unreviewed. Unchanged reviews need no write. Search, filters and selection do not limit this proposal. No automatic winner or field merging.</p>
       <ul id="returned-list" aria-label="Returned review entries"></ul>
     </section>
-    <p class="hint" id="returned-apply-policy">Apply revalidates the complete snapshot. If working data or reviews changed since preview, the first Apply only refreshes the proposal: inspect it and Apply again. Successful updates clear any previous decision-only bulk undo, even for notes-only updates. Returned-review updates have no undo; export a full backup first. Closing clears only this preview and cancels pending reads.</p>
+    <p class="hint" id="returned-apply-policy">Apply revalidates the complete snapshot. If working data or reviews changed since preview, the first Apply only refreshes the proposal: inspect it and Apply again. Successful updates clear any previous decision-only bulk undo, even for notes-only updates. Undo last returned-review updates restores the actual batch’s exact prior decisions and notes once, until a later working-data change or accepted import. A new applied batch replaces recovery; no redo or history is kept. Export a full backup for longer-term recovery. Closing clears only this preview and cancels pending reads; it keeps available Undo.</p>
     <div class="row actions">
       <button type="button" id="returned-apply" class="primary" aria-describedby="returned-counts returned-apply-policy" disabled>Apply review updates</button>
+      <button type="button" id="returned-undo" aria-describedby="returned-undo-status returned-apply-policy" disabled>Undo last returned-review updates</button>
       <button type="button" id="returned-close">Close &amp; clear returned preview</button>
     </div>
+    <p id="returned-undo-status" class="message" role="status" aria-live="polite">No returned-review undo available.</p>
   </details>
   <details class="panel" id="compare-panel">
     <summary id="compare-toggle">Compare saved review · read-only</summary>

@@ -19,6 +19,8 @@
   let returnedText = null; // Retain source text for complete revalidation at Apply.
   let returnedSource = "";
   let returnedBase = null; // Immutable working-state identity at last preview.
+  let returnedUndo = null; // Only actual before/after immutable states, never copies.
+  let returnedUndoReason = "";
   let exportScope = "all";
   let selectedExport = null; // Prepared JSON, never the live selection or textarea.
   let exportReason = "";
@@ -58,7 +60,31 @@
     updateExport();
   }
 
+  function renderReturnedUndo() {
+    $("returned-undo").disabled = returnedUndo === null;
+    $("returned-undo-status").textContent = returnedUndo
+      ? "Undo available for the last applied returned-review batch: restores its exact prior decisions and notes."
+      : returnedUndoReason || "No returned-review undo available.";
+  }
+
+  // Keep the existing scalar transition and conservative preview freshness.
+  // A validated same-value action may allocate a new identity, but is not a
+  // working-value mutation and must not consume returned recovery.
+  function editReview(patch) {
+    const next = review.updateReview(state, editorId, patch);
+    if (returnedUndo?.after === state &&
+        Object.keys(patch).every(key => state.reviews[editorId][key] === patch[key])) {
+      returnedUndo = { before: returnedUndo.before, after: next };
+    }
+    state = next;
+  }
+
   function save() {
+    if (returnedUndo && state !== returnedUndo.after) {
+      returnedUndo = null;
+      returnedUndoReason = "Returned-review undo cleared because working data or reviews changed after Apply.";
+    }
+    renderReturnedUndo();
     invalidateSelectedExport("Working data changed.");
     const saved = review.persist(getStorage, state);
     storageMessage(saved ? "Saved in this browser — records, decisions, and notes will restore here when storage is available. Keep an export as a backup." : memoryWarning, saved);
@@ -315,18 +341,33 @@
     }
     if (!result.changed) return;
     // Even notes-only returned intent must not be reversed by an older decision
-    // undo. This clears the existing entry; it does not introduce review undo.
+    // undo. Recovery never retains or resurrects that older bulk entry.
     const clearedUndo = Boolean(bulkUndo);
     bulkUndo = null;
-    bulkUndoReason = clearedUndo ? "Previous bulk undo cleared by Apply review updates so it cannot reverse newer returned-review intent. Returned-review updates have no undo."
-      : "Returned-review updates have no undo.";
+    bulkUndoReason = clearedUndo ? "Previous bulk undo cleared by Apply review updates so it cannot reverse newer returned-review intent."
+      : "No bulk undo available.";
     $("bulk-result").textContent = "";
+    returnedUndo = { before: state, after: result.state };
+    returnedUndoReason = "";
     state = result.state;
     returnedBase = state;
     save();
     render();
     renderReturnedPreview(review.previewReviewUpdates(state, incoming));
     $("returned-status").textContent = "Applied " + result.changed + " review updates in one batch. No records replaced. Unknown IDs and changed-record conflicts stayed unapplied. " + bulkUndoReason;
+  });
+
+  $("returned-undo").addEventListener("click", () => {
+    if (!returnedUndo) return;
+    const next = review.undoReviewUpdates(state, returnedUndo.before, returnedUndo.after);
+    returnedUndo = null; // Consume once; no redo or recovery of any earlier entry.
+    returnedUndoReason = next === state
+      ? "Returned-review undo no longer matches the working review. Nothing restored."
+      : "Restored the exact prior decisions and notes of the last returned-review batch. No returned-review undo available.";
+    if (next === state) { renderReturnedUndo(); return; }
+    state = next;
+    save(); // Existing export/comparison and preview-freshness paths still apply.
+    render();
   });
 
   function renderBulkControls(visible) {
@@ -531,7 +572,7 @@
   for (const button of decisionButtons) button.addEventListener("click", () => {
     if (editorId === null) return;
     const previousId = editorId;
-    state = review.updateReview(state, editorId, { decision: button.dataset.decision });
+    editReview({ decision: button.dataset.decision });
     bulkUndo = null;
     bulkUndoReason = "";
     $("bulk-result").textContent = "";
@@ -559,7 +600,7 @@
 
   $("notes").addEventListener("input", () => {
     if (editorId === null) return;
-    state = review.updateReview(state, editorId, { notes: $("notes").value });
+    editReview({ notes: $("notes").value });
     save(); // Don't re-render the editor: preserve caret, focus, and IME input.
   });
   $("notes").addEventListener("blur", () => {
@@ -627,5 +668,6 @@
     storageMessage("Saved data is invalid or from an unsupported version. It has not been overwritten. Import a valid dataset or backup to start again; your next accepted change will replace that saved copy.");
   } else storageMessage(memoryWarning);
   render();
+  renderReturnedUndo();
   updateExport();
 })();

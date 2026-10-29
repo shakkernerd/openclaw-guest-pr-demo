@@ -408,6 +408,12 @@
     return { state: { ...current, reviews }, preview, stale: false, changed: changes.length };
   }
 
+  // Recovery uses only the actual immutable before/after identities retained by
+  // the adapter. Never merge fields or overwrite a newer working-state identity.
+  function undoReviewUpdates(current, before, after) {
+    return before && after && before !== after && current === after ? before : current;
+  }
+
   function visibleRecords(state, query = "", decision = "all") {
     const needle = query.trim().toLowerCase();
     return state.records.filter(record =>
@@ -457,7 +463,7 @@
 
   return Object.freeze({
     FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON, importCSV,
-    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, previewReviewUpdates, applyReviewUpdates, visibleRecords, counts, exportJSON, exportSelectedJSON, restore, persist,
+    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, previewReviewUpdates, applyReviewUpdates, undoReviewUpdates, visibleRecords, counts, exportJSON, exportSelectedJSON, restore, persist,
   });
 });
 

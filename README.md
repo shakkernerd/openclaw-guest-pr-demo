@@ -160,10 +160,32 @@ actions conservatively require a refresh too.
 **Existing bulk undo:** any successful nonempty returned-review batch clears the
 previous decision-only bulk undo, including notes-only updates or updates outside
 that older bulk set. Otherwise an old undo could reverse newer returned intent.
-The UI explains the invalidation. This is **not a new undo feature**: returned
-updates have no undo entry. Preview, rejected/stale actions and zero-update
-proposals leave the previous undo intact. Later ordinary bulk actions can create
-their usual decision-only undo.
+The UI explains the invalidation. Preview, rejected/stale actions and zero-update
+proposals leave the previous bulk undo intact. Later ordinary bulk actions can
+create their usual decision-only undo. Returned recovery never resurrects an
+older bulk undo entry.
+
+**One-step returned recovery (new capability):** after a real Apply, choose
+**Undo last returned-review updates** to restore the exact prior decisions **and
+notes** of that actual batch. All records, fields, types, order and other reviews
+stay unchanged. Selection (including hidden IDs), search/filter and the fixed
+compared snapshot stay intact. The comparison’s working side and full export
+follow Undo; a prepared selected export is invalidated, just as on any working
+data change. Undo leaves a retained proposal stale: inspect its refreshed preview
+before deliberately applying again.
+
+Only the last actually applied batch is recoverable, once. A new nonempty Apply
+replaces the entry; any later successful working-value mutation (including a note
+edit anywhere, decision edit or bulk action/undo) or accepted dataset replacement
+invalidates it, even if values are later reverted. Rejected/unreadable/superseded
+imports, rejected or zero-update applies, stale preview refresh, same-value
+scalar edits and no-effect bulk actions preserve it. Query/filter/selection,
+comparison, exports, and preview changes/closure also preserve it. Same-value
+scalar actions still retain the existing conservative preview-refresh behavior.
+The disabled Undo control and its status explain availability; reopening the
+returned panel does not discard recovery. There is no redo, history stack or
+persisted recovery; reload restores only the working snapshot. This extends the
+previous intentional no-undo boundary, rather than correcting an apply defect.
 
 Returned file reads have their own latest-started-wins order, independent of
 import and comparison. A newer preview attempt (even rejected), editing the
@@ -318,7 +340,8 @@ only changes the editor, not the set. Select buttons support Tab and Enter/Space
   actions create no undo work. Choosing a dropdown value alone is not an action.
 - Successful **Apply review updates** also clears this old decision-only undo,
   even when only returned notes change; the UI explains why. Preview and stale
-  refresh do not consume it. Returned-review updates do not create undo entries.
+  refresh do not consume it. Returned-review updates create only their separate
+  exact-decision-and-note recovery, never a decision-only bulk undo entry.
 - Accepted JSON arrays, CSV (including empty/header-only datasets), saved-review
   restores and sample data clear selection and undo. Rejected/unreadable or
   superseded imports leave both intact. Reload starts with neither. They are
@@ -474,6 +497,10 @@ Returned updates extend the existing owners rather than introducing a merge
 framework: `validateSnapshot`/`parseSnapshotJSON` own the version-1 boundary;
 `equalJSON` owns recursive comparison for both saved and returned snapshots;
 `previewReviewUpdates` and `applyReviewUpdates` own pure review-only transitions.
+`undoReviewUpdates` guards recovery by the actual applied immutable identity; the
+adapter retains just before/after identities, not copied snapshot stores. Its
+validated same-value scalar path carries recovery forward to the new identity
+without changing scalar transition or preview-freshness contracts.
 `importJSON`/`importCSV`/`replaceRecords` still own replacement imports, unchanged.
 The adapter’s `selectedIds`, `bulkUndo`, `save`/`invalidateSelectedExport` and
 fixed `comparedSnapshot` keep their existing responsibilities. No returned
@@ -484,7 +511,7 @@ After editing those sources, run:
 ```sh
 node build-review.js
 node build-review.js --check
-node --test review-state.test.js review-app.test.js review-return.test.js review-return-analysis.test.js parcel-label.test.js
+node --test review-state.test.js review-app.test.js review-analysis.test.js review-analysis-app.test.js review-return.test.js review-return-analysis.test.js parcel-label.test.js
 git diff --check
 ```
 
@@ -517,6 +544,13 @@ Apply, no-op behavior, notes-only undo invalidation, hidden selection, prepared
 export invalidation, full round trips, fixed comparison, text-only rendering,
 note-exit ordering and independent file-read cancellation/races. These are source
 and Node-harness checks, not actual returned-file or client/media acceptance.
+Returned Undo checks additionally cover exact decisions/notes and state identity,
+one-step consumption/replacement, newer edits/imports/reload, no-effect/rejected
+operations, view-only preservation, and independent later-note-preserving bulk
+Undo. The retained actual apply oracle and complete pre-apply recovery are checked
+privately without committing handoff inputs or outputs. Actual file → preview →
+Apply → Undo → full-export equality and focused changed-UI media remain separate
+acceptance work in the requester’s retained approved browser.
 For this contribution, run only the named Node files: do not launch a browser,
 run the optional browser suite, or enable its browser/sandbox switches. UI client/media acceptance is separate from these Node checks. For terminal-only
 work, execute the command on the actual supplied snapshots and retain its output

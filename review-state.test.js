@@ -586,6 +586,45 @@ test("returned stale apply rederives current eligibility and requires an explici
   assert.equal(R.applyReviewUpdates(reverted, incoming, base).stale, true);
 });
 
+test("returned recovery restores exact before identity, decisions and notes without copying records", () => {
+  let before = R.importJSON('[ {"id":"__proto__","title":"Special","__proto__":{"keep":[0,false,null,"雪"]}}, {"id":"outside","title":"Unreturned"} ]');
+  before = freeze(R.updateReview(before, "__proto__", { decision: "rejected", notes: "Prior \r\n雪\n" }));
+  const incoming = freeze(R.importJSON(R.exportSelectedJSON(
+    R.updateReview(before, "__proto__", { decision: "unreviewed", notes: "" }), ["__proto__"])));
+  const applied = R.applyReviewUpdates(before, incoming, before);
+  freeze(applied.state);
+  assert.equal(applied.changed, 1);
+  const restored = R.undoReviewUpdates(applied.state, before, applied.state);
+  assert.equal(restored, before);
+  assert.equal(restored.records, applied.state.records);
+  assert.equal(restored.reviews.outside, applied.state.reviews.outside);
+  assert.equal(R.exportJSON(restored), R.exportJSON(before));
+  assert.equal(R.undoReviewUpdates(restored, before, applied.state), restored);
+  assert.equal(R.undoReviewUpdates(before, null, null), before);
+  assert.equal(R.undoReviewUpdates(before, before, before), before);
+});
+
+test("returned recovery rejects newer identities including edits reverted and equal replacements", () => {
+  const before = freeze(reviewed());
+  const incoming = freeze(R.updateReview(before, "a", { decision: "rejected", notes: "Returned" }));
+  const after = freeze(R.applyReviewUpdates(before, incoming, before).state);
+  const changed = R.updateReview(after, "b", { notes: "Newer note outside batch" });
+  const bulk = R.bulkDecision(after, ["b"], "approved");
+  for (const newer of [changed, R.updateReview(after, "a", { decision: "follow-up" }),
+    R.updateReview(changed, "b", { notes: after.reviews.b.notes }),
+    R.importJSON(R.exportJSON(after)), R.importJSON(JSON.stringify(after.records), after),
+    bulk.state, R.undoBulkDecision(bulk.state, bulk.changes).state]) {
+    freeze(newer);
+    assert.equal(R.undoReviewUpdates(newer, before, after), newer);
+  }
+  const laterNotes = R.updateReview(bulk.state, "b", { notes: "Preserve later bulk note" });
+  assert.equal(R.undoBulkDecision(laterNotes, bulk.changes).state.reviews.b.notes, "Preserve later bulk note");
+  // The scalar owner still allocates on same-value actions: preview semantics unchanged.
+  const same = R.updateReview(after, "a", { notes: after.reviews.a.notes });
+  assert.notEqual(same, after);
+  assert.equal(R.applyReviewUpdates(same, incoming, after).stale, true);
+});
+
 test("empty, unchanged and excluded-only returned snapshots are true no-ops", () => {
   const current = freeze(reviewed());
   for (const incoming of [R.emptyState(), current, R.importJSON('[{"id":"other","title":"Other"}]'),
