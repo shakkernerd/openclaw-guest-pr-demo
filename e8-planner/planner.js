@@ -18,7 +18,7 @@ function blockers(volunteer, shift) {
   const conflicts = volunteer.assigned.filter((other) => overlaps(other, shift));
   if (conflicts.length) reasons.push("overlaps " + conflicts.map((other) => other.id).join(", "));
   if (shift.end - shift.start > volunteer.maxMs - volunteer.usedMs) {
-    reasons.push("max_hours exceeded (" + hours(volunteer.maxMs - volunteer.usedMs) + "h remaining, " +
+    reasons.push("max_hours exceeded (" + hours(volunteer.maxMs - volunteer.usedMs) + "h remaining at allocation time, " +
       hours(shift.end - shift.start) + "h needed)");
   }
   return reasons;
@@ -63,9 +63,21 @@ function report(plan) {
     "A person-slot is one volunteer covering one entire shift.",
     "Rule: shifts by start, end, ID; candidates by fewest skills, least assigned time, name.",
     "Times retain input offsets; comparisons and hour budgets use elapsed time.",
+    "Remaining hours in gap explanations are the budget at allocation time, not final unused hours.",
+    "WARNING: Changing inputs to solve one gap can move another; review the whole rerun, not only the target shift.",
     "",
-    "SHIFT COVERAGE",
+    "GAP SUMMARY (matching-skill candidates only)",
   ];
+  if (!plan.uncovered) lines.push("None — every requested person-slot is filled.");
+  for (const { shift, missing, reasons } of plan.coverage.filter((row) => row.missing)) {
+    lines.push(shift.id + " | " + shift.startsAt + " → " + shift.endsAt +
+      " | duration: " + hours(shift.end - shift.start) + "h | missing: " + missing + "/" + shift.needed + " | " + shift.skill);
+    const matchingNames = new Set(plan.volunteers.filter((v) => v.skills.includes(shift.skill)).map((v) => v.name));
+    const matching = reasons.filter((entry) => matchingNames.has(entry.name));
+    if (!matching.length) lines.push("  No matching-skill volunteers for " + shift.skill + ".");
+    for (const entry of matching) lines.push("  " + entry.name + ": " + entry.reasons.join("; ") + ".");
+  }
+  lines.push("", "SHIFT COVERAGE");
   if (!plan.coverage.length) lines.push("No shifts supplied.");
   for (const { shift, names, missing } of plan.coverage) {
     lines.push(shift.id + " | " + shift.startsAt + " → " + shift.endsAt + " | " + shift.skill);

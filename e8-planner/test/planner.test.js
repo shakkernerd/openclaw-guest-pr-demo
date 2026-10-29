@@ -164,3 +164,54 @@ test("100 seeded varied schedules always respect invariants and input-order inde
     assert.equal(report(other), report(plan));
   }
 });
+
+
+test("gap summary shows missing slots and only matching-skill blockers before full details", () => {
+  const plan = allocate([
+    volunteer("Assigned"), volunteer("Away", { from: at(1) }),
+    volunteer("Unskilled", { skills: ["cafe"] }),
+  ], [shift("gap", 0, 1, { needed: 2 })]);
+  const text = report(plan);
+  const summary = text.split("GAP SUMMARY (matching-skill candidates only)\n")[1].split("\nSHIFT COVERAGE")[0];
+  assert.match(summary, /gap \| 2026-10-31T09:00:00\.000Z → 2026-10-31T10:00:00\.000Z \| duration: 1h \| missing: 1\/2 \| repair/);
+  assert.match(summary, /Assigned: already assigned to this shift/);
+  assert.match(summary, /Away: outside availability/);
+  assert.doesNotMatch(summary, /Unskilled|missing skill/);
+  const detailed = text.split("UNCOVERED SLOTS AND WHY\n")[1];
+  assert.match(detailed, /Unskilled: missing skill repair/);
+  assert.match(detailed, /Away: outside availability/);
+  assert.ok(text.indexOf("GAP SUMMARY") < text.indexOf("UNCOVERED SLOTS AND WHY"));
+});
+
+test("gap summary explicitly handles no matching skills, no volunteers, and no gaps", () => {
+  for (const roster of [[], [volunteer("Other", { skills: ["cafe"] })]]) {
+    const text = report(allocate(roster, [shift("gap", 0, 1)]));
+    const summary = text.split("GAP SUMMARY (matching-skill candidates only)\n")[1].split("\nSHIFT COVERAGE")[0];
+    assert.match(summary, /No matching-skill volunteers for repair/);
+    assert.doesNotMatch(summary, /Other:/);
+  }
+  for (const shifts of [[], [shift("covered", 0, 1)]]) {
+    const text = report(allocate([volunteer("A")], shifts));
+    assert.match(text, /GAP SUMMARY \(matching-skill candidates only\)\nNone — every requested person-slot is filled/);
+  }
+});
+
+test("gap summary uses elapsed duration while preserving explicit input offsets", () => {
+  const shifts = readShifts("id,starts_at,ends_at,skill,people_needed\n" +
+    "offset-gap,2026-10-31T10:00+01:00,2026-10-31T11:00+00:00,repair,2\n");
+  assert.match(report(allocate([], shifts)), /offset-gap \| 2026-10-31T10:00\+01:00 → 2026-10-31T11:00\+00:00 \| duration: 2h \| missing: 2\/2/);
+});
+
+test("remaining hours are labeled allocation-time snapshots, with a whole-rerun warning", () => {
+  const plan = allocate([volunteer("A", { maxMs: HOUR_MS / 2 })], [
+    shift("gap", 0, 1), shift("later", 1, 1.5),
+  ]);
+  assert.equal(plan.volunteers[0].maxMs - plan.volunteers[0].usedMs, 0, "no final unused hours");
+  const before = JSON.stringify(plan);
+  const text = report(plan);
+  assert.equal((text.match(/0\.5h remaining at allocation time, 1h needed/g) || []).length, 2,
+    "both compact and full explanations keep the earlier half-hour balance");
+  assert.match(text, /not final unused hours/);
+  assert.match(text, /Changing inputs to solve one gap can move another; review the whole rerun/);
+  assert.equal(JSON.stringify(plan), before, "formatting does not change allocation state");
+});

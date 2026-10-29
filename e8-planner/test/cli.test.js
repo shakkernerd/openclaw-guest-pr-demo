@@ -190,3 +190,25 @@ test("header-only inputs are valid and still produce both outputs", (t) => {
   assert.equal(parseCsv(get(cwd, "assignments.csv")).length, 1);
   assert.match(get(cwd, "report.txt"), /Coverage: 0\/0/);
 });
+
+
+test("strict numbered CLI run includes coordinator summary and unchanged sample assignments", (t) => {
+  const cwd = setup(t);
+  const result = run(cwd, ["--volunteers", path.join(sample, "volunteers.csv"),
+    "--shifts", path.join(sample, "shifts.csv"), "--out-dir", "strict-001", "--require-full"]);
+  assert.equal(result.status, 2, result.stderr);
+  const summary = result.stdout.split("GAP SUMMARY (matching-skill candidates only)\n")[1].split("\nSHIFT COVERAGE")[0];
+  assert.match(summary, /bike-am .*duration: 2h \| missing: 1\/2/);
+  assert.match(summary, /Evelyn Chen: max_hours exceeded \(1h remaining at allocation time, 1\.5h needed\)/);
+  assert.doesNotMatch(summary, /Amira Patel:|missing skill/);
+  assert.match(result.stdout, /Amira Patel: missing skill bicycles/);
+  assert.match(result.stdout, /review the whole rerun/);
+  assert.equal(fs.readFileSync(path.join(cwd, "strict-001/report.txt"), "utf8"), result.stdout);
+  assert.equal(fs.readFileSync(path.join(cwd, "strict-001/assignments.csv"), "utf8"),
+    fs.readFileSync(path.join(sample, "../sample-output/assignments.csv"), "utf8"));
+  const guide = fs.readFileSync(path.join(sample, "../README.md"), "utf8");
+  assert.match(guide, /ONE RECORD PER PERSON: the coordinator must deduplicate/);
+  assert.match(guide, /case variants and aliases count as separate input/);
+  assert.match(guide, /--out-dir e8-planner\/output\/strict-001/);
+  assert.match(guide, /strict-002, strict-003/);
+});

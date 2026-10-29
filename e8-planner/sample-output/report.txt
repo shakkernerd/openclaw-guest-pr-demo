@@ -3,6 +3,22 @@ Coverage: 12/16 person-slots filled; 4 uncovered.
 A person-slot is one volunteer covering one entire shift.
 Rule: shifts by start, end, ID; candidates by fewest skills, least assigned time, name.
 Times retain input offsets; comparisons and hour budgets use elapsed time.
+Remaining hours in gap explanations are the budget at allocation time, not final unused hours.
+WARNING: Changing inputs to solve one gap can move another; review the whole rerun, not only the target shift.
+
+GAP SUMMARY (matching-skill candidates only)
+bike-am | 2026-10-31T09:00:00+00:00 → 2026-10-31T11:00:00+00:00 | duration: 2h | missing: 1/2 | bicycles
+  Ben Hughes: already assigned to this shift (one person cannot fill two slots).
+  Farah Khan: outside availability.
+welcome-mid | 2026-10-31T11:00:00+00:00 → 2026-10-31T12:30:00+00:00 | duration: 1.5h | missing: 1/1 | intake
+  Evelyn Chen: max_hours exceeded (1h remaining at allocation time, 1.5h needed).
+  Farah Khan: overlaps bike-mid.
+cafe-lunch | 2026-10-31T11:30:00+00:00 → 2026-10-31T13:00:00+00:00 | duration: 1.5h | missing: 1/1 | cafe
+  Evelyn Chen: max_hours exceeded (1h remaining at allocation time, 1.5h needed).
+  Grace Wilson: outside availability; max_hours exceeded (0h remaining at allocation time, 1.5h needed).
+bike-pm | 2026-10-31T12:00:00+00:00 → 2026-10-31T14:00:00+00:00 | duration: 2h | missing: 1/1 | bicycles
+  Ben Hughes: outside availability; max_hours exceeded (1h remaining at allocation time, 2h needed).
+  Farah Khan: max_hours exceeded (1.5h remaining at allocation time, 2h needed).
 
 SHIFT COVERAGE
 setup | 2026-10-31T09:00:00+00:00 → 2026-10-31T09:30:00+00:00 | intake
@@ -50,7 +66,7 @@ welcome-mid: 1 of 1 person-slot(s) unfilled (intake).
   Ben Hughes: missing skill intake.
   Chloe Martin: missing skill intake.
   Diego Santos: missing skill intake.
-  Evelyn Chen: max_hours exceeded (1h remaining, 1.5h needed).
+  Evelyn Chen: max_hours exceeded (1h remaining at allocation time, 1.5h needed).
   Farah Khan: overlaps bike-mid.
   Grace Wilson: missing skill intake.
   Hassan Ali: missing skill intake.
@@ -59,17 +75,17 @@ cafe-lunch: 1 of 1 person-slot(s) unfilled (cafe).
   Ben Hughes: missing skill cafe.
   Chloe Martin: missing skill cafe.
   Diego Santos: missing skill cafe.
-  Evelyn Chen: max_hours exceeded (1h remaining, 1.5h needed).
+  Evelyn Chen: max_hours exceeded (1h remaining at allocation time, 1.5h needed).
   Farah Khan: missing skill cafe.
-  Grace Wilson: outside availability; max_hours exceeded (0h remaining, 1.5h needed).
+  Grace Wilson: outside availability; max_hours exceeded (0h remaining at allocation time, 1.5h needed).
   Hassan Ali: missing skill cafe.
 bike-pm: 1 of 1 person-slot(s) unfilled (bicycles).
   Amira Patel: missing skill bicycles.
-  Ben Hughes: outside availability; max_hours exceeded (1h remaining, 2h needed).
+  Ben Hughes: outside availability; max_hours exceeded (1h remaining at allocation time, 2h needed).
   Chloe Martin: missing skill bicycles.
   Diego Santos: missing skill bicycles.
   Evelyn Chen: missing skill bicycles.
-  Farah Khan: max_hours exceeded (1.5h remaining, 2h needed).
+  Farah Khan: max_hours exceeded (1.5h remaining at allocation time, 2h needed).
   Grace Wilson: missing skill bicycles.
   Hassan Ali: missing skill bicycles.
 

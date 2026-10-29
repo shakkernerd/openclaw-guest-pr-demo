@@ -115,3 +115,11 @@ test("reject zero/reversed ranges using actual instants, not wall clocks", () =>
   assert.throws(() => readShifts(SH + encodeCsv([change(S, 2, "2026-10-31T08:00Z")])), /ends_at must be after/);
   assert.throws(() => readShifts(SH + encodeCsv([change(S, 2, "2026-10-31T10:00+02:00")])), /ends_at must be after/);
 });
+
+
+test("case variants and aliases remain separate input people; identity is not auto-merged", () => {
+  const names = ["Alice Chen", "alice chen", "A. Chen"];
+  const people = readVolunteers(VH + encodeCsv(names.map((name) => change(V, 0, name))));
+  assert.deepEqual(people.map((v) => v.name), names);
+  assert.equal(people.length, 3);
+});

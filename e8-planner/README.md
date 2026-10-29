@@ -57,13 +57,14 @@ Exit codes:
 - **1**: usage, validation, or I/O failure; do not treat this as a new plan.
 - **2**: valid plan written with gaps when --require-full is enabled.
 
-For a strict sample check, use a separate output location:
+For a strict sample check, use a **fresh numbered output directory** (strict-001
+below; use strict-002, strict-003, etc. for subsequent runs):
 
 ~~~sh
 node e8-planner/cli.js \
   --volunteers e8-planner/sample/volunteers.csv \
   --shifts e8-planner/sample/shifts.csv \
-  --out-dir e8-planner/output/strict \
+  --out-dir e8-planner/output/strict-001 \
   --require-full
 ~~~
 
@@ -71,6 +72,15 @@ The sample intentionally exits **2** here. That is a coverage warning, not a
 validation failure. The report is printed to stdout only after writing the files.
 
 ## CSV input contract
+
+> **ONE RECORD PER PERSON: the coordinator must deduplicate the roster before
+> running the planner.** Name case variants and aliases count as separate input
+> people: Alice Chen, alice chen, and A. Chen are not automatically linked or
+> merged. If they describe one human, multiple rows can double-book that human
+> or bypass their real hour limit. Keep one consistent name and one row per
+> person; do not use aliases to represent separate availability windows.
+> Exact duplicate names after trimming are rejected, but that is not identity
+> deduplication. The name-based identity schema is unchanged.
 
 Both files must be UTF-8, with these exact column names (column order may vary):
 
@@ -81,7 +91,8 @@ name,skills,available_from,available_to,max_hours
 Mei Chen,electronics;textiles,2026-10-31T09:00:00+00:00,2026-10-31T14:00:00+00:00,3.5
 ~~~
 
-- **name**: unique, nonempty volunteer identifier. Use distinct names for namesakes.
+- **name**: unique, nonempty volunteer identifier. Use distinct names for different
+  people who are namesakes, but never multiple names for the same person.
 - **skills**: one or more nonempty, unique skill names, separated by **semicolons**.
 - **available_from**, **available_to**: one continuous window, end after start.
 - **max_hours**: nonnegative decimal, up to 3 decimal places (e.g. 0, 2, 3.5,
@@ -165,6 +176,11 @@ Uncovered-slot explanations describe the state **when the shift was processed**,
 not a proof that no feasible solution exists. Already-assigned volunteers cannot
 fill an extra slot. For matching-skill candidates, all applicable availability,
 overlap, and budget blockers are listed; others are marked as missing the skill.
+Remaining hours are explicitly the **amount at allocation time**, not final unused
+hours after later shifts have been assigned.
+
+**A change to solve one gap can move another. Review the whole rerun**, including
+all assignments, gaps, and volunteer totals, rather than only the target shift.
 
 There are no breaks/travel buffers, multiple availability windows, partial
 coverage, skill proficiency or safety certification checks, preferences,
@@ -183,7 +199,11 @@ shift_id,volunteer,starts_at,ends_at,skill
 ~~~
 
 Only filled person-slots appear; there are no fake empty assignments. Use
-report.txt for gaps and volunteer totals. CSV values are quoted/escaped without
+report.txt for gaps and volunteer totals. Its opening **gap summary** shows each
+uncovered shift's explicit start/end times, elapsed duration, missing slots, and
+only matching-skill candidates' blockers (or an explicit no-match message). The
+full shift coverage and detailed explanations for every volunteer remain below.
+CSV values are quoted/escaped without
 changing identifiers. **Import CSV columns as text in spreadsheet software**:
 untrusted values beginning with formula characters are not neutralized.
 
