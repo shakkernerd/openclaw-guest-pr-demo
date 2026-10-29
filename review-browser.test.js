@@ -93,6 +93,21 @@ async function exercise(mode) {
   const paste = value => { $("paste-json").value = value; click("import-paste"); };
   const snapshot = () => { click("export-open"); return $("export-json").value; };
   const tick = () => new Promise(resolve => setTimeout(resolve, 20));
+  const checkBulkMemory = () => {
+    const original = snapshot();
+    const expected = JSON.parse(original);
+    const id = expected.records[0].id;
+    document.querySelector(".record-select").click();
+    $("bulk-decision").value = expected.reviews[id].decision === "approved" ? "rejected" : "approved";
+    click("bulk-apply");
+    check(!$("bulk-undo").disabled, "memory-only bulk action has no undo");
+    fire("notes", "Later memory-only note");
+    click("bulk-undo");
+    expected.reviews[id].notes = "Later memory-only note";
+    check(snapshot() === JSON.stringify(expected, null, 2), "memory-only undo lost later notes or other data");
+    check($("storage-status").textContent.startsWith("Memory only"), "bulk/undo concealed blocked storage");
+    paste(original);
+  };
   const checkNoteFinish = () => {
     const original = snapshot();
     const fixture = JSON.parse(original);
@@ -189,6 +204,8 @@ async function exercise(mode) {
       check(restored.reviews["R-101"].decision === "approved", "decision lost across reload");
       check(restored.reviews["R-101"].notes === "Survives a real reload ✓", "notes lost across reload");
       check(restored.records.length === 4, "records lost across reload");
+      check(restored.reviews["R-102"].decision === "rejected", "bulk decision lost on reload");
+      check($("bulk-count").textContent.startsWith("0 selected") && $("bulk-undo").disabled, "transient bulk work restored on reload");
       fire("search", "real reload");
       fire("filter", "approved", "change");
       check(document.querySelectorAll(".record").length === 1 && $("record-id").textContent === "R-101", "restored notes are not searchable with the decision filter");
@@ -215,6 +232,7 @@ async function exercise(mode) {
       check(exported.reviews.a.notes === "Still in memory", "quota failure lost notes");
       check(exported.reviews.a.decision === "approved", "quota failure lost decision");
       check(JSON.parse(localStorage.getItem("record-review:v1")).reviews.a.decision === "unreviewed", "quota test unexpectedly saved");
+      checkBulkMemory();
       finish("PASS quota");
       return;
     }
@@ -225,12 +243,16 @@ async function exercise(mode) {
       check($("storage-status").textContent.startsWith("Memory only"), "missing sandbox storage warning");
     }
     click("sample");
+    if (mode === "sandbox") checkBulkMemory();
     check(document.querySelectorAll(".record").length === 4, "sample list missing");
     check($("record-id").textContent === "R-101", "first record not selected");
     decision("approved");
     fire("notes", "Survives a real reload ✓");
     if (mode === "reload") {
       check($("storage-status").textContent.startsWith("Saved"), "browser did not save");
+      document.querySelectorAll(".record-select")[1].click();
+      $("bulk-decision").value = "rejected"; click("bulk-apply");
+      check(!$("bulk-undo").disabled, "bulk undo not available before reload");
       const saved = localStorage.getItem("record-review:v1");
       paste("[{bad JSON]");
       check(localStorage.getItem("record-review:v1") === saved, "invalid import modified saved storage");
@@ -666,8 +688,151 @@ async function exerciseComparison(send, ready) {
   return "PASS comparison";
 }
 
+
+// Real hit testing: no synthetic click replay. These controls share the existing
+// note-exit path, including when the clicked row disappears during click capture.
+async function exerciseBulk(send, ready) {
+  assert.equal(ready, "READY bulk");
+  const evaluate = async (fn, ...args) => {
+    const result = await send("Runtime.evaluate", {
+      expression: "(" + fn.toString() + ")(..." + JSON.stringify(args) + ")",
+      returnByValue: true, awaitPromise: true,
+    });
+    if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
+    return result.result.value;
+  };
+  const key = async (key, code, number) => {
+    await send("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: number,
+      text: key === "Enter" ? "\r" : undefined });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: number });
+  };
+  let buttons = 0;
+  const mouse = (type, point) => {
+    if (type === "mousePressed") buttons = 1;
+    if (type === "mouseReleased") buttons = 0;
+    return send("Input.dispatchMouseEvent", {
+      type, ...point, button: type === "mouseMoved" ? "none" : "left",
+      buttons, clickCount: type === "mouseMoved" ? 0 : 1,
+    });
+  };
+  // Measurement is read-only, especially between pointer-down and release.
+  const center = selector => evaluate(selector => {
+    const rect = document.querySelector(selector).getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  }, selector);
+  const position = async selector => {
+    await evaluate(selector => document.querySelector(selector).scrollIntoView({ block: "center" }), selector);
+    return center(selector);
+  };
+  const inspect = () => evaluate(() => {
+    const $ = id => document.getElementById(id);
+    return { saved: JSON.parse(localStorage.getItem("record-review:v1")), editor: $("record-id").textContent,
+      count: $("bulk-count").textContent, undo: !$("bulk-undo").disabled, result: $("bulk-result").textContent,
+      focused: document.activeElement.id, events: window.bulkEvents };
+  });
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1600, deviceScaleFactor: 1, mobile: false });
+  const targets = {
+    "row-current": "#record-list li:first-child .record-select",
+    "row-other": "#record-list li:nth-child(2) .record-select",
+    visible: "#select-visible", clear: "#clear-selection", apply: "#bulk-apply", undo: "#bulk-undo",
+  };
+  for (const [action, selector] of Object.entries(targets)) {
+    const setup = async () => {
+      await evaluate(action => {
+        const $ = id => document.getElementById(id);
+        window.bulkFixture = { format: "record-review", version: 1,
+          records: [{ id: "A", title: "Alpha", extra: { x: 1 } }, { id: "B", title: "Beta" }, { id: "C", title: "Gamma" }],
+          reviews: { A: { decision: "unreviewed", notes: "match A" }, B: { decision: "unreviewed", notes: "match B" },
+            C: { decision: "rejected", notes: "keep C" } } };
+        $("paste-json").value = JSON.stringify(window.bulkFixture); $("import-paste").click();
+        if (["apply", "undo", "clear"].includes(action)) {
+          document.querySelectorAll(".record-select")[0].click();
+          document.querySelectorAll(".record-select")[1].click();
+        }
+        $("bulk-decision").value = "approved";
+        if (action === "undo") $("bulk-apply").click();
+        $("search").value = "match"; $("search").dispatchEvent(new Event("input"));
+        $("notes").focus(); $("notes").select();
+      }, action);
+      await send("Input.insertText", { text: "Later note A ✓" });
+      assert.equal((await inspect()).focused, "notes");
+      await evaluate(selector => {
+        window.bulkEvents = [];
+        for (const type of ["pointerdown", "pointerup", "click"]) {
+          document.querySelector(selector).addEventListener(type, event => window.bulkEvents.push([type, event.isTrusted]), { once: true });
+        }
+      }, selector);
+      return position(selector);
+    };
+    const point = await setup();
+    const before = await inspect();
+    await mouse("mouseMoved", point); await mouse("mousePressed", point);
+    const pressed = await inspect();
+    assert.equal(pressed.count, before.count, action + " acted on press");
+    assert.deepEqual(pressed.saved, before.saved);
+    assert.deepEqual(await center(selector), point, action + " moved before release");
+    await mouse("mouseReleased", point);
+    const result = await inspect();
+    assert.deepEqual(result.events, [["pointerdown", true], ["pointerup", true], ["click", true]], action);
+    assert.equal(result.saved.reviews.A.notes, "Later note A ✓");
+    assert.equal(result.saved.reviews.B.notes, "match B");
+    assert.deepEqual(result.saved.reviews.C, { decision: "rejected", notes: "keep C" });
+    assert.deepEqual(result.saved.records, before.saved.records);
+    if (action === "apply" || action === "undo") {
+      const decision = action === "apply" ? "approved" : "unreviewed";
+      assert.equal(result.saved.reviews.A.decision, decision);
+      assert.equal(result.saved.reviews.B.decision, decision);
+      assert.equal(result.undo, action === "apply");
+      assert.match(result.count, /2 selected · 1 hidden/);
+    } else {
+      assert.deepEqual(result.saved, before.saved);
+      assert.equal(result.editor, "A", action + " changed the editor");
+      assert.match(result.count, action === "clear" ? /0 selected · 0 hidden/ :
+        action === "row-current" ? /1 selected · 1 hidden/ : /1 selected · 0 hidden/);
+    }
+    // Native drag cancellation must not select, decide or undo anything.
+    const cancelledPoint = await setup();
+    const cancelBefore = await inspect();
+    await mouse("mouseMoved", cancelledPoint); await mouse("mousePressed", cancelledPoint);
+    await mouse("mouseMoved", { x: 1270, y: 1590 }); await mouse("mouseReleased", { x: 1270, y: 1590 });
+    const cancelled = await inspect();
+    assert.equal(cancelled.count, cancelBefore.count);
+    assert.equal(cancelled.undo, cancelBefore.undo);
+    assert.deepEqual(cancelled.saved, cancelBefore.saved);
+    assert.equal(cancelled.focused, "notes");
+    await key("Tab", "Tab", 9);
+    assert.notEqual((await inspect()).focused, "notes");
+  }
+  // Narrow layout, native Tab/Space/Enter, and decision-filter exit with hidden IDs.
+  await send("Emulation.setDeviceMetricsOverride", { width: 360, height: 800, deviceScaleFactor: 1, mobile: false });
+  await evaluate(() => {
+    const $ = id => document.getElementById(id);
+    $("paste-json").value = JSON.stringify(window.bulkFixture); $("import-paste").click();
+    $("filter").value = "unreviewed"; $("filter").dispatchEvent(new Event("change"));
+    document.querySelector(".record").focus();
+  });
+  await key("Tab", "Tab", 9);
+  assert.equal(await evaluate(() => document.activeElement.className), "record-select");
+  await key(" ", "Space", 32);
+  assert.match((await inspect()).count, /1 selected/);
+  await evaluate(() => document.getElementById("select-visible").focus());
+  await key("Enter", "Enter", 13);
+  await evaluate(() => { document.getElementById("bulk-decision").value = "approved"; document.getElementById("bulk-apply").focus(); });
+  await key("Enter", "Enter", 13);
+  assert.match((await inspect()).count, /2 selected · 2 hidden/);
+  assert.equal((await inspect()).undo, true);
+  assert.equal(await evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await evaluate(() => document.getElementById("bulk-undo").focus());
+  await key("Enter", "Enter", 13);
+  assert.equal((await inspect()).undo, false);
+  assert.match((await inspect()).count, /2 selected · 0 hidden/);
+  await evaluate(() => document.getElementById("bulk-apply").click());
+  assert.equal(await evaluate(() => performance.getEntriesByType("resource").filter(entry => !entry.name.startsWith("file:")).length), 0);
+  return "PASS bulk";
+}
+
 for (const mode of ["sandbox", "reload", "corrupt", "quota", "pointer-record", "pointer-decision",
-  "pointer-export-select", "pointer-download", "pointer-details", "pointer-export-toggle", "comparison"]) {
+  "pointer-export-select", "pointer-download", "pointer-details", "pointer-export-toggle", "comparison", "bulk"]) {
   test("browser: " + mode, { skip: !browser && "Set RECORD_REVIEW_BROWSER to an existing Chromium executable", timeout: 30000 }, async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "record-review-browser-"));
     try {
@@ -677,7 +842,7 @@ for (const mode of ["sandbox", "reload", "corrupt", "quota", "pointer-record", "
       if (mode === "quota") setup = 'localStorage.setItem("record-review:v1", JSON.stringify({format:"record-review",version:1,records:[{id:"a",title:"Stored"}],reviews:{a:{decision:"unreviewed",notes:""}}})); Storage.prototype.setItem = function () { throw new DOMException("Full", "QuotaExceededError"); };';
       html = html.replace("<script>", "<script>" + setup + "</script><script>");
       const pointer = mode.startsWith("pointer-");
-      html = html.replace("</body>", pointer || mode === "comparison"
+      html = html.replace("</body>", pointer || mode === "comparison" || mode === "bulk"
         ? "<script>window.reportReviewTest(" + JSON.stringify("READY " + mode) + ");</script></body>"
         : "<script>(" + exercise.toString() + ")(" + JSON.stringify(mode) + ");</script></body>");
       if (mode === "sandbox") {
@@ -691,7 +856,7 @@ for (const mode of ["sandbox", "reload", "corrupt", "quota", "pointer-record", "
       // support. This never changes the Files preview or iframe permissions.
       if (process.env.RECORD_REVIEW_BROWSER_NO_SANDBOX === "1") args.unshift("--no-sandbox");
       const result = await runBrowser(args, directory, pathToFileURL(file).href,
-        pointer ? (send, ready) => exercisePointer(send, mode, ready) : mode === "comparison" ? exerciseComparison : undefined);
+        pointer ? (send, ready) => exercisePointer(send, mode, ready) : mode === "comparison" ? exerciseComparison : mode === "bulk" ? exerciseBulk : undefined);
       assert.equal(result, "PASS " + mode, "Browser result: " + result);
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }
   });

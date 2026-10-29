@@ -136,6 +136,47 @@
     return { ...state, reviews: { ...state.reviews, [id]: { decision: review.decision, notes: review.notes } } };
   }
 
+  // Validate the whole batch before allocating one review-map copy. Notes and
+  // records never participate; the change list is transient undo data only.
+  function transitionDecisions(state, entries) {
+    const ids = new Set();
+    const changes = [];
+    for (const { id, decision } of entries) {
+      if (typeof id !== "string" || !own(state.reviews, id)) {
+        throw new Error("This record is not in the accepted dataset.");
+      }
+      if (ids.has(id)) throw new Error("Choose each record ID only once.");
+      if (!DECISIONS.includes(decision)) throw new Error("Choose a valid decision.");
+      ids.add(id);
+      const before = state.reviews[id].decision;
+      if (before !== decision) changes.push({ id, before, after: decision });
+    }
+    if (!changes.length) return { state, changes };
+    const reviews = { ...state.reviews };
+    for (const { id, after } of changes) reviews[id] = { ...reviews[id], decision: after };
+    return { state: { ...state, reviews }, changes };
+  }
+
+  function bulkDecision(state, ids, decision) {
+    if (!Array.isArray(ids)) throw new Error("Choose an explicit array of record IDs.");
+    if (!DECISIONS.includes(decision)) throw new Error("Choose a valid decision.");
+    return transitionDecisions(state, ids.map(id => ({ id, decision })));
+  }
+
+  function undoBulkDecision(state, changes) {
+    if (!Array.isArray(changes)) throw new Error("Invalid bulk undo.");
+    // Defense in depth: stale decision intent must never be overwritten. The
+    // adapter also discards this entry on every later decision or replacement.
+    for (const change of changes) {
+      if (!object(change) || typeof change.id !== "string" || !own(state.reviews, change.id) ||
+          !DECISIONS.includes(change.before) || !DECISIONS.includes(change.after) ||
+          change.before === change.after || state.reviews[change.id].decision !== change.after) {
+        throw new Error("This bulk undo no longer matches the current decisions.");
+      }
+    }
+    return transitionDecisions(state, changes.map(({ id, before }) => ({ id, decision: before })));
+  }
+
   // Comparison accepts saved reviews only, never the raw-array import contract.
   function parseSnapshotJSON(text) {
     const value = parseJSON(text);
@@ -222,6 +263,6 @@
 
   return Object.freeze({
     FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON, importCSV,
-    updateReview, parseSnapshotJSON, compareSnapshots, visibleRecords, counts, exportJSON, restore, persist,
+    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, visibleRecords, counts, exportJSON, restore, persist,
   });
 });

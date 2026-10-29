@@ -15,6 +15,7 @@
     button:hover { background: #e9f1ee; border-color: #537c73; }
     button.primary { background: #176856; color: white; border-color: #176856; }
     button.primary:hover { background: #115344; }
+    button:disabled { cursor: default; opacity: .55; }
     :focus-visible { outline: 3px solid #b76c20; outline-offset: 3px; }
     input, select, textarea { width: 100%; border: 1px solid #aebfba; border-radius: 6px; padding: .65rem; background: white; color: #203335; }
     textarea { resize: vertical; }
@@ -58,7 +59,12 @@
     .sidebar { border-right: 1px solid #d2ded7; padding: 1.1rem; min-width: 0; background: #fbfcfa; }
     .filters { display: grid; gap: .7rem; }
     #record-list { display: grid; gap: .45rem; list-style: none; padding: 0; margin: .75rem 0 0; max-height: 520px; overflow: auto; }
-    .record { width: 100%; text-align: left; display: block; padding: .7rem .8rem; }
+    #record-list > li { display: flex; align-items: stretch; gap: .35rem; }
+    .record-select { flex: 0 0 5.5rem; padding: .4rem; font-size: .85rem; }
+    .record-select[aria-pressed="true"] { background: #176856; border-color: #176856; color: white; }
+    .bulk { padding: 1rem 1.1rem; margin-bottom: 1rem; }
+    .bulk select { width: auto; max-width: 100%; }
+    .record { width: 100%; min-width: 0; text-align: left; display: block; padding: .7rem .8rem; }
     .record[aria-current="true"] { background: #e8f3ed; border-color: #438570; box-shadow: inset 3px 0 #176856; }
     .record strong, .record small { display: block; overflow-wrap: anywhere; }
     .record small { color: #536762; margin-top: .2rem; }
@@ -125,6 +131,22 @@
     <div class="stat panel"><strong id="count-rejected">0</strong><span>Rejected</span></div>
     <div class="stat panel"><strong id="count-follow-up">0</strong><span>Needs follow-up</span></div>
   </section>
+  <section class="bulk panel" aria-labelledby="bulk-heading">
+    <h2 id="bulk-heading">Selected-record decisions</h2>
+    <p class="hint" id="bulk-policy">Use each row’s Select button to choose IDs independently of the open editor. Select visible adds all current matches, keeping hidden selections; it is disabled when there is nothing to add. Filters never change your set. Apply includes hidden selections.</p>
+    <p id="bulk-count" class="message" role="status" aria-live="polite">0 selected · 0 hidden by current search/filter.</p>
+    <div class="row">
+      <button type="button" id="select-visible" aria-describedby="bulk-policy" disabled>Select visible</button>
+      <button type="button" id="clear-selection" disabled>Clear selection</button>
+      <label for="bulk-decision">Decision for selected IDs</label>
+      <select id="bulk-decision"><option value="unreviewed">Unreviewed</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="follow-up">Needs follow-up</option></select>
+      <button type="button" id="bulk-apply" class="primary" aria-describedby="bulk-count bulk-policy" disabled>Apply to 0 selected</button>
+      <button type="button" id="bulk-undo" aria-describedby="bulk-undo-status" disabled>Undo last bulk action</button>
+    </div>
+    <p id="bulk-result" class="message" role="status" aria-live="polite"></p>
+    <p id="bulk-undo-status" class="hint" role="status">No bulk undo available.</p>
+    <p class="hint">Only decisions change. Select at least one ID to apply; an empty selection cannot be cleared. Undo restores only the last bulk action’s changed decisions, keeping later notes. Any later decision action replaces or clears undo. Accepted imports and reloads clear selection and undo; neither is saved or exported.</p>
+  </section>
   <section class="workspace panel" aria-label="Review workspace">
     <aside class="sidebar">
       <div class="filters">
@@ -134,7 +156,7 @@
       <p id="list-count" class="hint" aria-live="polite">0 records</p>
       <ul id="record-list" aria-label="Records"></ul>
     </aside>
-    <section class="editor" aria-label="Selected record">
+    <section class="editor" aria-label="Open record editor">
       <div id="empty" class="empty"><h2>Your next review starts here</h2><p>Import JSON or CSV above, or try the sample records.</p></div>
       <div id="record-editor" hidden>
         <p id="record-id"></p><h2 id="record-title"></h2>

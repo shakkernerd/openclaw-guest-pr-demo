@@ -7,7 +7,9 @@
   const getStorage = () => window.localStorage;
   const restored = review.restore(getStorage);
   let state = restored.state || review.emptyState();
-  let selectedId = null;
+  let editorId = null;
+  const selectedIds = new Set();
+  let bulkUndo = null;
   let importSequence = 0;
   let comparisonSequence = 0;
   let comparedSnapshot = null;
@@ -140,6 +142,55 @@
     if ($("compare-panel").open) clearComparison();
   });
 
+  const matchingRecords = () => review.visibleRecords(state, $("search").value, $("filter").value);
+
+  function renderBulkControls(visible) {
+    const selectedVisible = visible.filter(record => selectedIds.has(record.id)).length;
+    $("bulk-count").textContent = selectedIds.size + " selected · " +
+      (selectedIds.size - selectedVisible) + " hidden by current search/filter.";
+    $("select-visible").disabled = visible.length === selectedVisible;
+    $("clear-selection").disabled = selectedIds.size === 0;
+    $("bulk-apply").disabled = selectedIds.size === 0;
+    $("bulk-apply").textContent = "Apply to " + selectedIds.size + " selected";
+    $("bulk-undo").disabled = !bulkUndo;
+    $("bulk-undo").textContent = bulkUndo ? "Undo last bulk action (" + bulkUndo.length + ")" : "Undo last bulk action";
+    $("bulk-undo-status").textContent = bulkUndo
+      ? "Undo available for " + bulkUndo.length + " changed decisions; later notes are kept."
+      : "No bulk undo available.";
+  }
+
+  $("select-visible").addEventListener("click", () => {
+    // Resolve visibility after note completion, never replace hidden selections.
+    const visible = matchingRecords();
+    for (const record of visible) selectedIds.add(record.id);
+    renderList(visible);
+  });
+  $("clear-selection").addEventListener("click", () => {
+    selectedIds.clear();
+    renderList(matchingRecords());
+  });
+  $("bulk-apply").addEventListener("click", () => {
+    if (!selectedIds.size) return;
+    const decision = $("bulk-decision").value;
+    const result = review.bulkDecision(state, [...selectedIds], decision);
+    // Even reasserting the current decision is later intent, not old undo work.
+    bulkUndo = result.changes.length ? result.changes : null;
+    state = result.state;
+    if (result.changes.length) { save(); render(); }
+    else renderBulkControls(matchingRecords());
+    $("bulk-result").textContent = "Changed " + result.changes.length + " of " + selectedIds.size +
+      " selected decisions to " + labels[decision] + "." + (bulkUndo ? " Undo is available." : " No decisions changed; no undo available.");
+  });
+  $("bulk-undo").addEventListener("click", () => {
+    if (!bulkUndo) return;
+    const result = review.undoBulkDecision(state, bulkUndo);
+    bulkUndo = null;
+    state = result.state;
+    save();
+    render();
+    $("bulk-result").textContent = "Restored " + result.changes.length + " decisions. Notes were kept. No bulk undo available.";
+  });
+
   // Reuse matching buttons so a note blur cannot remove a pending click target.
   const listItems = new Map();
   function renderList(visible) {
@@ -158,23 +209,43 @@
         button.className = "record";
         button.append(document.createElement("strong"), document.createElement("small"));
         button.addEventListener("click", () => {
-          if (selectedId === record.id) return; // Blur may remove this current row.
-          selectedId = record.id;
+          if (editorId === record.id) return; // Blur may remove this current row.
+          editorId = record.id;
           render();
           button.focus({ preventScroll: true });
         });
-        item.append(button);
+        const select = document.createElement("button");
+        select.type = "button";
+        select.className = "record-select";
+        select.addEventListener("click", () => {
+          // Capture the row ID, not its position or the open editor. This still
+          // works when note-exit removes this row during click capture.
+          if (selectedIds.has(record.id)) selectedIds.delete(record.id);
+          else selectedIds.add(record.id);
+          renderList(matchingRecords());
+          if (!select.isConnected) {
+            const target = selectedIds.size ? "clear-selection" : "search";
+            $(target).focus({ preventScroll: true });
+          }
+        });
+        item.append(button, select);
         listItems.set(record.id, item);
       }
+      const select = item.children[1];
+      const selected = selectedIds.has(record.id);
+      select.setAttribute("aria-pressed", String(selected));
+      select.setAttribute("aria-label", "Select record " + record.id + " for bulk decision");
+      select.textContent = selected ? "Selected" : "Select";
       const button = item.firstElementChild;
-      button.setAttribute("aria-current", String(record.id === selectedId));
+      button.setAttribute("aria-current", String(record.id === editorId));
       button.querySelector("strong").textContent = record.title;
       button.querySelector("small").textContent = record.id + " · " + labels[state.reviews[record.id].decision];
       if (list.children[index] !== item) list.insertBefore(item, list.children[index] || null);
     });
-    const outsideResults = selectedId !== null && !visibleIds.has(selectedId);
+    renderBulkControls(visible);
+    const outsideResults = editorId !== null && !visibleIds.has(editorId);
     $("selection-status").hidden = !outsideResults;
-    $("selection-status").textContent = outsideResults ? selectedId + " no longer matches the current search/filter. You are still editing this record." : "";
+    $("selection-status").textContent = outsideResults ? editorId + " no longer matches the current search/filter. You are still editing this record." : "";
   }
 
   function render() {
@@ -184,9 +255,9 @@
     $("review-progress").value = totals.reviewed;
     for (const decision of ["approved", "rejected", "follow-up"]) $("count-" + decision).textContent = totals[decision];
     const visible = review.visibleRecords(state, $("search").value, $("filter").value);
-    if (!visible.some(record => record.id === selectedId)) selectedId = visible[0]?.id ?? null;
+    if (!visible.some(record => record.id === editorId)) editorId = visible[0]?.id ?? null;
     renderList(visible);
-    const record = visible.find(record => record.id === selectedId);
+    const record = visible.find(record => record.id === editorId);
     $("record-editor").hidden = !record;
     $("empty").hidden = Boolean(record);
     if (!record) {
@@ -213,7 +284,10 @@
     try { next = format === "csv" ? review.importCSV(text, state) : review.importJSON(text, state); }
     catch (error) { rejectImport(error); return; }
     state = next;
-    selectedId = null;
+    editorId = null;
+    selectedIds.clear();
+    bulkUndo = null;
+    $("bulk-result").textContent = "";
     $("search").value = "";
     $("filter").value = "all";
     $("import-error").textContent = "";
@@ -262,13 +336,15 @@
   $("search").addEventListener("input", render);
   $("filter").addEventListener("change", render);
   for (const button of decisionButtons) button.addEventListener("click", () => {
-    if (selectedId === null) return;
-    const previousId = selectedId;
-    state = review.updateReview(state, selectedId, { decision: button.dataset.decision });
+    if (editorId === null) return;
+    const previousId = editorId;
+    state = review.updateReview(state, editorId, { decision: button.dataset.decision });
+    bulkUndo = null;
+    $("bulk-result").textContent = "";
     save();
     render();
-    $("activity").textContent = previousId + ": " + labels[button.dataset.decision] + (selectedId !== previousId ? ". Moved out of the current filter." : ".");
-    if (selectedId !== previousId) $("filter").focus({ preventScroll: true });
+    $("activity").textContent = previousId + ": " + labels[button.dataset.decision] + (editorId !== previousId ? ". Moved out of the current filter." : ".");
+    if (editorId !== previousId) $("filter").focus({ preventScroll: true });
   });
 
   // All click-activated controls share the same note-exit ordering, including
@@ -288,8 +364,8 @@
   }, true);
 
   $("notes").addEventListener("input", () => {
-    if (selectedId === null) return;
-    state = review.updateReview(state, selectedId, { notes: $("notes").value });
+    if (editorId === null) return;
+    state = review.updateReview(state, editorId, { notes: $("notes").value });
     save(); // Don't re-render the editor: preserve caret, focus, and IME input.
   });
   $("notes").addEventListener("blur", () => {

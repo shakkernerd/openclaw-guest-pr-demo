@@ -24,6 +24,7 @@ function app(initial) {
     set textContent(value) { this._text = String(value); this.children = []; }
     set innerHTML(value) { throw new Error("Unexpected HTML rendering: " + value); }
     get firstElementChild() { return this.children[0]; }
+    get isConnected() { let node = this; while (node.parent) node = node.parent; return [...nodes.values()].includes(node); }
     append(...nodes) { for (const node of nodes) { node.remove(); node.parent = this; this.children.push(node); } }
     replaceChildren(...nodes) { for (const node of [...this.children]) node.remove(); this.append(...nodes); }
     remove() { if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1); this.parent = null; }
@@ -59,6 +60,7 @@ function app(initial) {
   $("empty").append(new Element("h2"), new Element("p"));
   $("filter").value = "all";
   $("paste-format").value = "json";
+  $("bulk-decision").value = "unreviewed";
   let saved = R.exportJSON(initial);
   let writes = 0;
   const storage = { getItem: () => saved, setItem: (key, value) => { assert.equal(key, R.STORAGE_KEY); writes++; saved = value; } };
@@ -337,4 +339,143 @@ test("comparison follows live working edits/imports without taking ownership of 
   assert.match($("compare-status").textContent, /Current: 0 records · Compared: 2 · Added: 2/);
   $("paste-json").value = original; await fire("import-paste");
   assert.equal($("compare-empty").hidden, false);
+});
+
+
+const selectRow = (ui, index) => ui.$("record-list").children[index].children[1].emit("click");
+const applyBulk = async (ui, decision) => { ui.$("bulk-decision").value = decision; await ui.fire("bulk-apply"); };
+
+test("explicit selection is independent of editor, additive across filters, and never saved", async () => {
+  const ui = app(fixture());
+  const { $, fire } = ui;
+  const original = ui.working();
+  assert.equal($("bulk-apply").disabled, true);
+  assert.equal($("clear-selection").disabled, true);
+  assert.equal($("bulk-undo").disabled, true);
+  await selectRow(ui, 1);
+  assert.equal($("record-id").textContent, "a");
+  assert.match($("bulk-count").textContent, /1 selected · 0 hidden/);
+  assert.equal($("record-list").children[1].children[1].attributes["aria-pressed"], "true");
+  $("search").value = "Alpha"; await fire("search", "input");
+  assert.match($("bulk-count").textContent, /1 selected · 1 hidden/);
+  await fire("select-visible");
+  assert.match($("bulk-count").textContent, /2 selected · 1 hidden/);
+  assert.equal($("select-visible").disabled, true);
+  $("filter").value = "rejected"; await fire("filter", "change");
+  assert.match($("bulk-count").textContent, /2 selected · 2 hidden/);
+  assert.equal($("select-visible").disabled, true);
+  assert.equal($("bulk-apply").disabled, false);
+  assert.equal(ui.working().writes, original.writes);
+  assert.equal(ui.working().saved, original.saved);
+  await fire("clear-selection");
+  assert.match($("bulk-count").textContent, /0 selected · 0 hidden/);
+  assert.equal($("bulk-apply").disabled, true);
+  await fire("bulk-apply");
+  assert.equal(ui.working().writes, original.writes);
+  const empty = app(R.emptyState());
+  assert.equal(empty.$("select-visible").disabled, true);
+  assert.equal(empty.$("bulk-apply").disabled, true);
+});
+
+test("bulk applies exactly selected IDs once; undo keeps later notes, comparison and full export", async () => {
+  let initial = R.importJSON(JSON.stringify([...fixture().records, { id: "c", title: "Gamma", decision: "source", notes: "source" }]), fixture());
+  initial = R.updateReview(initial, "b", { decision: "rejected" });
+  const ui = app(initial);
+  const { $, fire } = ui;
+  await fire("compare-open"); await ui.compare(R.exportJSON(initial));
+  await fire("export-open");
+  await selectRow(ui, 0); await selectRow(ui, 1);
+  $("search").value = "Gamma"; await fire("search", "input");
+  const writes = ui.working().writes;
+  await applyBulk(ui, "approved");
+  assert.equal(ui.working().writes, writes + 1);
+  const expected = R.updateReview(initial, "b", { decision: "approved" });
+  assert.deepEqual(JSON.parse(ui.working().saved), expected);
+  assert.equal($("export-json").value, R.exportJSON(expected));
+  assert.match($("bulk-result").textContent, /Changed 1 of 2/);
+  assert.match($("bulk-count").textContent, /2 selected · 2 hidden/);
+  assert.match($("bulk-undo").textContent, /\(1\)/);
+  assert.match($("compare-breakdown").textContent, /decisions: 1, notes: 0/);
+  const comparedValues = $("compare-list").querySelectorAll("pre").map(node => JSON.parse(node.textContent));
+  assert.deepEqual(comparedValues[3], initial.reviews.b);
+  await fire("clear-selection");
+  $("search").value = "Beta"; await fire("search", "input");
+  $("notes").value = "Later b note"; await fire("notes", "input");
+  await ui.compare(R.exportJSON(initial));
+  const beforeUndo = ui.working().writes;
+  await fire("bulk-undo");
+  assert.equal(ui.working().writes, beforeUndo + 1);
+  assert.deepEqual(JSON.parse(ui.working().saved), R.updateReview(initial, "b", { notes: "Later b note" }));
+  assert.match($("compare-breakdown").textContent, /decisions: 0, notes: 1/);
+  assert.equal($("bulk-undo").disabled, true);
+  await fire("bulk-undo");
+  assert.equal(ui.working().writes, beforeUndo + 1);
+  const reloaded = app(JSON.parse(ui.working().saved));
+  assert.match(reloaded.$("bulk-count").textContent, /0 selected/);
+  assert.equal(reloaded.$("bulk-undo").disabled, true);
+});
+
+test("only the last changed bulk action is undoable; later decision intent invalidates even on no-op", async () => {
+  const ui = app(fixture());
+  const { $, fire } = ui;
+  await selectRow(ui, 0);
+  await applyBulk(ui, "rejected");
+  await applyBulk(ui, "follow-up");
+  await fire("bulk-undo");
+  assert.equal(JSON.parse(ui.working().saved).reviews.a.decision, "rejected");
+  await applyBulk(ui, "unreviewed");
+  const writes = ui.working().writes;
+  await applyBulk(ui, "unreviewed");
+  assert.equal(ui.working().writes, writes);
+  assert.equal($("bulk-undo").disabled, true);
+  assert.match($("bulk-result").textContent, /Changed 0 of 1.*no undo available/);
+  await applyBulk(ui, "approved");
+  await ui.buttons.find(button => button.dataset.decision === "approved").emit("click");
+  assert.equal($("bulk-undo").disabled, true);
+  await fire("bulk-undo");
+  assert.equal(JSON.parse(ui.working().saved).reviews.a.decision, "approved");
+  await applyBulk(ui, "rejected");
+  await $("record-list").children[1].firstElementChild.emit("click");
+  await ui.buttons.find(button => button.dataset.decision === "follow-up").emit("click");
+  assert.equal($("bulk-undo").disabled, true);
+});
+
+test("accepted replacements clear transient work; rejected and superseded imports keep it", async () => {
+  const ui = app(fixture());
+  const { $, fire, paste, pendingFile } = ui;
+  await selectRow(ui, 0); await applyBulk(ui, "rejected");
+  const transient = () => [$("bulk-count").textContent, $("bulk-undo").disabled, $("bulk-undo").textContent, $("bulk-result").textContent];
+  const before = transient();
+  for (const [text, format] of [["{bad", "json"], ["id,title\na,A\na,Duplicate", "csv"]]) {
+    const stale = pendingFile("file-input");
+    await paste(text, format);
+    stale.resolve("[]"); await stale.done;
+    assert.deepEqual(transient(), before);
+  }
+  const failure = pendingFile("csv-file-input");
+  failure.reject(new Error("read failed")); await failure.done;
+  assert.deepEqual(transient(), before);
+  await fire("bulk-undo");
+  assert.deepEqual(JSON.parse(ui.working().saved), fixture());
+  const replacements = [
+    () => paste(JSON.stringify(fixture().records)),
+    () => paste("id,title\na,Alpha\nb,Beta", "csv"),
+    () => paste(R.exportJSON(fixture())),
+    () => fire("sample"),
+    () => paste("[]"),
+    () => paste("id,title", "csv"),
+    async () => { const file = pendingFile("csv-file-input"); file.resolve("id,title\na,Alpha"); await file.done; },
+  ];
+  for (const replace of replacements) {
+    await paste(R.exportJSON(fixture()));
+    await selectRow(ui, 0); await applyBulk(ui, "rejected");
+    assert.equal($("bulk-undo").disabled, false);
+    await replace();
+    assert.match($("bulk-count").textContent, /0 selected · 0 hidden/);
+    assert.equal($("bulk-undo").disabled, true);
+    assert.equal($("bulk-result").textContent, "");
+    const saved = ui.working().saved;
+    await fire("bulk-undo");
+    assert.equal(ui.working().saved, saved);
+  }
 });

@@ -357,3 +357,69 @@ test("shipped preview is fresh, self-contained, and its actual scripts parse", (
   assert.equal(scripts.length, 2);
   for (const [, source] of scripts) new vm.Script(source);
 });
+
+
+test("bulk decisions change only explicit exact IDs and clone the review map once", () => {
+  const ids = ["a", "A", " a ", "__proto__", "constructor", "untouched"];
+  let state = R.importJSON(JSON.stringify(ids.map(id => ({ id, title: id, notes: "source", decision: "source", nested: [null, { x: 2 }] }))));
+  for (const id of ids) state = R.updateReview(state, id, { notes: "keep " + id });
+  state = R.updateReview(state, "a", { decision: "approved" });
+  freeze(state);
+  for (const decision of R.DECISIONS) {
+    const selected = freeze(["a", "__proto__", "constructor"]);
+    const result = R.bulkDecision(state, selected, decision);
+    assert.equal(result.state.records, state.records);
+    assert.equal(result.state.reviews.untouched, state.reviews.untouched);
+    assert.equal(result.state.reviews.A, state.reviews.A);
+    assert.equal(result.state.reviews[" a "], state.reviews[" a "]);
+    assert.deepEqual(result.changes.map(change => change.id), selected.filter(id => state.reviews[id].decision !== decision));
+    for (const id of ids) {
+      assert.equal(result.state.reviews[id].notes, state.reviews[id].notes);
+      assert.equal(result.state.reviews[id].decision, selected.includes(id) ? decision : state.reviews[id].decision);
+    }
+    assert.deepEqual(R.importJSON(R.exportJSON(result.state)), result.state);
+  }
+  // Count own-key enumerations: one map spread, not one per selected record.
+  let enumerations = 0;
+  const proxied = { ...state, reviews: new Proxy(state.reviews, { ownKeys(target) { enumerations++; return Reflect.ownKeys(target); } }) };
+  R.bulkDecision(proxied, ids, "rejected");
+  assert.equal(enumerations, 1);
+});
+
+test("bulk validation is atomic, empty/no-op work keeps state identity", () => {
+  const state = freeze(reviewed());
+  const before = R.exportJSON(state);
+  for (const [ids, decision] of [[null, "approved"], ["a", "approved"], [["a", "missing"], "rejected"],
+    [["a", 1], "rejected"], [["a", "a"], "rejected"], [["a"], "bad"], [[], "bad"]]) {
+    assert.throws(() => R.bulkDecision(state, ids, decision));
+    assert.equal(R.exportJSON(state), before);
+  }
+  for (const ids of [[], ["a"]]) {
+    const result = R.bulkDecision(state, ids, "approved");
+    assert.equal(result.state, state);
+    assert.deepEqual(result.changes, []);
+  }
+});
+
+test("bulk undo restores only changed decisions, keeping later notes and unrelated data", () => {
+  const state = freeze(reviewed());
+  const applied = R.bulkDecision(state, ["a", "b"], "approved");
+  assert.deepEqual(applied.changes, [{ id: "b", before: "unreviewed", after: "approved" }]);
+  let later = R.updateReview(applied.state, "b", { notes: "Later note ✓" });
+  later = R.updateReview(later, "a", { notes: "Other later note" });
+  freeze(later); freeze(applied.changes);
+  const undone = R.undoBulkDecision(later, applied.changes);
+  assert.equal(undone.state.records, state.records);
+  assert.equal(undone.state.reviews.a, later.reviews.a);
+  assert.deepEqual(undone.state.reviews.b, { decision: "unreviewed", notes: "Later note ✓" });
+  assert.equal(R.undoBulkDecision(later, []).state, later);
+  assert.throws(() => R.undoBulkDecision(undone.state, applied.changes));
+  for (const invalid of [null, [null], [{ id: "b", before: "bad", after: "approved" }],
+    [{ id: "b", before: "approved", after: "approved" }], [...applied.changes, ...applied.changes],
+    [...applied.changes, { id: "missing", before: "unreviewed", after: "approved" }]]) {
+    assert.throws(() => R.undoBulkDecision(later, invalid));
+  }
+  const newerIntent = R.updateReview(later, "b", { decision: "rejected" });
+  assert.throws(() => R.undoBulkDecision(newerIntent, applied.changes));
+  assert.deepEqual(later.reviews.b, { decision: "approved", notes: "Later note ✓" });
+});

@@ -48,8 +48,8 @@ four-record walkthrough.
    Here `items` is `""` or `"003"`, not a number. CSV imports records only; use JSON
    to restore or compare a saved review. See the exact CSV rules below.
 
-2. Select a record; mark it **Approve**, **Reject**, **Needs follow-up**, or return
-   it to **Unreviewed**. Notes apply as you type. Expand **Original record** to see
+2. Open a record by its title; mark it **Approve**, **Reject**, **Needs follow-up**,
+   or return it to **Unreviewed**. Notes apply as you type. Expand **Original record** to see
    every field. Search titles, IDs, and review notes (case-insensitive), combined
    with the selected decision filter. For example, `signed count` finds a record
    with the review note `Inventory matches the signed count.`. Leaving the notes
@@ -64,6 +64,44 @@ four-record walkthrough.
 3. Use **Export review** for a versioned JSON snapshot containing **all** records,
    decisions, and notes, regardless of filters. Download it or select/copy the
    JSON into a UTF-8 text file. Import that export to restore the exact snapshot.
+
+### Explicit selected-record decisions and one-step undo
+
+Use a row's **Select** toggle to include that exact ID in a bulk set. Its pressed
+state and **Selected** text identify membership; opening a record by its title
+only changes the editor, not the set. Select buttons support Tab and Enter/Space.
+
+- The bulk panel shows the total selected and how many are hidden by the current
+  search/decision filter. Filtering never retargets or drops selections. **Select
+  visible** adds all currently matching IDs, retaining hidden selections; it is
+  disabled with no matches or when all matches are already selected. When leaving
+  notes, visibility is evaluated after note completion, just like the list.
+- **Clear selection** removes the whole set, including hidden IDs, without
+  changing the editor or any review. It is disabled when the set is empty.
+- Choose any existing decision and use **Apply to N selected**. This applies to
+  exactly those IDs, including hidden ones—not the open editor or all filtered
+  records. Apply is disabled for an empty set. Selection remains after applying.
+  Original fields, every note and all unselected decisions remain untouched.
+- The result reports **changed** versus selected counts. Already-matching
+  decisions are not counted as changes. One validated batch in the existing
+  state owner copies the review map once, rather than once per selected ID.
+- **Undo last bulk action (N)** restores only those N changed decisions, keeping
+  later notes and all other data. There is one transient undo entry, not a
+  history or redo stack. Search/filter, selection, editor navigation, notes and
+  comparison do not consume it. Undo does not restore an earlier selection.
+- Any later single-record decision clears undo, even a same-decision click on an
+  unrelated record. A later bulk action replaces it; a nonempty but no-op bulk
+  action clears it and reports zero changes, without writing storage. Empty
+  actions create no undo work. Choosing a dropdown value alone is not an action.
+- Accepted JSON arrays, CSV (including empty/header-only datasets), saved-review
+  restores and sample data clear selection and undo. Rejected/unreadable or
+  superseded imports leave both intact. Reload starts with neither. They are
+  never exported or persisted; the version-1 format and storage key are unchanged.
+- New selection, apply, clear and undo buttons use the existing note-exit click
+  ordering: a completed click keeps the note and acts on its intended ID/set,
+  even if note changes remove a row from the results. Dragging off cancels the
+  action. The fixed compared snapshot stays fixed; its current side follows
+  accepted bulk decisions and undo, as it follows single-record edits.
 
 ### Compare a saved review without replacing your work
 
@@ -114,9 +152,9 @@ import/export contract and format/version are unchanged.
   change. New IDs start unreviewed; omitted IDs and their reviews are removed.
   An empty array clears
   the list; a valid header-only CSV does the same. Accepted CSV uses the same
-  replacement transition as arrays: selection resets to the first record, search
-  clears, the decision filter returns to All records, and the new state is saved
-  when storage permits. Export before replacing data you may want later.
+  replacement transition as arrays: the editor resets to the first record, bulk
+  selection and undo clear, search clears, the decision filter returns to All
+  records, and the new state is saved when storage permits. Export before replacing data you may want later.
 - A Record Desk export has `format: "record-review"`, `version: 1`, `records`,
   and `reviews` keyed by ID. It restores its own reviews, not a merge. Unsupported
   versions, missing/extra reviews, invalid decisions, duplicate IDs, malformed
@@ -224,7 +262,21 @@ errors, shared JSON-array validation/reconciliation, ordinary metadata-like colu
 names, atomic UI/storage rejection, explicit format routing, mixed-format pending
 read ordering, header-only clearing, JSON snapshot restoration, and live comparison.
 
-The eleven optional real-browser scenarios in `review-browser.test.js` are
+Bulk tests cover exact/prototype-like IDs, atomic late rejection, one review-map
+copy, mixed/no-op decisions, later-note-preserving undo, later decision intent,
+selection/editor/filter isolation, hidden counts, transient replacement/rejection
+and reload behavior, full exports and fixed comparison updates. Physical browser
+checks cover row selection (including a disappearing current row), select-visible,
+clear, apply and undo while notes are focused, drag cancellation, native keyboard
+activation, and narrow layout.
+
+The twelve optional real-browser scenarios in `review-browser.test.js` are
 skipped unless `RECORD_REVIEW_BROWSER` points to an already installed Chromium.
 Leave browser-launch opt-ins unset for the default Node checks; no browser
 installation is required.
+
+To exercise those checks with an existing browser (no download or installation):
+
+```sh
+RECORD_REVIEW_BROWSER=/path/to/chromium node --test review-browser.test.js
+```

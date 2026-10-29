@@ -15,6 +15,7 @@
     button:hover { background: #e9f1ee; border-color: #537c73; }
     button.primary { background: #176856; color: white; border-color: #176856; }
     button.primary:hover { background: #115344; }
+    button:disabled { cursor: default; opacity: .55; }
     :focus-visible { outline: 3px solid #b76c20; outline-offset: 3px; }
     input, select, textarea { width: 100%; border: 1px solid #aebfba; border-radius: 6px; padding: .65rem; background: white; color: #203335; }
     textarea { resize: vertical; }
@@ -58,7 +59,12 @@
     .sidebar { border-right: 1px solid #d2ded7; padding: 1.1rem; min-width: 0; background: #fbfcfa; }
     .filters { display: grid; gap: .7rem; }
     #record-list { display: grid; gap: .45rem; list-style: none; padding: 0; margin: .75rem 0 0; max-height: 520px; overflow: auto; }
-    .record { width: 100%; text-align: left; display: block; padding: .7rem .8rem; }
+    #record-list > li { display: flex; align-items: stretch; gap: .35rem; }
+    .record-select { flex: 0 0 5.5rem; padding: .4rem; font-size: .85rem; }
+    .record-select[aria-pressed="true"] { background: #176856; border-color: #176856; color: white; }
+    .bulk { padding: 1rem 1.1rem; margin-bottom: 1rem; }
+    .bulk select { width: auto; max-width: 100%; }
+    .record { width: 100%; min-width: 0; text-align: left; display: block; padding: .7rem .8rem; }
     .record[aria-current="true"] { background: #e8f3ed; border-color: #438570; box-shadow: inset 3px 0 #176856; }
     .record strong, .record small { display: block; overflow-wrap: anywhere; }
     .record small { color: #536762; margin-top: .2rem; }
@@ -125,6 +131,22 @@
     <div class="stat panel"><strong id="count-rejected">0</strong><span>Rejected</span></div>
     <div class="stat panel"><strong id="count-follow-up">0</strong><span>Needs follow-up</span></div>
   </section>
+  <section class="bulk panel" aria-labelledby="bulk-heading">
+    <h2 id="bulk-heading">Selected-record decisions</h2>
+    <p class="hint" id="bulk-policy">Use each row’s Select button to choose IDs independently of the open editor. Select visible adds all current matches, keeping hidden selections; it is disabled when there is nothing to add. Filters never change your set. Apply includes hidden selections.</p>
+    <p id="bulk-count" class="message" role="status" aria-live="polite">0 selected · 0 hidden by current search/filter.</p>
+    <div class="row">
+      <button type="button" id="select-visible" aria-describedby="bulk-policy" disabled>Select visible</button>
+      <button type="button" id="clear-selection" disabled>Clear selection</button>
+      <label for="bulk-decision">Decision for selected IDs</label>
+      <select id="bulk-decision"><option value="unreviewed">Unreviewed</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="follow-up">Needs follow-up</option></select>
+      <button type="button" id="bulk-apply" class="primary" aria-describedby="bulk-count bulk-policy" disabled>Apply to 0 selected</button>
+      <button type="button" id="bulk-undo" aria-describedby="bulk-undo-status" disabled>Undo last bulk action</button>
+    </div>
+    <p id="bulk-result" class="message" role="status" aria-live="polite"></p>
+    <p id="bulk-undo-status" class="hint" role="status">No bulk undo available.</p>
+    <p class="hint">Only decisions change. Select at least one ID to apply; an empty selection cannot be cleared. Undo restores only the last bulk action’s changed decisions, keeping later notes. Any later decision action replaces or clears undo. Accepted imports and reloads clear selection and undo; neither is saved or exported.</p>
+  </section>
   <section class="workspace panel" aria-label="Review workspace">
     <aside class="sidebar">
       <div class="filters">
@@ -134,7 +156,7 @@
       <p id="list-count" class="hint" aria-live="polite">0 records</p>
       <ul id="record-list" aria-label="Records"></ul>
     </aside>
-    <section class="editor" aria-label="Selected record">
+    <section class="editor" aria-label="Open record editor">
       <div id="empty" class="empty"><h2>Your next review starts here</h2><p>Import JSON or CSV above, or try the sample records.</p></div>
       <div id="record-editor" hidden>
         <p id="record-id"></p><h2 id="record-title"></h2>
@@ -325,6 +347,47 @@
     return { ...state, reviews: { ...state.reviews, [id]: { decision: review.decision, notes: review.notes } } };
   }
 
+  // Validate the whole batch before allocating one review-map copy. Notes and
+  // records never participate; the change list is transient undo data only.
+  function transitionDecisions(state, entries) {
+    const ids = new Set();
+    const changes = [];
+    for (const { id, decision } of entries) {
+      if (typeof id !== "string" || !own(state.reviews, id)) {
+        throw new Error("This record is not in the accepted dataset.");
+      }
+      if (ids.has(id)) throw new Error("Choose each record ID only once.");
+      if (!DECISIONS.includes(decision)) throw new Error("Choose a valid decision.");
+      ids.add(id);
+      const before = state.reviews[id].decision;
+      if (before !== decision) changes.push({ id, before, after: decision });
+    }
+    if (!changes.length) return { state, changes };
+    const reviews = { ...state.reviews };
+    for (const { id, after } of changes) reviews[id] = { ...reviews[id], decision: after };
+    return { state: { ...state, reviews }, changes };
+  }
+
+  function bulkDecision(state, ids, decision) {
+    if (!Array.isArray(ids)) throw new Error("Choose an explicit array of record IDs.");
+    if (!DECISIONS.includes(decision)) throw new Error("Choose a valid decision.");
+    return transitionDecisions(state, ids.map(id => ({ id, decision })));
+  }
+
+  function undoBulkDecision(state, changes) {
+    if (!Array.isArray(changes)) throw new Error("Invalid bulk undo.");
+    // Defense in depth: stale decision intent must never be overwritten. The
+    // adapter also discards this entry on every later decision or replacement.
+    for (const change of changes) {
+      if (!object(change) || typeof change.id !== "string" || !own(state.reviews, change.id) ||
+          !DECISIONS.includes(change.before) || !DECISIONS.includes(change.after) ||
+          change.before === change.after || state.reviews[change.id].decision !== change.after) {
+        throw new Error("This bulk undo no longer matches the current decisions.");
+      }
+    }
+    return transitionDecisions(state, changes.map(({ id, before }) => ({ id, decision: before })));
+  }
+
   // Comparison accepts saved reviews only, never the raw-array import contract.
   function parseSnapshotJSON(text) {
     const value = parseJSON(text);
@@ -411,7 +474,7 @@
 
   return Object.freeze({
     FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON, importCSV,
-    updateReview, parseSnapshotJSON, compareSnapshots, visibleRecords, counts, exportJSON, restore, persist,
+    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, visibleRecords, counts, exportJSON, restore, persist,
   });
 });
 
@@ -426,7 +489,9 @@
   const getStorage = () => window.localStorage;
   const restored = review.restore(getStorage);
   let state = restored.state || review.emptyState();
-  let selectedId = null;
+  let editorId = null;
+  const selectedIds = new Set();
+  let bulkUndo = null;
   let importSequence = 0;
   let comparisonSequence = 0;
   let comparedSnapshot = null;
@@ -559,6 +624,55 @@
     if ($("compare-panel").open) clearComparison();
   });
 
+  const matchingRecords = () => review.visibleRecords(state, $("search").value, $("filter").value);
+
+  function renderBulkControls(visible) {
+    const selectedVisible = visible.filter(record => selectedIds.has(record.id)).length;
+    $("bulk-count").textContent = selectedIds.size + " selected · " +
+      (selectedIds.size - selectedVisible) + " hidden by current search/filter.";
+    $("select-visible").disabled = visible.length === selectedVisible;
+    $("clear-selection").disabled = selectedIds.size === 0;
+    $("bulk-apply").disabled = selectedIds.size === 0;
+    $("bulk-apply").textContent = "Apply to " + selectedIds.size + " selected";
+    $("bulk-undo").disabled = !bulkUndo;
+    $("bulk-undo").textContent = bulkUndo ? "Undo last bulk action (" + bulkUndo.length + ")" : "Undo last bulk action";
+    $("bulk-undo-status").textContent = bulkUndo
+      ? "Undo available for " + bulkUndo.length + " changed decisions; later notes are kept."
+      : "No bulk undo available.";
+  }
+
+  $("select-visible").addEventListener("click", () => {
+    // Resolve visibility after note completion, never replace hidden selections.
+    const visible = matchingRecords();
+    for (const record of visible) selectedIds.add(record.id);
+    renderList(visible);
+  });
+  $("clear-selection").addEventListener("click", () => {
+    selectedIds.clear();
+    renderList(matchingRecords());
+  });
+  $("bulk-apply").addEventListener("click", () => {
+    if (!selectedIds.size) return;
+    const decision = $("bulk-decision").value;
+    const result = review.bulkDecision(state, [...selectedIds], decision);
+    // Even reasserting the current decision is later intent, not old undo work.
+    bulkUndo = result.changes.length ? result.changes : null;
+    state = result.state;
+    if (result.changes.length) { save(); render(); }
+    else renderBulkControls(matchingRecords());
+    $("bulk-result").textContent = "Changed " + result.changes.length + " of " + selectedIds.size +
+      " selected decisions to " + labels[decision] + "." + (bulkUndo ? " Undo is available." : " No decisions changed; no undo available.");
+  });
+  $("bulk-undo").addEventListener("click", () => {
+    if (!bulkUndo) return;
+    const result = review.undoBulkDecision(state, bulkUndo);
+    bulkUndo = null;
+    state = result.state;
+    save();
+    render();
+    $("bulk-result").textContent = "Restored " + result.changes.length + " decisions. Notes were kept. No bulk undo available.";
+  });
+
   // Reuse matching buttons so a note blur cannot remove a pending click target.
   const listItems = new Map();
   function renderList(visible) {
@@ -577,23 +691,43 @@
         button.className = "record";
         button.append(document.createElement("strong"), document.createElement("small"));
         button.addEventListener("click", () => {
-          if (selectedId === record.id) return; // Blur may remove this current row.
-          selectedId = record.id;
+          if (editorId === record.id) return; // Blur may remove this current row.
+          editorId = record.id;
           render();
           button.focus({ preventScroll: true });
         });
-        item.append(button);
+        const select = document.createElement("button");
+        select.type = "button";
+        select.className = "record-select";
+        select.addEventListener("click", () => {
+          // Capture the row ID, not its position or the open editor. This still
+          // works when note-exit removes this row during click capture.
+          if (selectedIds.has(record.id)) selectedIds.delete(record.id);
+          else selectedIds.add(record.id);
+          renderList(matchingRecords());
+          if (!select.isConnected) {
+            const target = selectedIds.size ? "clear-selection" : "search";
+            $(target).focus({ preventScroll: true });
+          }
+        });
+        item.append(button, select);
         listItems.set(record.id, item);
       }
+      const select = item.children[1];
+      const selected = selectedIds.has(record.id);
+      select.setAttribute("aria-pressed", String(selected));
+      select.setAttribute("aria-label", "Select record " + record.id + " for bulk decision");
+      select.textContent = selected ? "Selected" : "Select";
       const button = item.firstElementChild;
-      button.setAttribute("aria-current", String(record.id === selectedId));
+      button.setAttribute("aria-current", String(record.id === editorId));
       button.querySelector("strong").textContent = record.title;
       button.querySelector("small").textContent = record.id + " · " + labels[state.reviews[record.id].decision];
       if (list.children[index] !== item) list.insertBefore(item, list.children[index] || null);
     });
-    const outsideResults = selectedId !== null && !visibleIds.has(selectedId);
+    renderBulkControls(visible);
+    const outsideResults = editorId !== null && !visibleIds.has(editorId);
     $("selection-status").hidden = !outsideResults;
-    $("selection-status").textContent = outsideResults ? selectedId + " no longer matches the current search/filter. You are still editing this record." : "";
+    $("selection-status").textContent = outsideResults ? editorId + " no longer matches the current search/filter. You are still editing this record." : "";
   }
 
   function render() {
@@ -603,9 +737,9 @@
     $("review-progress").value = totals.reviewed;
     for (const decision of ["approved", "rejected", "follow-up"]) $("count-" + decision).textContent = totals[decision];
     const visible = review.visibleRecords(state, $("search").value, $("filter").value);
-    if (!visible.some(record => record.id === selectedId)) selectedId = visible[0]?.id ?? null;
+    if (!visible.some(record => record.id === editorId)) editorId = visible[0]?.id ?? null;
     renderList(visible);
-    const record = visible.find(record => record.id === selectedId);
+    const record = visible.find(record => record.id === editorId);
     $("record-editor").hidden = !record;
     $("empty").hidden = Boolean(record);
     if (!record) {
@@ -632,7 +766,10 @@
     try { next = format === "csv" ? review.importCSV(text, state) : review.importJSON(text, state); }
     catch (error) { rejectImport(error); return; }
     state = next;
-    selectedId = null;
+    editorId = null;
+    selectedIds.clear();
+    bulkUndo = null;
+    $("bulk-result").textContent = "";
     $("search").value = "";
     $("filter").value = "all";
     $("import-error").textContent = "";
@@ -681,13 +818,15 @@
   $("search").addEventListener("input", render);
   $("filter").addEventListener("change", render);
   for (const button of decisionButtons) button.addEventListener("click", () => {
-    if (selectedId === null) return;
-    const previousId = selectedId;
-    state = review.updateReview(state, selectedId, { decision: button.dataset.decision });
+    if (editorId === null) return;
+    const previousId = editorId;
+    state = review.updateReview(state, editorId, { decision: button.dataset.decision });
+    bulkUndo = null;
+    $("bulk-result").textContent = "";
     save();
     render();
-    $("activity").textContent = previousId + ": " + labels[button.dataset.decision] + (selectedId !== previousId ? ". Moved out of the current filter." : ".");
-    if (selectedId !== previousId) $("filter").focus({ preventScroll: true });
+    $("activity").textContent = previousId + ": " + labels[button.dataset.decision] + (editorId !== previousId ? ". Moved out of the current filter." : ".");
+    if (editorId !== previousId) $("filter").focus({ preventScroll: true });
   });
 
   // All click-activated controls share the same note-exit ordering, including
@@ -707,8 +846,8 @@
   }, true);
 
   $("notes").addEventListener("input", () => {
-    if (selectedId === null) return;
-    state = review.updateReview(state, selectedId, { notes: $("notes").value });
+    if (editorId === null) return;
+    state = review.updateReview(state, editorId, { notes: $("notes").value });
     save(); // Don't re-render the editor: preserve caret, focus, and IME input.
   });
   $("notes").addEventListener("blur", () => {
