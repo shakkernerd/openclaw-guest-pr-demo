@@ -852,6 +852,22 @@ captures. Two real descriptor-failure checks use Linux `/dev/full` for report an
 usage writes (skipped outside Linux or if that device is absent); they do not
 simulate writes or claim coverage of every platform or sink failure.
 
+### Compare two saved capture attempts (example)
+
+The [JSON comparison companion](examples/compare-batch-captures.md) reads explicitly
+ordered before/after directories without rerunning a producer or opening original
+orders. It reuses the unchanged reader and keeps process outcomes, observed order
+changes and evidence problems separate. An optional one-to-one line mapping is
+required for order correspondence; without it both observation sets stay separate.
+Missing/invalid required streams or process results remain unresolved and return
+nonzero even when useful partial JSON is emitted. Recorded producer failure or
+differences alone do not fail comparison. Whole-capture memory limits still apply.
+
+```sh
+node examples/compare-batch-captures.js --mapping line-mapping.json runs/before runs/after
+node --test examples/compare-batch-captures.test.js
+```
+
 ### Printable handoff from saved reader reports (example)
 
 The sequence is **capture → saved-stream reader → HTML handoff**. The
