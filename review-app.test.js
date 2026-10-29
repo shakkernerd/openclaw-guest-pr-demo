@@ -726,3 +726,261 @@ test("accepted replacements clear transient work; rejected and superseded import
     assert.equal(ui.working().saved, saved);
   }
 });
+
+
+async function previewReturned(ui, text) {
+  await ui.fire("returned-open");
+  ui.$("returned-json").value = text;
+  await ui.fire("returned-paste");
+}
+const returnedSubset = (state = fixture(), patch = { decision: "follow-up", notes: "Returned 雪\n<em>literal</em>" }) =>
+  R.exportSelectedJSON(R.updateReview(state, "a", patch), ["a"]);
+
+test("returned preview is distinct, read-only, complete text and preserves hidden selection, export, comparison and undo", async () => {
+  const ui = app(fixture());
+  const { $, fire } = ui;
+  await fire("select-visible"); await applyBulk(ui, "rejected");
+  $("search").value = "Beta"; await fire("search", "input");
+  await fire("export-selected");
+  await fire("compare-open"); await ui.compare(R.exportJSON(fixture()));
+  const before = ui.working();
+  const comparison = $("compare-list").firstElementChild;
+  const undo = $("bulk-undo-status").textContent;
+  const incoming = JSON.parse(returnedSubset());
+  incoming.records.push({ id: "b", title: "Changed Beta" }, { id: "unknown", title: "<img src=x>" });
+  incoming.reviews.b = { decision: "approved", notes: "skip conflict" };
+  incoming.reviews.unknown = { decision: "rejected", notes: "skip unknown" };
+  await previewReturned(ui, JSON.stringify(incoming));
+  assert.deepEqual(ui.working(), before);
+  assert.equal($("compare-list").firstElementChild, comparison);
+  assert.equal($("bulk-undo-status").textContent, undo);
+  assert.equal($("bulk-undo").disabled, false);
+  assert.match($("bulk-count").textContent, /2 selected · 1 hidden/);
+  assert.match($("returned-counts").textContent, /Eligible updates: 1.*Unchanged reviews: 0.*Unknown IDs \(unapplied\): 1.*Changed-record conflicts \(unapplied\): 1/);
+  const rows = $("returned-list").querySelectorAll("details");
+  assert.match(rows[0].textContent, /Eligible update/);
+  assert.match(rows[1].textContent, /Changed-record conflict/);
+  assert.match(rows[2].textContent, /Unknown ID/);
+  assert.deepEqual(rows[0].querySelectorAll("pre").map(node => JSON.parse(node.textContent)),
+    [fixture().records[0], { decision: "rejected", notes: "keep Alpha" }, incoming.records[0], incoming.reviews.a]);
+  assert.match(rows[2].textContent, /<img src=x>/);
+  await fire("returned-close");
+  assert.deepEqual(ui.working(), before);
+  assert.equal($("returned-list").children.length, 0);
+  assert.equal($("returned-apply").disabled, true);
+  assert.equal($("compare-list").firstElementChild, comparison);
+  await fire("bulk-undo");
+  assert.deepEqual(JSON.parse(ui.working().saved), fixture());
+});
+
+test("returned file applies one eligible batch only, preserves all records and hidden IDs, updates full export and fixed comparison", async () => {
+  const initial = R.importJSON(JSON.stringify([...fixture().records,
+    { id: "c", title: "Gamma", value: "003" }, { id: "outside", title: "Outside" }]), fixture());
+  const ui = app(initial);
+  const { $, fire } = ui;
+  await fire("select-visible"); await applyBulk(ui, "rejected");
+  const current = JSON.parse(ui.working().saved);
+  $("search").value = "Outside"; await fire("search", "input");
+  await fire("export-selected");
+  await fire("compare-open"); await ui.compare(R.exportJSON(current));
+  const incoming = R.importJSON(R.exportSelectedJSON(current, ["a", "b", "c"]));
+  incoming.reviews.a = { decision: "unreviewed", notes: "" };
+  incoming.records[2].value = 3;
+  incoming.reviews.c = { decision: "approved", notes: "do not take" };
+  incoming.records.push({ id: "unknown", title: "Unknown" });
+  incoming.reviews.unknown = { decision: "approved", notes: "do not create" };
+  await fire("returned-open");
+  const file = ui.pendingFile("returned-file", "teammate-selected.json");
+  file.resolve(R.exportJSON(incoming)); await file.done;
+  assert.match($("returned-source").textContent, /teammate-selected.json/);
+  assert.match($("returned-counts").textContent, /Eligible updates: 1.*Unchanged reviews: 1/);
+  assert.match($("returned-list").children[1].textContent, /Unchanged review/);
+  const writes = ui.working().writes;
+  await fire("returned-apply");
+  const expected = R.updateReview(current, "a", incoming.reviews.a);
+  assert.equal(ui.working().writes, writes + 1);
+  assert.deepEqual(JSON.parse(ui.working().saved), expected);
+  assert.deepEqual(JSON.parse(ui.working().saved).records, initial.records);
+  assert.match($("bulk-count").textContent, /4 selected · 3 hidden/);
+  assert.equal($("search").value, "Outside");
+  assert.equal($("record-id").textContent, "outside");
+  assert.equal($("export-json").value, "");
+  assert.equal($("download").disabled, true);
+  assert.match($("export-scope").textContent, /Working data changed/);
+  assert.equal($("bulk-undo").disabled, true);
+  assert.match($("bulk-undo-status").textContent, /Previous bulk undo cleared.*no undo/);
+  assert.match($("returned-status").textContent, /Applied 1 review updates in one batch/);
+  assert.match($("returned-counts").textContent, /Eligible updates: 0.*Unchanged reviews: 2.*Unknown IDs \(unapplied\): 1.*conflicts \(unapplied\): 1/);
+  assert.equal($("returned-apply").disabled, true);
+  assert.match($("compare-breakdown").textContent, /decisions: 1, notes: 1/);
+  assert.deepEqual(JSON.parse($("compare-list").querySelectorAll("pre")[3].textContent), current.reviews.a);
+  await fire("bulk-undo"); await fire("returned-apply");
+  assert.equal(ui.working().writes, writes + 1);
+  await fire("export-open");
+  assert.equal($("export-json").value, R.exportJSON(expected));
+  const recipient = app(R.emptyState());
+  await recipient.paste($("export-json").value);
+  assert.deepEqual(JSON.parse(recipient.working().saved), expected);
+  // Reload restores only the existing snapshot format, not returned UI state.
+  const reloaded = app(expected);
+  await reloaded.fire("returned-apply");
+  assert.equal(reloaded.working().writes, 0);
+  assert.match(reloaded.$("bulk-count").textContent, /0 selected/);
+});
+
+test("notes-only returned intent clears older bulk undo but preview, rejection and no-op do not", async () => {
+  const ui = app(fixture());
+  const { $, fire } = ui;
+  await selectRow(ui, 0); await applyBulk(ui, "rejected");
+  const current = JSON.parse(ui.working().saved);
+  for (const text of [R.exportJSON(current), R.exportJSON(R.emptyState()),
+    R.exportJSON(R.importJSON('[{"id":"x","title":"Unknown"}]')), "[]", "bad JSON"]) {
+    const before = ui.working();
+    await previewReturned(ui, text);
+    assert.equal($("returned-apply").disabled, true);
+    await fire("returned-apply");
+    assert.deepEqual(ui.working(), before);
+    assert.equal($("bulk-undo").disabled, false);
+  }
+  await previewReturned(ui, returnedSubset(current, { notes: "Only notes changed" }));
+  assert.equal($("bulk-undo").disabled, false);
+  await fire("returned-apply");
+  assert.equal($("bulk-undo").disabled, true);
+  const applied = ui.working();
+  assert.equal(JSON.parse(applied.saved).reviews.a.decision, "rejected");
+  await fire("bulk-undo");
+  assert.deepEqual(ui.working(), applied);
+  assert.match($("bulk-undo-status").textContent, /cannot reverse newer returned-review intent/);
+  // A later ordinary bulk action owns its own decision-only undo as before.
+  await applyBulk(ui, "approved"); await fire("bulk-undo");
+  assert.deepEqual(JSON.parse(ui.working().saved).reviews.a, { decision: "rejected", notes: "Only notes changed" });
+});
+
+test("any later review edit requires refresh then deliberate current Apply, even after repeated edits or revert", async () => {
+  for (const change of [
+    async ui => { ui.$("notes").value = "Local note"; await ui.fire("notes", "input"); },
+    ui => ui.buttons.find(button => button.dataset.decision === "rejected").emit("click"),
+    async ui => { await selectRow(ui, 1); await applyBulk(ui, "rejected"); },
+    async ui => { await selectRow(ui, 1); await applyBulk(ui, "rejected"); await ui.fire("bulk-undo"); },
+    async ui => { ui.$("notes").value = "temporary"; await ui.fire("notes", "input");
+      ui.$("notes").value = "keep Alpha"; await ui.fire("notes", "input"); },
+  ]) {
+    const ui = app(fixture());
+    const { $, fire } = ui;
+    await previewReturned(ui, returnedSubset());
+    await change(ui);
+    assert.match($("returned-status").textContent, /changed since preview/);
+    const current = ui.working();
+    const undo = $("bulk-undo").disabled;
+    await fire("export-open");
+    await fire("returned-apply");
+    assert.equal(ui.working().writes, current.writes);
+    assert.equal(ui.working().saved, current.saved);
+    assert.equal($("bulk-undo").disabled, undo);
+    assert.match($("returned-status").textContent, /Proposal refreshed; nothing applied/);
+    const refreshedBefore = JSON.parse($("returned-list").querySelectorAll("pre")[1].textContent);
+    assert.deepEqual(refreshedBefore, JSON.parse(current.saved).reviews.a);
+    // Another edit invalidates even this refreshed proposal.
+    $("notes").value = "Another local note"; await fire("notes", "input");
+    const afterEdit = ui.working();
+    await fire("returned-apply");
+    assert.equal(ui.working().writes, afterEdit.writes);
+    await fire("returned-apply");
+    assert.equal(ui.working().writes, afterEdit.writes + 1);
+    assert.deepEqual(JSON.parse(ui.working().saved).reviews.a, JSON.parse(returnedSubset()).reviews.a);
+    assert.deepEqual(JSON.parse(ui.working().saved).reviews.b, JSON.parse(afterEdit.saved).reviews.b);
+    assert.equal($("export-json").value, ui.working().saved);
+  }
+});
+
+test("accepted replacements reclassify returned IDs on Apply; stale conflicts can become eligible without silent writes", async () => {
+  const ui = app(fixture());
+  const { $, fire } = ui;
+  await previewReturned(ui, returnedSubset());
+  await ui.paste('[{"id":"a","title":"Changed Alpha"},{"id":"b","title":"Beta"}]');
+  const replaced = ui.working();
+  await fire("returned-apply");
+  assert.deepEqual(ui.working(), replaced);
+  assert.match($("returned-counts").textContent, /Eligible updates: 0.*conflicts \(unapplied\): 1/);
+  assert.equal($("returned-apply").disabled, true);
+  await ui.paste("[]");
+  await fire("returned-apply");
+  assert.match($("returned-counts").textContent, /Unknown IDs \(unapplied\): 1/);
+  await ui.paste(R.exportJSON(fixture()));
+  assert.equal($("returned-apply").disabled, false); // Refresh an old zero-eligible proposal.
+  const restored = ui.working();
+  await fire("returned-apply");
+  assert.deepEqual(ui.working(), restored);
+  assert.match($("returned-counts").textContent, /Eligible updates: 1/);
+  await fire("returned-apply");
+  assert.equal(ui.working().writes, restored.writes + 1);
+});
+
+test("returned reads are latest-started-wins, isolated from import/comparison and canceled by input edits or close", async () => {
+  const ui = app(fixture());
+  const { $, fire, pendingFile } = ui;
+  await fire("returned-open");
+  const older = pendingFile("returned-file", "old.json");
+  const newer = pendingFile("returned-file", "new.json");
+  newer.resolve(returnedSubset()); await newer.done;
+  older.reject(new Error("late error")); await older.done;
+  assert.match($("returned-source").textContent, /new.json/);
+  assert.equal($("returned-error").textContent, "");
+  assert.equal($("returned-file").value, "");
+  const stable = ui.working();
+  const pending = pendingFile("returned-file");
+  await previewReturned(ui, "bad");
+  const rejected = $("returned-error").textContent;
+  pending.resolve(returnedSubset()); await pending.done;
+  assert.equal($("returned-error").textContent, rejected);
+  assert.equal($("returned-apply").disabled, true);
+  const unreadable = pendingFile("returned-file");
+  unreadable.reject(new Error("denied")); await unreadable.done;
+  assert.match($("returned-error").textContent, /Could not read/);
+  assert.deepEqual(ui.working(), stable);
+  for (const close of ["returned-close", "returned-toggle", "returned-panel", "returned-json"]) {
+    await fire("returned-open");
+    const late = pendingFile("returned-file");
+    if (close === "returned-panel") { $(close).open = false; await fire(close, "toggle"); }
+    else if (close === "returned-json") { $(close).value = "changed input"; await fire(close, "input"); }
+    else await fire(close);
+    late.resolve(returnedSubset()); await late.done;
+    assert.equal($("returned-apply").disabled, true);
+    assert.equal($("returned-results").hidden, true);
+    assert.deepEqual(ui.working(), stable);
+  }
+  await fire("returned-open"); await fire("compare-open");
+  const returned = pendingFile("returned-file");
+  const compared = pendingFile("compare-file");
+  await ui.paste(R.exportJSON(fixture()));
+  compared.resolve(R.exportJSON(R.emptyState())); await compared.done;
+  returned.resolve(returnedSubset()); await returned.done;
+  assert.match($("compare-status").textContent, /Compared: 0/);
+  const writes = ui.working().writes;
+  await fire("returned-apply"); // Preview was built from state at file completion, not start.
+  assert.equal(ui.working().writes, writes + 1);
+});
+
+test("filters, selection, failed imports and comparison do not stale returned preview; note-exit edits do", async () => {
+  const ui = app(fixture());
+  const { $, fire } = ui;
+  await previewReturned(ui, returnedSubset());
+  await selectRow(ui, 0);
+  $("search").value = "Beta"; await fire("search", "input");
+  await ui.paste("bad");
+  await fire("compare-open"); await ui.compare(R.exportJSON(fixture()));
+  await fire("returned-apply");
+  assert.match($("returned-status").textContent, /Applied 1/);
+  assert.match($("bulk-count").textContent, /1 selected · 1 hidden/);
+  $("search").value = "keep"; await fire("search", "input"); // b editor
+  await previewReturned(ui, R.exportSelectedJSON(R.updateReview(fixture(), "b", { notes: "Returned Beta" }), ["b"]));
+  $("notes").focus(); $("notes").value = "No longer matching"; await fire("notes", "input");
+  const writes = ui.working().writes;
+  await ui.activate("returned-apply"); // Shared note-exit capture, not replayed clicks.
+  assert.equal(ui.working().writes, writes);
+  assert.match($("returned-status").textContent, /Proposal refreshed/);
+  assert.equal(JSON.parse(ui.working().saved).reviews.b.notes, "No longer matching");
+  await ui.activate("returned-apply");
+  assert.equal(ui.working().writes, writes + 1);
+  assert.equal(JSON.parse(ui.working().saved).reviews.b.notes, "Returned Beta");
+});

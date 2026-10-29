@@ -103,6 +103,75 @@ four-record walkthrough.
   use an **actual downloaded file**, then **Choose JSON file** in an isolated
   recipient state. Check exact included IDs, order, full fields and reviews.
   Normal snapshot import **replaces** the recipient list; it does not merge.
+  To bring a teammate’s returned decisions/notes into your existing dataset, use
+  **Preview returned review**, not **Import & replace**, as described next.
+
+### Returned review: preview, then apply review updates
+
+1. Keep your working dataset open. Choose **Preview returned review**, then
+   **Choose returned review to preview** for the teammate’s version-1 snapshot.
+   Alternatively paste its JSON and use **Preview pasted review updates**.
+   A selected handoff is an ordinary version-1 snapshot; full snapshots also
+   work. Raw arrays, CSV, unsupported versions and malformed snapshots are
+   rejected. No new file format, schema, storage key or dependency is involved.
+2. Inspect the separate **read-only preview**, with counts and expandable
+   entries for every returned ID, in returned-snapshot order:
+   - **Eligible update:** the exact ID exists and its complete original record
+     still matches, but the decision and/or notes differ.
+   - **Unchanged review:** the record, decision and notes already match; no write
+     is needed.
+   - **Unknown ID:** absent from the current dataset; unapplied, never created.
+   - **Changed-record conflict:** the ID exists but any original record field or
+     value differs; unapplied, with the current record **and review** kept.
+   Each entry shows full current/returned records and reviews as literal JSON
+   text, not interpreted HTML. Equality compares all values and types recursively:
+   missing differs from null/empty, numbers differ from strings, array order
+   matters and object key order does not. IDs are case-sensitive and untrimmed.
+   There is no source coercion, automatic winner, field merge or replacement
+   record. The existing JSON numeric-precision/serialization limits still apply.
+3. Use **Apply review updates** deliberately. It parses and validates the
+   **complete incoming snapshot again**, including unknown/conflicting entries,
+   then derives eligibility from current working state. Only eligible decision
+   and note pairs are applied in one validated batch. Empty notes and Unreviewed
+   are real returned intent, not missing values. Any invalid entry rejects the
+   whole action before writes. A fresh preview with no eligible updates disables
+   Apply and performs no writes. Export a full backup before applying.
+
+Preview, rejection, closing and a stale Apply do not change working records,
+reviews, selected IDs (including hidden selections), prepared output, saved-review
+comparison or bulk undo. Preview does not save or replace the working dataset.
+On successful Apply, every original record, field, type and working-array order
+is retained; reviews outside the eligible set stay intact. Selection and filters
+never limit or retarget the proposal. Full export remains live, and a previously
+prepared selected export is invalidated with the existing working-data-change
+explanation. The existing comparison’s saved side stays fixed and read-only;
+its current side follows applied updates.
+
+**Freshness:** a preview holds the immutable working-state identity, not a future
+replacement state. If data or reviews change after preview—even an unrelated
+note, an accepted import, an undo, or edits later reverted—the next Apply only
+refreshes the proposal and reports **nothing applied**. Inspect that current
+proposal and deliberately Apply again. Another edit requires another refresh.
+This also lets a formerly unknown/conflicting entry be reconsidered without a
+silent write. Search/filter, selection, comparison and rejected imports do not
+change the working state or require a refresh. Same-value single-record review
+actions conservatively require a refresh too.
+
+**Existing bulk undo:** any successful nonempty returned-review batch clears the
+previous decision-only bulk undo, including notes-only updates or updates outside
+that older bulk set. Otherwise an old undo could reverse newer returned intent.
+The UI explains the invalidation. This is **not a new undo feature**: returned
+updates have no undo entry. Preview, rejected/stale actions and zero-update
+proposals leave the previous undo intact. Later ordinary bulk actions can create
+their usual decision-only undo.
+
+Returned file reads have their own latest-started-wins order, independent of
+import and comparison. A newer preview attempt (even rejected), editing the
+paste input, or closing the panel clears the old proposal and cancels pending
+success/failure. File reads build the preview from working state at completion.
+Closing clears only the returned preview, not the working review or comparison.
+The proposal, source text and freshness guard are transient; reload restores only
+the existing version-1 working snapshot.
 
 ### Explicit selected-record decisions and one-step undo
 
@@ -132,6 +201,9 @@ only changes the editor, not the set. Select buttons support Tab and Enter/Space
   unrelated record. A later bulk action replaces it; a nonempty but no-op bulk
   action clears it and reports zero changes, without writing storage. Empty
   actions create no undo work. Choosing a dropdown value alone is not an action.
+- Successful **Apply review updates** also clears this old decision-only undo,
+  even when only returned notes change; the UI explains why. Preview and stale
+  refresh do not consume it. Returned-review updates do not create undo entries.
 - Accepted JSON arrays, CSV (including empty/header-only datasets), saved-review
   restores and sample data clear selection and undo. Rejected/unreadable or
   superseded imports leave both intact. Reload starts with neither. They are
@@ -270,20 +342,30 @@ Exports remain JSON so all record fields and separately owned reviews round-trip
 ### Small source layout
 
 - `review-state.js`: JSON/CSV parsing, pure validation, identity-based state
-  transitions, snapshot comparison, filtering, export, and guarded storage;
+  transitions, snapshot comparison, returned-review eligibility/batch apply,
+  filtering, export, and guarded storage;
   also usable in Node tests.
-- `review-app.js`: DOM events, independent async import/comparison ordering,
-  rendering, and download UI.
+- `review-app.js`: DOM events, independent async import/comparison/returned-read
+  ordering, transient selection/undo/preview freshness, rendering and download UI.
 - `review-template.html`: accessible, responsive markup and inline CSS.
 - `build-review.js`: built-in Node APIs only; inlines those sources into the
   delivered `index.html` so restrictive previews need no relative asset access.
+
+Returned updates extend the existing owners rather than introducing a merge
+framework: `validateSnapshot`/`parseSnapshotJSON` own the version-1 boundary;
+`equalJSON` owns recursive comparison for both saved and returned snapshots;
+`previewReviewUpdates` and `applyReviewUpdates` own pure review-only transitions.
+`importJSON`/`importCSV`/`replaceRecords` still own replacement imports, unchanged.
+The adapter’s `selectedIds`, `bulkUndo`, `save`/`invalidateSelectedExport` and
+fixed `comparedSnapshot` keep their existing responsibilities. No returned
+metadata enters persistence or export.
 
 After editing those sources, run:
 
 ```sh
 node build-review.js
 node build-review.js --check
-node --test review-state.test.js review-app.test.js
+node --test review-state.test.js review-app.test.js parcel-label.test.js
 git diff --check
 ```
 
@@ -297,6 +379,17 @@ actual DOM adapter against a small Node harness for complete text rendering,
 working/editor/storage isolation, live updates, and deterministic file-read
 success/failure/supersession races. This harness does not test browser layout or
 native keyboard/Undo behavior.
+Returned-review checks cover the four categories, nested values/types and special
+keys, complete validation before writes, unchanged record identity/order, excluded
+review preservation, state freshness after edits/imports/undo, repeated deliberate
+Apply, no-op behavior, notes-only undo invalidation, hidden selection, prepared
+export invalidation, full round trips, fixed comparison, text-only rendering,
+note-exit ordering and independent file-read cancellation/races. These are source
+and Node-harness checks, not actual returned-file or client/media acceptance.
+For this contribution, run only the named Node files: do not launch a browser,
+run the optional browser suite, or enable its browser/sandbox switches. Actual
+returned-file and client/media acceptance remain a separate manual gate in the
+retained approved browser before publication.
 Selected-handoff Node checks cover exact membership and original order, all
 decision statuses, complete nested/special-key values and notes, empty/invalid
 selection, hidden selections, explicit scope switching and invalidation,

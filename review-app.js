@@ -10,10 +10,15 @@
   let editorId = null;
   const selectedIds = new Set();
   let bulkUndo = null;
+  let bulkUndoReason = "";
   let importSequence = 0;
   let comparisonSequence = 0;
   let comparedSnapshot = null;
   let comparedSource = "";
+  let returnedSequence = 0;
+  let returnedText = null; // Retain source text for complete revalidation at Apply.
+  let returnedSource = "";
+  let returnedBase = null; // Immutable working-state identity at last preview.
   let exportScope = "all";
   let selectedExport = null; // Prepared JSON, never the live selection or textarea.
   let exportReason = "";
@@ -59,6 +64,11 @@
     storageMessage(saved ? "Saved in this browser — records, decisions, and notes will restore here when storage is available. Keep an export as a backup." : memoryWarning, saved);
     if ($("export-panel").open) updateExport();
     if (comparedSnapshot) renderComparison();
+    if (returnedText !== null && state !== returnedBase) {
+      $("returned-status").textContent = "Working data or reviews changed since preview. Apply will only refresh the proposal; inspect it and Apply again. Nothing has been applied from this preview.";
+      // Even a previously empty/conflicting proposal may now have eligible IDs.
+      $("returned-apply").disabled = false;
+    }
   }
 
   function comparisonText(tag, text) {
@@ -174,6 +184,151 @@
 
   const matchingRecords = () => review.visibleRecords(state, $("search").value, $("filter").value);
 
+  function renderReturnedPreview(preview) {
+    const { counts, entries } = preview;
+    $("returned-results").hidden = false;
+    $("returned-source").textContent = "Returned snapshot: " + returnedSource + ". Entries keep returned snapshot order.";
+    $("returned-counts").textContent = "Returned: " + counts.total + " · Eligible updates: " + counts.eligible +
+      " · Unchanged reviews: " + counts.unchanged + " · Unknown IDs (unapplied): " + counts.unknown +
+      " · Changed-record conflicts (unapplied): " + counts.conflict + ".";
+    $("returned-apply").disabled = counts.eligible === 0;
+    const list = $("returned-list");
+    const expanded = new Set([...list.querySelectorAll("details[open]")].map(node => node.dataset.id));
+    list.replaceChildren();
+    const kinds = { eligible: "Eligible update — decision and/or notes will change",
+      unchanged: "Unchanged review — no write needed", unknown: "Unknown ID — unapplied; no record created",
+      conflict: "Changed-record conflict — unapplied; current record and review kept" };
+    for (const entry of entries) {
+      const item = document.createElement("li");
+      const details = document.createElement("details");
+      details.dataset.id = entry.id;
+      details.open = expanded.has(entry.id);
+      details.append(comparisonText("summary", JSON.stringify(entry.id) + " — " + kinds[entry.kind]));
+      const sides = document.createElement("div");
+      sides.className = "comparison-sides";
+      for (const [label, value] of [["Current working review", entry.before], ["Returned snapshot", entry.after]]) {
+        const side = document.createElement("section");
+        side.setAttribute("aria-label", label);
+        side.append(comparisonText("h3", label));
+        if (value) {
+          side.append(comparisonText("h4", "Record · all fields"), comparisonText("pre", JSON.stringify(value.record, null, 2)),
+            comparisonText("h4", "Review · decision and notes"), comparisonText("pre", JSON.stringify(value.review, null, 2)));
+        } else side.append(comparisonText("p", "Not present in the working review."));
+        sides.append(side);
+      }
+      details.append(sides);
+      item.append(details);
+      list.append(item);
+    }
+  }
+
+  function resetReturnedPreview() {
+    returnedText = null;
+    returnedSource = "";
+    returnedBase = null;
+    $("returned-results").hidden = true;
+    $("returned-list").replaceChildren();
+    $("returned-apply").disabled = true;
+    for (const id of ["returned-error", "returned-status", "returned-source", "returned-counts"]) $(id).textContent = "";
+  }
+
+  function rejectReturnedPreview(error) {
+    resetReturnedPreview();
+    $("returned-error").textContent = error.message + " Returned preview cleared. No review updates applied; your working review is unchanged.";
+  }
+
+  function acceptReturnedPreview(text, source) {
+    try {
+      const incoming = review.parseSnapshotJSON(text, "Returned review");
+      const preview = review.previewReviewUpdates(state, incoming);
+      returnedText = text;
+      returnedSource = source;
+      returnedBase = state;
+      renderReturnedPreview(preview);
+      $("returned-status").textContent = "Read-only preview ready. Nothing applied." +
+        (preview.counts.eligible ? " Inspect the proposal, then use Apply review updates." : " No eligible updates to apply.");
+    } catch (error) { rejectReturnedPreview(error); }
+  }
+
+  $("returned-open").addEventListener("click", () => {
+    $("returned-panel").open = true;
+    $("returned-json").focus();
+  });
+  $("returned-paste").addEventListener("click", () => {
+    returnedSequence++;
+    resetReturnedPreview();
+    acceptReturnedPreview($("returned-json").value, "pasted JSON");
+  });
+  $("returned-json").addEventListener("input", () => {
+    returnedSequence++;
+    resetReturnedPreview();
+    $("returned-status").textContent = "Pasted input changed. Preview it before applying; nothing applied.";
+  });
+  $("returned-file").addEventListener("change", async event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const sequence = ++returnedSequence;
+    event.target.value = "";
+    $("returned-json").value = "";
+    resetReturnedPreview();
+    $("returned-status").textContent = "Reading returned snapshot: " + file.name + "…";
+    try {
+      const text = await file.text();
+      if (sequence !== returnedSequence || !$("returned-panel").open) return;
+      acceptReturnedPreview(text, file.name);
+    } catch {
+      if (sequence === returnedSequence && $("returned-panel").open) {
+        rejectReturnedPreview(new Error("Could not read that file. Try pasting its JSON instead."));
+      }
+    }
+  });
+  function clearReturnedPreview() {
+    returnedSequence++;
+    resetReturnedPreview();
+    $("returned-json").value = "";
+    $("returned-file").value = "";
+  }
+  $("returned-close").addEventListener("click", () => {
+    clearReturnedPreview();
+    $("returned-panel").open = false;
+    $("returned-open").focus();
+  });
+  $("returned-panel").addEventListener("toggle", () => {
+    if (!$("returned-panel").open) clearReturnedPreview();
+  });
+  $("returned-toggle").addEventListener("click", () => {
+    if ($("returned-panel").open) clearReturnedPreview();
+  });
+  $("returned-apply").addEventListener("click", () => {
+    if (returnedText === null) return;
+    let incoming, result;
+    try {
+      incoming = review.parseSnapshotJSON(returnedText, "Returned review");
+      result = review.applyReviewUpdates(state, incoming, returnedBase);
+    } catch (error) { rejectReturnedPreview(error); return; }
+    if (result.stale) {
+      returnedBase = state;
+      renderReturnedPreview(result.preview);
+      $("returned-status").textContent = "Working data or reviews changed since preview. Proposal refreshed; nothing applied. Inspect the current proposal" +
+        (result.preview.counts.eligible ? " and deliberately Apply review updates again." : "; no eligible updates to apply.");
+      return;
+    }
+    if (!result.changed) return;
+    // Even notes-only returned intent must not be reversed by an older decision
+    // undo. This clears the existing entry; it does not introduce review undo.
+    const clearedUndo = Boolean(bulkUndo);
+    bulkUndo = null;
+    bulkUndoReason = clearedUndo ? "Previous bulk undo cleared by Apply review updates so it cannot reverse newer returned-review intent. Returned-review updates have no undo."
+      : "Returned-review updates have no undo.";
+    $("bulk-result").textContent = "";
+    state = result.state;
+    returnedBase = state;
+    save();
+    render();
+    renderReturnedPreview(review.previewReviewUpdates(state, incoming));
+    $("returned-status").textContent = "Applied " + result.changed + " review updates in one batch. No records replaced. Unknown IDs and changed-record conflicts stayed unapplied. " + bulkUndoReason;
+  });
+
   function renderBulkControls(visible) {
     const selectedVisible = visible.filter(record => selectedIds.has(record.id)).length;
     $("bulk-count").textContent = selectedIds.size + " selected · " +
@@ -188,7 +343,7 @@
     $("bulk-undo").textContent = bulkUndo ? "Undo last bulk action (" + bulkUndo.length + ")" : "Undo last bulk action";
     $("bulk-undo-status").textContent = bulkUndo
       ? "Undo available for " + bulkUndo.length + " changed decisions; later notes are kept."
-      : "No bulk undo available.";
+      : bulkUndoReason || "No bulk undo available.";
   }
 
   $("select-visible").addEventListener("click", () => {
@@ -209,6 +364,7 @@
     const result = review.bulkDecision(state, [...selectedIds], decision);
     // Even reasserting the current decision is later intent, not old undo work.
     bulkUndo = result.changes.length ? result.changes : null;
+    bulkUndoReason = "";
     state = result.state;
     if (result.changes.length) { save(); render(); }
     else renderBulkControls(matchingRecords());
@@ -219,6 +375,7 @@
     if (!bulkUndo) return;
     const result = review.undoBulkDecision(state, bulkUndo);
     bulkUndo = null;
+    bulkUndoReason = "";
     state = result.state;
     save();
     render();
@@ -322,6 +479,7 @@
     editorId = null;
     selectedIds.clear();
     bulkUndo = null;
+    bulkUndoReason = "";
     $("bulk-result").textContent = "";
     $("search").value = "";
     $("filter").value = "all";
@@ -375,6 +533,7 @@
     const previousId = editorId;
     state = review.updateReview(state, editorId, { decision: button.dataset.decision });
     bulkUndo = null;
+    bulkUndoReason = "";
     $("bulk-result").textContent = "";
     save();
     render();

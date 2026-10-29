@@ -177,16 +177,16 @@
     return transitionDecisions(state, changes.map(({ id, before }) => ({ id, decision: before })));
   }
 
-  // Comparison accepts saved reviews only, never the raw-array import contract.
-  function parseSnapshotJSON(text) {
+  // Comparison and returned reviews share the saved-snapshot contract.
+  function parseSnapshotJSON(text, purpose = "Compare") {
     const value = parseJSON(text);
-    if (Array.isArray(value)) throw new Error('Compare needs a saved version 1 "record-review" snapshot, not a records array.');
+    if (Array.isArray(value)) throw new Error(purpose + ' needs a saved version 1 "record-review" snapshot, not a records array.');
     return validateSnapshot(value);
   }
 
   // JSON object member order is irrelevant; array order and types are not.
   function equalJSON(left, right) {
-    if (left === right) return true;
+    if (Object.is(left, right)) return true;
     if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
     if (Array.isArray(left) !== Array.isArray(right)) return false;
     const keys = Object.keys(left);
@@ -227,6 +227,38 @@
       entries.push({ id, kind: "changed", before, after, fields, decisionChanged, notesChanged });
     }
     return { counts, entries };
+  }
+
+  // A returned snapshot proposes review metadata only. Validate ALL entries
+  // before classifying, including reviews on unknown/conflicting records.
+  // Use the comparison owner's exact recursive values, never display strings.
+  function previewReviewUpdates(current, incoming) {
+    const snapshot = validateSnapshot(incoming);
+    const currentById = new Map(current.records.map(record => [record.id, record]));
+    const counts = { total: snapshot.records.length, eligible: 0, unchanged: 0, unknown: 0, conflict: 0 };
+    const entries = snapshot.records.map(record => {
+      const before = currentById.has(record.id)
+        ? { record: currentById.get(record.id), review: current.reviews[record.id] } : null;
+      const after = { record, review: snapshot.reviews[record.id] };
+      const kind = !before ? "unknown" : !equalJSON(before.record, record) ? "conflict"
+        : equalJSON(before.review, after.review) ? "unchanged" : "eligible";
+      counts[kind]++;
+      return { id: record.id, kind, before, after };
+    });
+    return { counts, entries };
+  }
+
+  // All working-state transitions are immutable. A preview retains its state
+  // identity as a freshness guard, not a candidate state to overwrite from.
+  // Revalidate and rederive first, then make one complete review-map copy.
+  function applyReviewUpdates(current, incoming, previewState) {
+    const preview = previewReviewUpdates(current, incoming);
+    if (current !== previewState) return { state: current, preview, stale: true, changed: 0 };
+    const changes = preview.entries.filter(entry => entry.kind === "eligible");
+    if (!changes.length) return { state: current, preview, stale: false, changed: 0 };
+    const reviews = { ...current.reviews };
+    for (const { id, after } of changes) reviews[id] = { ...after.review };
+    return { state: { ...current, reviews }, preview, stale: false, changed: changes.length };
   }
 
   function visibleRecords(state, query = "", decision = "all") {
@@ -278,6 +310,6 @@
 
   return Object.freeze({
     FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON, importCSV,
-    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, visibleRecords, counts, exportJSON, exportSelectedJSON, restore, persist,
+    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, previewReviewUpdates, applyReviewUpdates, visibleRecords, counts, exportJSON, exportSelectedJSON, restore, persist,
   });
 });

@@ -40,16 +40,16 @@
     .import-grid p { margin-bottom: 1rem; }
     .actions { margin-top: .7rem; }
     .message { min-height: 1.6rem; margin: .5rem 0; font-size: .9rem; overflow-wrap: anywhere; }
-    #import-error, #compare-error { color: #a02920; }
+    #import-error, #compare-error, #returned-error { color: #a02920; }
     .comparison-sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
     .comparison-sides section, .import-grid section { min-width: 0; }
     .comparison-sides h3 { font-size: 1rem; margin: .75rem 0; }
     .comparison-sides h4 { font-size: .85rem; margin: .5rem 0; }
     .comparison-sides pre { max-height: none; overflow: visible; }
-    #compare-list { list-style: none; padding: 0; }
-    #compare-list > li { border-top: 1px solid #d2ded7; padding: .8rem 0; }
-    #compare-list, #compare-source { overflow-wrap: anywhere; }
-    #compare-panel { margin-top: 1rem; }
+    #compare-list, #returned-list { list-style: none; padding: 0; }
+    #compare-list > li, #returned-list > li { border-top: 1px solid #d2ded7; padding: .8rem 0; }
+    #compare-list, #compare-source, #returned-list, #returned-source { overflow-wrap: anywhere; }
+    #compare-panel, #returned-panel { margin-top: 1rem; }
     .overview { display: grid; grid-template-columns: minmax(160px, 1.2fr) repeat(3, 1fr); gap: 1rem; margin: 1.25rem 0; }
     .stat { padding: 1rem 1.1rem; }
     .stat strong { display: block; font-size: 1.7rem; line-height: 1.2; }
@@ -80,7 +80,7 @@
     .empty { padding: 3rem 1rem; text-align: center; color: #536762; }
     .empty h2 { color: #203335; margin-bottom: .5rem; }
     #export-panel { margin-top: 1rem; }
-    #export-json, #paste-json, #compare-json { font-family: ui-monospace, monospace; font-size: .85rem; }
+    #export-json, #paste-json, #compare-json, #returned-json { font-family: ui-monospace, monospace; font-size: .85rem; }
     footer { margin-top: 1.3rem; font-size: .8rem; color: #536762; }
     [hidden] { display: none !important; }
     @media (max-width: 720px) {
@@ -97,7 +97,7 @@
 <main class="shell">
   <header class="topbar">
     <div><div class="eyebrow">A little clarity for your data</div><h1>Record Desk</h1><p class="muted">Import. Decide. Leave a useful note.</p></div>
-    <div class="row"><span class="pill">Offline · no uploads</span><button type="button" id="compare-open" aria-controls="compare-panel">Compare saved review</button><button type="button" id="export-open" class="primary" aria-controls="export-panel">Export full review</button></div>
+    <div class="row"><span class="pill">Offline · no uploads</span><button type="button" id="returned-open" aria-controls="returned-panel">Preview returned review</button><button type="button" id="compare-open" aria-controls="compare-panel">Compare saved review</button><button type="button" id="export-open" class="primary" aria-controls="export-panel">Export full review</button></div>
   </header>
   <noscript><p class="notice">JavaScript is needed to review records. Open this HTML file in a browser with JavaScript enabled.</p></noscript>
   <p id="storage-status" class="notice" role="status" aria-live="polite">Checking browser storage…</p>
@@ -145,7 +145,7 @@
     </div>
     <p id="bulk-result" class="message" role="status" aria-live="polite"></p>
     <p id="bulk-undo-status" class="hint" role="status">No bulk undo available.</p>
-    <p class="hint">Apply changes only decisions. Select at least one ID to apply; an empty selection cannot be cleared. Undo restores only the last bulk action’s changed decisions, keeping later notes. Any later decision action replaces or clears undo. Accepted imports and reloads clear selection and undo; neither is saved or exported.</p>
+    <p class="hint">Bulk Apply changes only decisions. Select at least one ID to apply; an empty selection cannot be cleared. Undo restores only the last bulk action’s changed decisions, keeping later notes. Any later decision action replaces or clears undo. Applying returned-review updates also clears old bulk undo, even for notes-only updates; those updates have no undo. Accepted imports and reloads clear selection and undo; neither is saved or exported.</p>
     <div class="row actions"><button type="button" id="export-selected" aria-controls="export-panel" aria-describedby="bulk-count selected-export-policy" disabled>Export selected records (0)</button></div>
     <p class="hint" id="selected-export-policy">Select at least one record to export. Selected export includes exactly those IDs, even hidden ones, with complete records and current decisions/notes in original record order; no decision-status restriction. It changes no working data, selection, undo or comparison. No selection means no selected file, never a full-export fallback.</p>
   </section>
@@ -175,6 +175,35 @@
       </div>
     </section>
   </section>
+  <details class="panel" id="returned-panel">
+    <summary id="returned-toggle">Returned review · preview before applying</summary>
+    <p class="hint" id="returned-policy">Choose a returned version-1 Record Desk snapshot, including a selected subset. Preview is read-only and separate from Import &amp; replace and saved-review comparison. Only exact IDs with every original record field, nested value and type still matching can receive decisions and notes. Object key order does not matter; array order does. Unknown IDs and changed records stay unapplied; no records are created or replaced.</p>
+    <div class="import-grid">
+      <section aria-label="Returned review file">
+        <label for="returned-file">Choose returned review to preview</label>
+        <input id="returned-file" type="file" accept=".json,application/json" aria-describedby="returned-policy">
+      </section>
+      <section aria-label="Paste returned review">
+        <label for="returned-json">Or paste returned review JSON</label>
+        <textarea id="returned-json" rows="4" spellcheck="false" aria-describedby="returned-policy"></textarea>
+        <div class="actions"><button type="button" id="returned-paste">Preview pasted review updates</button></div>
+      </section>
+    </div>
+    <p id="returned-error" class="message" role="alert"></p>
+    <p id="returned-status" class="message" role="status" aria-live="polite"></p>
+    <section id="returned-results" aria-labelledby="returned-heading" hidden>
+      <h2 id="returned-heading">Proposed review updates · read-only preview</h2>
+      <p id="returned-source" class="hint"></p>
+      <p id="returned-counts" class="message"></p>
+      <p class="hint">Expand each ID to inspect full current and returned records, decisions and notes. Eligible updates replace only that ID’s decision and notes, including empty notes or Unreviewed. Unchanged reviews need no write. Search, filters and selection do not limit this proposal. No automatic winner or field merging.</p>
+      <ul id="returned-list" aria-label="Returned review entries"></ul>
+    </section>
+    <p class="hint" id="returned-apply-policy">Apply revalidates the complete snapshot. If working data or reviews changed since preview, the first Apply only refreshes the proposal: inspect it and Apply again. Successful updates clear any previous decision-only bulk undo, even for notes-only updates. Returned-review updates have no undo; export a full backup first. Closing clears only this preview and cancels pending reads.</p>
+    <div class="row actions">
+      <button type="button" id="returned-apply" class="primary" aria-describedby="returned-counts returned-apply-policy" disabled>Apply review updates</button>
+      <button type="button" id="returned-close">Close &amp; clear returned preview</button>
+    </div>
+  </details>
   <details class="panel" id="compare-panel">
     <summary id="compare-toggle">Compare saved review · read-only</summary>
     <p class="hint" id="compare-policy">Inspect a saved Record Desk export (version 1), not a records array. Nothing is imported or saved: your working records, decisions, notes, selection, search and filter stay unchanged. Closing this panel clears the comparison and cancels pending reads.</p>

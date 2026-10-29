@@ -459,3 +459,140 @@ test("bulk undo restores only changed decisions, keeping later notes and unrelat
   assert.throws(() => R.undoBulkDecision(newerIntent, applied.changes));
   assert.deepEqual(later.reviews.b, { decision: "approved", notes: "Later note ✓" });
 });
+
+
+test("returned review classifies exact records, unchanged reviews, unknown IDs and conflicts without mutation", () => {
+  const current = freeze(R.importJSON(JSON.stringify([
+    { id: "a", title: "Alpha", nested: { list: [1, "1", null, false], keys: { x: 1, y: 2 } } },
+    { id: "b", title: "Beta" }, { id: "c", title: "Conflict", amount: "003" },
+    { id: "outside", title: "Not returned" },
+  ])));
+  const incoming = freeze(R.importJSON(JSON.stringify({ format: R.FORMAT, version: 1, records: [
+    { title: "Beta", id: "b" },
+    { id: "new", title: "Unknown" },
+    { title: "Alpha", nested: { keys: { y: 2, x: 1 }, list: [1, "1", null, false] }, id: "a" },
+    { id: "c", title: "Conflict", amount: 3 },
+  ], reviews: { b: current.reviews.b, new: { decision: "approved", notes: "new" },
+    a: { decision: "follow-up", notes: "<img onerror=evil()>\r\n雪" }, c: { decision: "rejected", notes: "must not apply" } } })));
+  const before = R.exportJSON(current);
+  const preview = R.previewReviewUpdates(current, incoming);
+  assert.deepEqual(preview.counts, { total: 4, eligible: 1, unchanged: 1, unknown: 1, conflict: 1 });
+  assert.deepEqual(preview.entries.map(({ id, kind }) => [id, kind]),
+    [["b", "unchanged"], ["new", "unknown"], ["a", "eligible"], ["c", "conflict"]]);
+  assert.equal(preview.entries[1].before, null);
+  assert.equal(preview.entries[2].before.record, current.records[0]);
+  const applied = R.applyReviewUpdates(current, incoming, current);
+  assert.equal(applied.changed, 1);
+  assert.equal(applied.stale, false);
+  assert.equal(applied.state.records, current.records);
+  assert.notEqual(applied.state.reviews, current.reviews);
+  assert.deepEqual(applied.state.reviews.a, incoming.reviews.a);
+  assert.notEqual(applied.state.reviews.a, incoming.reviews.a);
+  for (const id of ["b", "c", "outside"]) assert.equal(applied.state.reviews[id], current.reviews[id]);
+  assert.equal(Object.hasOwn(applied.state.reviews, "new"), false);
+  assert.equal(R.exportJSON(current), before);
+  assert.deepEqual(R.importJSON(R.exportJSON(applied.state)), applied.state);
+});
+
+test("returned eligibility compares every field, nested type, membership and array order without coercion", () => {
+  const pairs = [
+    [3, "3"], [false, 0], [null, ""], [{ x: null }, {}], [{ x: "" }, {}],
+    [[1, 2], [2, 1]], [[1], { 0: 1 }], [{ x: [true, { y: 2 }] }, { x: [true, { y: "2" }] }],
+    [0, -0], ["x", " x"], [{ a: 1 }, { a: 1, b: false }],
+  ];
+  for (const [left, right] of pairs) {
+    const current = { ...R.emptyState(), records: [{ id: "a", title: "Alpha", payload: left }],
+      reviews: { a: { decision: "approved", notes: "keep" } } };
+    const incoming = { ...current, records: [{ ...current.records[0], payload: right }],
+      reviews: { a: { decision: "rejected", notes: "do not apply" } } };
+    assert.equal(R.previewReviewUpdates(current, incoming).entries[0].kind, "conflict");
+    assert.equal(R.applyReviewUpdates(current, incoming, current).state, current);
+  }
+  const current = reviewed();
+  const renamed = { ...current, records: [{ ...current.records[0], title: "renamed" }, current.records[1]] };
+  assert.equal(R.previewReviewUpdates(current, renamed).entries[0].kind, "conflict");
+  for (const id of ["A", " a "]) {
+    const incoming = R.importJSON(JSON.stringify([{ ...current.records[0], id }]));
+    assert.equal(R.previewReviewUpdates(current, incoming).entries[0].kind, "unknown");
+  }
+});
+
+test("returned batches preserve special IDs/fields, record identity/order, empty notes and Unreviewed intent", () => {
+  const current = freeze(R.importJSON('[{"id":"__proto__","title":"P","__proto__":{"safe":true}},{"id":"constructor","title":"C"},{"id":"toString","title":"T"}]'));
+  const incoming = R.importJSON(R.exportJSON(current));
+  incoming.records.reverse();
+  incoming.reviews.__proto__ = { decision: "rejected", notes: "literal" };
+  incoming.reviews.constructor = { decision: "approved", notes: "" };
+  incoming.reviews.toString = { decision: "unreviewed", notes: "note only" };
+  const result = R.applyReviewUpdates(current, freeze(incoming), current);
+  assert.equal(result.changed, 3);
+  assert.equal(result.state.records, current.records);
+  assert.equal(Object.getPrototypeOf(result.state.reviews), Object.prototype);
+  assert.deepEqual(result.state.reviews, incoming.reviews);
+  assert.equal({}.safe, undefined);
+  const reset = R.applyReviewUpdates(result.state, current, result.state);
+  assert.equal(reset.changed, 3);
+  assert.deepEqual(reset.state.reviews, current.reviews);
+});
+
+test("returned apply validates the complete snapshot again before any write, even excluded entries", () => {
+  const current = freeze(reviewed());
+  const valid = R.updateReview(R.importJSON(R.exportJSON(current)), "a", { notes: "returned" });
+  R.previewReviewUpdates(current, valid);
+  const invalids = [
+    { ...valid, version: 2 }, { ...valid, format: "other" },
+    { ...valid, records: [...valid.records, valid.records[0]] },
+    { ...valid, reviews: { a: valid.reviews.a } },
+    { ...valid, reviews: { ...valid.reviews, extra: { decision: "approved", notes: "" } } },
+    { ...valid, reviews: { ...valid.reviews, b: { decision: "approved", notes: false } } },
+    { ...valid, records: [valid.records[0], { id: "unknown", title: "U" }],
+      reviews: { a: valid.reviews.a, unknown: { decision: "invalid", notes: "" } } },
+    { ...valid, records: [valid.records[0], { id: "b", title: "Changed" }],
+      reviews: { a: valid.reviews.a, b: { decision: "approved", notes: null } } },
+  ];
+  const before = R.exportJSON(current);
+  for (const incoming of invalids) {
+    assert.throws(() => R.previewReviewUpdates(current, incoming));
+    assert.throws(() => R.applyReviewUpdates(current, incoming, current));
+    assert.throws(() => R.applyReviewUpdates(current, incoming, R.emptyState()));
+    assert.equal(R.exportJSON(current), before);
+  }
+  valid.reviews.b.notes = 1; // Changed after the earlier valid preview.
+  assert.throws(() => R.applyReviewUpdates(current, valid, current));
+  assert.throws(() => R.parseSnapshotJSON("[]", "Returned review"), /Returned review needs/);
+});
+
+test("returned stale apply rederives current eligibility and requires an explicit current base", () => {
+  const base = freeze(reviewed());
+  const incoming = freeze(R.updateReview(base, "a", { notes: "returned" }));
+  for (const current of [R.updateReview(base, "b", { notes: "unrelated edit" }),
+    R.updateReview(base, "a", { decision: "rejected" }),
+    R.importJSON('[{"id":"a","title":"Changed"}]', base), R.emptyState()]) {
+    const result = R.applyReviewUpdates(current, incoming, base);
+    assert.equal(result.state, current);
+    assert.equal(result.stale, true);
+    assert.equal(result.changed, 0);
+    assert.deepEqual(result.preview, R.previewReviewUpdates(current, incoming));
+    const accepted = R.applyReviewUpdates(current, incoming, current);
+    assert.equal(accepted.stale, false);
+    assert.equal(accepted.changed, result.preview.counts.eligible);
+    assert.equal(accepted.state.records, current.records);
+    if (Object.hasOwn(current.reviews, "b") && current.reviews.b.notes === "unrelated edit") {
+      // An incoming b with matching data is now visibly eligible in the refresh.
+      assert.equal(result.preview.counts.eligible, 2);
+    }
+  }
+  const reverted = R.updateReview(R.updateReview(base, "a", { notes: "temporary" }), "a", { notes: base.reviews.a.notes });
+  assert.equal(R.applyReviewUpdates(reverted, incoming, base).stale, true);
+});
+
+test("empty, unchanged and excluded-only returned snapshots are true no-ops", () => {
+  const current = freeze(reviewed());
+  for (const incoming of [R.emptyState(), current, R.importJSON('[{"id":"other","title":"Other"}]'),
+    R.importJSON('[{"id":"a","title":"Conflict"}]')]) {
+    const result = R.applyReviewUpdates(current, incoming, current);
+    assert.equal(result.state, current);
+    assert.equal(result.changed, 0);
+    assert.equal(result.preview.counts.eligible, 0);
+  }
+});
