@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>Record Desk — returned review analysis</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, sans-serif; color: #203335; background: #f4f6f3; line-height: 1.5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button, input, select { font: inherit; }
+    button, summary, select { cursor: pointer; }
+    button { padding: .65rem 1rem; border: 1px solid #b6c6c3; border-radius: 7px; background: white; color: #203335; }
+    button:hover { background: #e9f1ee; border-color: #537c73; }
+    button.primary { background: #176856; color: white; border-color: #176856; }
+    button.primary:hover { background: #115344; }
+    button:disabled { cursor: default; opacity: .55; }
+    :focus-visible { outline: 3px solid #b76c20; outline-offset: 3px; }
+    input, select { width: 100%; min-width: 0; border: 1px solid #aebfba; border-radius: 6px; padding: .65rem; background: white; color: #203335; }
+    label { display: block; margin-bottom: .35rem; font-size: .85rem; font-weight: 650; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 1.8rem; letter-spacing: -.055rem; }
+    h2 { font-size: 1.2rem; }
+    h3 { font-size: 1rem; }
+    .shell { max-width: 1240px; margin: auto; padding: 2rem; }
+    .topbar, .row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+    .topbar { justify-content: space-between; margin-bottom: 1.5rem; }
+    .eyebrow { color: #316e60; text-transform: uppercase; letter-spacing: .14em; font-size: .72rem; font-weight: 750; }
+    .muted, .hint { color: #536762; }
+    .hint { font-size: .85rem; margin: .5rem 0; }
+    .pill { border: 1px solid #bfd1c9; border-radius: 99px; padding: .2rem .7rem; font-size: .75rem; color: #316e60; background: #edf5ef; }
+    .notice { padding: .8rem 1rem; border-left: 3px solid #bd863d; border-radius: 4px; background: #fff5e5; font-size: .85rem; margin-bottom: 1rem; }
+    .panel { border: 1px solid #d2ded7; border-radius: 10px; background: white; padding: 1.1rem; margin-bottom: 1rem; min-width: 0; }
+    .input-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; margin-top: 1rem; }
+    .input-grid > section { min-width: 0; }
+    .message { min-height: 1.6rem; margin: .5rem 0; font-size: .9rem; overflow-wrap: anywhere; }
+    #analysis-error { color: #a02920; }
+    .literal, pre { white-space: pre-wrap; white-space: break-spaces; overflow-wrap: anywhere; }
+    .literal { unicode-bidi: plaintext; }
+    pre { font-size: .85rem; background: #f3f6f3; border-radius: 6px; padding: 1rem; margin: .4rem 0; }
+    .notes { min-height: 3rem; }
+    summary { font-size: .85rem; font-weight: 650; }
+    ol { padding-left: 1.7rem; }
+    #returned-files > li { padding: .6rem 0; }
+    #returned-files .row { margin-top: .4rem; }
+    #source-results, #overlap-results { list-style: none; padding: 0; }
+    .issues { margin: .5rem 0; }
+    .proposal { border-top: 1px solid #d2ded7; padding: .8rem 0; min-width: 0; }
+    .proposal h4 { font-size: .9rem; margin: .2rem 0; }
+    .filters { max-width: 22rem; margin: 1rem 0; }
+    .pager { margin: .7rem 0; }
+    footer { margin-top: 1.3rem; font-size: .8rem; color: #536762; }
+    [hidden] { display: none !important; }
+    @media (max-width: 720px) {
+      .shell { padding: 1rem; }
+      .input-grid { grid-template-columns: 1fr; }
+      .panel { padding: .9rem; }
+    }
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div><div class="eyebrow">Record Desk · read-only</div><h1>Returned review analysis</h1><p class="muted">Compare proposals. Keep every source visible.</p></div>
+    <span class="pill">Offline · memory only · no uploads</span>
+  </header>
+  <noscript><p class="notice">JavaScript is needed to analyze snapshots or view saved reports. Open this self-contained HTML file with JavaScript enabled.</p></noscript>
+  <p class="notice">Analysis only: no winners chosen and no reviews applied. Nothing is saved automatically, copied to a clipboard or sent over a network. A completed FRESH analysis can be downloaded explicitly as a JSON report. Reloading clears all choices and results.</p>
+  <section class="panel" aria-labelledby="inputs-heading">
+    <h2 id="inputs-heading">1. Choose a workflow</h2>
+    <div class="filters">
+      <label for="workflow">Report workflow</label>
+      <select id="workflow" aria-describedby="workflow-policy"><option value="analyze">Analyze input files</option><option value="saved">View saved report</option></select>
+    </div>
+    <p id="workflow-policy" class="hint">Analyze complete version-1 snapshots, or read an existing analysis report without the originals. Changing workflow clears the displayed result; choices remain in memory until removed or reloaded.</p>
+    <div id="analyze-inputs">
+    <h3>Choose complete version-1 snapshots</h3>
+    <div class="input-grid">
+      <section aria-label="Working snapshot">
+        <label for="working-file">Working review file</label>
+        <input id="working-file" type="file" accept=".json,application/json" aria-describedby="input-policy">
+        <p class="hint">Chosen working file:</p><p id="working-name" class="literal">None chosen</p>
+        <button id="clear-working" type="button" disabled>Remove working file</button>
+      </section>
+      <section aria-label="Returned snapshots">
+        <label for="returned-input">Add returned review files (one or more)</label>
+        <input id="returned-input" type="file" accept=".json,application/json" multiple aria-describedby="source-policy input-policy">
+        <p id="source-policy" class="hint">Each selection appends to the list below. Source numbers follow this order, not reviewer identity. Repeated files are separate sources; a synthetic variant is not an independent reviewer. Use Move up / Move down to reorder.</p>
+        <p id="returned-count" class="hint" role="status">0 returned files</p>
+        <ol id="returned-files" aria-label="Returned files in source order"></ol>
+        <button id="clear-returns" type="button" disabled>Remove all returned files</button>
+      </section>
+    </div>
+    <p id="input-policy" class="hint">Choose one working file and at least one returned file, then Analyze. JSON arrays and CSV are not snapshots. All records and reviews must validate, including conflicts and unknown IDs. Changing, reordering or removing a choice clears prior results immediately.</p>
+    <div class="row">
+      <button id="analyze" type="button" class="primary" disabled>Analyze</button>
+      <button id="download-analysis" type="button" aria-describedby="download-status" hidden disabled>Download analysis report</button>
+    </div>
+    <p id="download-status" class="message" role="status" aria-live="polite">No current FRESH report is ready. Analyze the chosen files to enable download.</p>
+    </div>
+    <div id="saved-inputs" hidden>
+      <label for="saved-file">Saved analysis report JSON file</label>
+      <input id="saved-file" type="file" accept=".json,application/json" aria-describedby="saved-policy">
+      <p id="saved-policy" class="hint">Choose an existing record-review-return-analysis JSON report, then View saved report. Its complete structure is checked, but its counts and classifications remain recorded claims, not a fresh comparison. No original files named in it are opened. Saved-report mode is a reader only, with no download or re-export action. Replacing or removing this choice clears prior results immediately.</p>
+      <p class="hint">Chosen report file:</p><p id="saved-name" class="literal">None chosen</p>
+      <div class="row">
+        <button id="clear-saved" type="button" disabled>Remove saved report</button>
+        <button id="view-saved" type="button" class="primary" disabled>View saved report</button>
+      </div>
+    </div>
+    <p id="analysis-status" class="message" role="status" aria-live="polite">Choose files to begin.</p>
+    <p id="analysis-error" class="message literal" role="alert"></p>
+  </section>
+  <section id="results" hidden aria-labelledby="results-heading">
+    <h2 id="results-heading">2. Results</h2>
+    <p id="result-context" class="notice literal"></p>
+    <p class="hint">No winners are chosen. Source numbers identify files in report order, not reviewer identities. Repeated files and synthetic alternatives are not independent reviewers.</p>
+    <p id="working-summary" class="message literal"></p>
+    <h3>Each returned source</h3>
+    <p class="hint">In the producer format, eligible and unchanged reviews can propose values. Changed-record conflicts and unknown IDs are issues, never proposals. All stored counts and issues appear below in report order. For SAVED data, these are recorded claims only.</p>
+    <p class="hint">The working summary, source counts and issues describe the whole report. Overlap search, status and page choices below do not filter them.</p>
+    <ol id="source-results" aria-label="Source counts and issues"></ol>
+    <h3>Overlapping proposals</h3>
+    <p class="hint">The producer records overlaps with at least two eligible or unchanged proposals for the same working record. Report and proposal order are preserved. The producer uses exact decision and note equality, including whitespace; SAVED classifications are displayed as recorded, not recomputed. Every proposal is shown in full; empty notes are labeled separately.</p>
+    <div class="filters">
+      <label for="overlap-filter">Show overlaps</label>
+      <select id="overlap-filter" disabled><option value="all">All</option><option value="disagreement">Disagreements</option><option value="identical">Identical</option></select>
+    </div>
+    <div class="filters">
+      <label for="overlap-query">Search overlap IDs and proposal notes</label>
+      <input id="overlap-query" type="text" aria-describedby="overlap-query-policy" autocomplete="off" disabled>
+      <button id="clear-overlap-query" type="button" disabled>Clear search</button>
+    </div>
+    <p id="overlap-query-policy" class="hint">One literal, case-insensitive substring in an overlap ID or any proposal note, combined with Show overlaps before paging. Spaces and punctuation are literal; no patterns or query syntax. Search changes and Clear search return to the first page. This only changes the overlap view: no files are reread or revalidated. FRESH downloads still contain the entire accepted report, even with no matches; SAVED mode has no export.</p>
+    <div class="row pager" role="group" aria-label="Overlap pages">
+      <button id="previous-page" type="button" disabled>Previous</button>
+      <p id="page-status" role="status" aria-live="polite">No report loaded or analysis yet.</p>
+      <button id="next-page" type="button" disabled>Next</button>
+    </div>
+    <p id="overlap-empty" class="message" hidden></p>
+    <ol id="overlap-results" aria-label="Complete overlap proposals on this page"></ol>
+  </section>
+  <footer>Read-only version-1 Record Desk analysis. No installation, account or server needed.</footer>
+</main>
+<!-- REVIEW_SCRIPTS -->
+</body>
+</html>
