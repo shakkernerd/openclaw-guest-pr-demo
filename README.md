@@ -753,6 +753,73 @@ source argument is not included in JSONL events. Both modes reuse the existing
 parser, validation, summaries, awaited diagnostic writes, and stream backpressure;
 neither accumulates a rejection list in the producer.
 
+### Inspect saved batch captures (example)
+
+For human inspection of **existing** stdout and opted-in JSONL stderr captures:
+
+```sh
+node examples/read-batch-captures.js stdout.txt stderr.txt
+node --test examples/read-batch-captures.test.js
+```
+
+This dependency-free Node.js 22+ example accepts exactly two explicit file paths,
+stdout first, stderr second. There are no options, help flag, stdin shorthand,
+process-status or provenance arguments. Prefix dash-leading filenames with `./`.
+It reads both files independently, without running the producer or importing the
+order/packing owners, and writes one compact deterministic JSON report plus LF.
+The report carries source-capture content, including rejection messages and rejected
+frame text; handle and share it accordingly.
+
+- `observed` counts LF frames (including invalid/blank frames), accepted records,
+  trailing fragments, read errors and each accepted event kind—not unique rows.
+- `rows` groups all accepted outcomes by original physical input `line`, sorted
+  numerically. Every outcome retains its unchanged `record`, `stream` and one-based
+  capture `frame`. Duplicates, conflicting summaries/messages and success/rejection
+  overlap remain visible, never overwritten. Gaps are not inferred to be blank,
+  rejected or missing inputs. Within each row stdout precedes stderr; that is not
+  cross-stream chronology.
+- `terminalEvents` preserves every completion and invocation-level fatal in stderr
+  order. Reading continues after completion: complete-then-fatal is supported
+  failure evidence, not an ordering violation. Fatal records never invent rows.
+- `issues` identifies malformed/unsupported frames, blanks, fragments, duplicates,
+  overlap, within-stream ordering contradictions, disagreeing shared summary
+  fields, completion/rejection conflicts, missing completion and observed fatals.
+  Exit-1 completion without observed rejections is an evidence gap. Issue order is
+  stdout traversal, stderr traversal, then completion checks—not event chronology.
+
+Only LF-terminated supported frames are accepted; even parseable final JSON without
+LF is a fragment. CRLF works, bare CR is not a boundary, and a final LF creates no
+extra blank frame. Rejected nonblank frames and fragments retain their text in
+issues; later frames are still inspected. Envelopes have exactly the documented
+keys and scalar domains: positive safe-integer lines/capacity, nonnegative
+safe-integer counts, matching modes and canonical nonnegative decimal-string
+`unusedItemSlots`. No
+orders are validated or packing arithmetic recomputed. This whole-file example
+uses Node UTF-8 replacement decoding and `JSON.parse`; it is for trusted producer
+captures, not hostile JSON-member-duplication auditing or unbounded-input security.
+
+Every report includes explicit `limits`: two files do **not** establish pairing,
+draining, process result, intended input completeness, persistence or physical
+packing. Completion is not a process result and cannot exclude a later
+diagnostic-write failure. Even captured `complete(1)` plus a separately observed
+normal producer exit 1 cannot distinguish rejection-only completion from
+completion-diagnostic bytes delivered before that write failed. Missing completion
+remains missing; fatal/conflicting evidence remains compromised. This is no success
+certificate, automated eligibility decision, retry mechanism or downstream action.
+
+Reader exits: **0** means only that a report was produced from two readable files,
+even if it reports problems; **2** means argument misuse, with usage on stderr,
+no input reads and no stdout; **1** means read or output failure. A read failure is
+explicit in the JSON (stream and error code), retaining the other file's useful
+observations; stderr stays empty if report output succeeds. Report-write failures
+may leave partial stdout, attempt a brief stderr diagnostic and exit 1. Failure
+to write usage also exits 1; unavailable stderr cannot reliably report itself.
+
+The focused tests exercise the actual CLI, batching scalar/envelope cases into
+captures. Two real descriptor-failure checks use Linux `/dev/full` for report and
+usage writes (skipped outside Linux or if that device is absent); they do not
+simulate writes or claim coverage of every platform or sink failure.
+
 ### Memory and streaming limits
 
 Records are processed sequentially, with Node stream backpressure for stdout and
