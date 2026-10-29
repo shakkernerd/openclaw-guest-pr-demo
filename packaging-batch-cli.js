@@ -8,13 +8,15 @@ const { parseOrder } = require("./order-json.js");
 const { summarizePackaging } = require("./packaging.js");
 
 const USAGE = [
-  "Usage: node packaging-batch-cli.js [--diagnostics=jsonl] [FILE|-]",
+  "Usage: node packaging-batch-cli.js [--fail-fast] [--diagnostics=jsonl] [FILE|-]",
   "       node packaging-batch-cli.js --help",
   "",
   "Read one order per LF-delimited line; omit FILE or use - for standard input.",
   "Skip only empty lines or lines containing spaces, tabs, and CR characters.",
   "Write compact JSON lines with physical line, mixed, and single-sku summaries.",
-  "Invalid records: diagnose on stderr, omit the result, and continue.",
+  "Invalid records (default): diagnose on stderr, omit the result, and continue.",
+  "--fail-fast  Stop after the first invalid record; retain earlier results and exit 1.",
+  "             Use once, before --; early stops do not wait for EOF or emit completion.",
   "--diagnostics=jsonl  Replace human batch stderr with versioned JSONL events.",
   "                    Use once, before --; stdout and exit codes are unchanged.",
   "--help, -h   Show this help (use alone).",
@@ -26,6 +28,7 @@ const USAGE = [
 function parseArguments(args) {
   let file;
   let diagnostics;
+  let failFast = false;
   let options = true;
   for (const arg of args) {
     if (options && (arg === "--help" || arg === "-h")) {
@@ -34,6 +37,9 @@ function parseArguments(args) {
     }
     if (options && arg === "--") {
       options = false;
+    } else if (options && arg === "--fail-fast") {
+      if (failFast) throw new Error("repeated option --fail-fast");
+      failFast = true;
     } else if (options && arg.startsWith("--diagnostics=")) {
       if (diagnostics !== undefined) throw new Error("repeated option --diagnostics");
       if (arg !== "--diagnostics=jsonl") throw new Error("--diagnostics requires jsonl");
@@ -45,12 +51,12 @@ function parseArguments(args) {
       file = arg;
     }
   }
-  return { file, diagnostics, help: false };
+  return { file, diagnostics, failFast, help: false };
 }
 
 // Only LF delimits records. StringDecoder matches Node's replacement decoding,
 // including split UTF-8 sequences; it does not strip BOMs or normalize CR.
-async function* lines(chunks) {
+async function* lines(chunks, onExhausted) {
   const decoder = new StringDecoder("utf8");
   let pending = "";
   for await (const chunk of chunks) {
@@ -67,6 +73,7 @@ async function* lines(chunks) {
   }
   // Reached only on clean EOF, never on an error or premature close.
   pending += decoder.end();
+  onExhausted(); // Record observed exhaustion before yielding an unterminated tail.
   if (pending.length !== 0) yield pending;
 }
 
@@ -100,12 +107,15 @@ function writeText(stream, text, signal) {
  * Consume a byte Readable and write JSONL to a Writable, ending output on success.
  * Owns input/output for this run (pipeline destroys them on fatal errors), but
  * leaves diagnostics open. Returns the batch exit status; no process globals.
- * The optional fifth argument selects { diagnostics: "jsonl" }; text is the default.
+ * The optional fifth argument selects { diagnostics: "jsonl", failFast: true };
+ * text diagnostics and continuation after rejected records are the defaults.
  */
 async function runBatch(input, output, diagnostics, source = "standard input", options = {}) {
   const jsonl = options.diagnostics === "jsonl";
   let invalid = false;
-  let recordsComplete = false;
+  let stoppedEarly = false;
+  let inputExhausted = false;
+  let recordsComplete = false; // Producer finished, not necessarily input exhausted.
   let outputFinished = false;
   let failure;
   const controller = new AbortController();
@@ -118,7 +128,7 @@ async function runBatch(input, output, diagnostics, source = "standard input", o
     input.destroy();
   };
   const onInputClose = () => {
-    if (!input.readableEnded) remember("read input", streamError("ERR_STREAM_PREMATURE_CLOSE"));
+    if (!input.readableEnded && !stoppedEarly) remember("read input", streamError("ERR_STREAM_PREMATURE_CLOSE"));
   };
   const onOutputClose = () => {
     // Standard output can reset writable state on close; use the observed finish.
@@ -155,7 +165,7 @@ async function runBatch(input, output, diagnostics, source = "standard input", o
     if (diagnostics.destroyed || diagnostics.writableEnded) onDiagnosticClose();
     await pipeline(input, async function* (chunks, { signal }) {
       let line = 0;
-      for await (const text of lines(chunks)) {
+      for await (const text of lines(chunks, () => { inputExhausted = true; })) {
         line += 1;
         if (/^[ \t\r]*$/.test(text)) continue;
         let result;
@@ -173,6 +183,14 @@ async function runBatch(input, output, diagnostics, source = "standard input", o
           } else {
             await writeText(diagnostics, "packaging-batch: " + source + ": line " + line + ": " + error.message + "\n", signal);
           }
+          if (options.failFast && !inputExhausted) {
+            stoppedEarly = true;
+            // Close before leaving the iterator so its return does not turn an
+            // intentional stop into an AbortError. Do not abort output: earlier
+            // results must still drain through the normal pipeline finalization.
+            input.destroy();
+            break;
+          }
           continue;
         }
         // I/O is outside the record-validation catch. Pipeline supplies output
@@ -182,7 +200,7 @@ async function runBatch(input, output, diagnostics, source = "standard input", o
       recordsComplete = true;
     }, output, { signal: controller.signal });
     const exitCode = invalid ? 1 : 0;
-    if (jsonl) {
+    if (jsonl && inputExhausted) {
       // Pipeline has exhausted input and finalized output. Never retry completion:
       // even a failed write may already have delivered some or all of its bytes.
       if (failure) throw failure.error;
@@ -233,7 +251,7 @@ async function main() {
   const stdin = options.file === undefined || options.file === "-";
   const source = stdin ? "standard input" : JSON.stringify(options.file);
   const input = stdin ? process.stdin : createReadStream(options.file);
-  process.exitCode = await runBatch(input, process.stdout, process.stderr, source, { diagnostics: options.diagnostics });
+  process.exitCode = await runBatch(input, process.stdout, process.stderr, source, { diagnostics: options.diagnostics, failFast: options.failFast });
 }
 
 if (require.main === module) main().catch(() => { process.exitCode = 1; });
