@@ -1,0 +1,124 @@
+<!doctype html>
+<!-- Generated as parcel-preview.html by build-parcel-preview.js. Edit the sources in preview/. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>Parcel label preview &amp; sheet</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #172b35; background: #f3f6f7; }
+    * { box-sizing: border-box; }
+    body { margin: 0; line-height: 1.5; }
+    .page { max-width: 76rem; margin: auto; padding: clamp(1rem, 3vw, 2.5rem); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: clamp(1.7rem, 5vw, 2.5rem); line-height: 1.2; margin-bottom: .75rem; }
+    h2 { font-size: 1.25rem; margin-bottom: .75rem; }
+    .eyebrow { color: #235c63; font-size: .8rem; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; margin-bottom: .5rem; }
+    .intro { max-width: 65ch; color: #405761; }
+    main { display: grid; grid-template-columns: minmax(0, 23rem) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+    main > *, .sheet-heading > * { min-width: 0; }
+    .panel { background: white; border: 1px solid #c7d4d9; border-radius: .8rem; padding: 1.25rem; }
+    label { display: block; font-weight: 650; margin-bottom: .35rem; }
+    input { display: block; width: 100%; min-width: 0; border: 1px solid #72858f; border-radius: .35rem; padding: .7rem; font: inherit; color: inherit; background: white; }
+    input[aria-invalid="true"] { border: 2px solid #a12626; }
+    .hint { color: #405761; font-size: .875rem; margin: .35rem 0 0; overflow-wrap: anywhere; }
+    .field { margin-bottom: 1rem; }
+    .error { color: #a12626; font-size: .9rem; margin: .35rem 0 0; }
+    .error:empty { display: none; }
+    .actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+    button { border: 1px solid #72858f; border-radius: .35rem; min-height: 2.75rem; padding: .65rem 1rem; font: inherit; font-weight: 650; color: #172b35; background: #fff; cursor: pointer; }
+    button.primary { color: white; background: #165d65; border-color: #165d65; }
+    button:hover:not(:disabled) { box-shadow: inset 0 0 0 2px currentColor; }
+    button:disabled { color: #586970; background: #edf1f3; cursor: default; }
+    :focus-visible { outline: 3px solid #8d40ae; outline-offset: 3px; }
+    .draft-preview { border-top: 1px solid #d6dfe3; margin-top: 1.5rem; padding-top: 1.25rem; }
+    #preview-status, #action-status { color: #405761; font-size: .9rem; }
+    #action-status { min-height: 3em; margin: 1rem 0 0; }
+    .sheet-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem; }
+    #sheet-count { color: #405761; font-variant-numeric: tabular-nums; }
+    .sheet-toolbar { margin-bottom: 1.25rem; }
+    .sheet-toolbar p { font-size: .9rem; color: #405761; margin-bottom: .75rem; }
+    .empty { padding: 2rem 1rem; border: 1px dashed #91a4ae; border-radius: .4rem; color: #405761; text-align: center; }
+    .label-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+    .parcel-label { min-width: 0; max-width: 100%; border: 2px solid #243d48; border-radius: .3rem; background: white; color: #10252e; padding: 1rem; overflow-wrap: anywhere; break-inside: avoid; page-break-inside: avoid; }
+    .parcel-name { font-size: 1.2rem; font-weight: 700; line-height: 1.35; margin: 0 0 .75rem; white-space: pre-wrap; }
+    .parcel-items { font-size: 1.1rem; margin: 0; }
+    [hidden] { display: none !important; }
+    noscript p { border: 2px solid #a12626; padding: 1rem; background: white; }
+    @media (max-width: 48rem) {
+      main { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 30rem) {
+      .label-list { grid-template-columns: minmax(0, 1fr); }
+      .panel { padding: 1rem; }
+      .actions button { flex: 1 1 9rem; }
+    }
+    @page { margin: 12mm; }
+    @media print {
+      :root, body { background: white; color: black; }
+      .screen-only, .authoring, .sheet-toolbar, .sheet-heading, .empty, noscript { display: none !important; }
+      .page, .panel { max-width: none; padding: 0; margin: 0; border: 0; border-radius: 0; }
+      main, .label-list { display: block; }
+      .parcel-label { color: black; border: 1pt solid black; border-radius: 0; margin: 0 0 6mm; padding: 6mm; break-inside: avoid; page-break-inside: avoid; overflow-wrap: anywhere; }
+      .parcel-name { font-size: 16pt; }
+      .parcel-items { font-size: 13pt; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="screen-only">
+      <p class="eyebrow">Parcel labels · local only</p>
+      <h1>Build your label sheet</h1>
+      <p class="intro">Enter a parcel name and item count, check the label, then add it to your sheet. Nothing is uploaded or saved. This is a simple label sheet, not postage or a shipping service.</p>
+    </header>
+    <noscript><p>Enable JavaScript to author labels. This file works offline; no server or installation is needed.</p></noscript>
+    <main>
+      <section class="panel authoring" aria-labelledby="draft-heading">
+        <h2 id="draft-heading">1. Make a label</h2>
+        <form id="parcel-form" novalidate>
+          <div class="field">
+            <label for="parcel-identifier">Parcel identifier or name</label>
+            <input id="parcel-identifier" name="identifier" type="text" required autocomplete="off" spellcheck="false" aria-describedby="identifier-hint identifier-error" aria-invalid="false">
+            <p class="hint" id="identifier-hint">Required. Text is printed literally, including Unicode and angle brackets.</p>
+            <p class="error" id="identifier-error"></p>
+          </div>
+          <div class="field">
+            <label for="parcel-count">Item count</label>
+            <input id="parcel-count" name="count" type="text" inputmode="numeric" required autocomplete="off" spellcheck="false" aria-describedby="count-hint count-error" aria-invalid="false">
+            <p class="hint" id="count-hint">Digits only, from 0 to 9007199254740991. No minus sign, fractions or exponents.</p>
+            <p class="error" id="count-error"></p>
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit">Add to sheet</button>
+            <button type="reset">Reset form</button>
+          </div>
+        </form>
+        <section class="draft-preview" aria-labelledby="preview-heading">
+          <h2 id="preview-heading">Live preview</h2>
+          <div aria-live="polite" aria-atomic="true">
+            <p id="preview-status"></p>
+            <div id="label-preview"></div>
+          </div>
+        </section>
+        <p id="action-status" role="status" aria-atomic="true"></p>
+      </section>
+      <section class="panel sheet" aria-labelledby="sheet-heading">
+        <div class="sheet-heading">
+          <h2 id="sheet-heading">2. Your printable sheet</h2>
+          <span id="sheet-count">0 labels</span>
+        </div>
+        <div class="sheet-toolbar">
+          <p>Only added labels print. Use your browser’s Print command (Ctrl+P / ⌘P) when ready. For labels only, turn off browser headers and footers in print settings.</p>
+          <p>Reset form keeps the sheet; Clear sheet keeps the draft. Reloading or closing this page clears everything.</p>
+          <button id="clear-sheet" type="button" disabled>Clear sheet</button>
+        </div>
+        <p class="empty" id="sheet-empty">Your sheet is empty. Add a valid label to begin.</p>
+        <div class="label-list" id="label-sheet"></div>
+      </section>
+    </main>
+  </div>
+  <!-- PARCEL_PREVIEW_SCRIPT -->
+</body>
+</html>
