@@ -1,0 +1,932 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>Record Desk — returned review analysis</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, sans-serif; color: #203335; background: #f4f6f3; line-height: 1.5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button, input, select { font: inherit; }
+    button, summary, select { cursor: pointer; }
+    button { padding: .65rem 1rem; border: 1px solid #b6c6c3; border-radius: 7px; background: white; color: #203335; }
+    button:hover { background: #e9f1ee; border-color: #537c73; }
+    button.primary { background: #176856; color: white; border-color: #176856; }
+    button.primary:hover { background: #115344; }
+    button:disabled { cursor: default; opacity: .55; }
+    :focus-visible { outline: 3px solid #b76c20; outline-offset: 3px; }
+    input, select { width: 100%; min-width: 0; border: 1px solid #aebfba; border-radius: 6px; padding: .65rem; background: white; color: #203335; }
+    label { display: block; margin-bottom: .35rem; font-size: .85rem; font-weight: 650; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 1.8rem; letter-spacing: -.055rem; }
+    h2 { font-size: 1.2rem; }
+    h3 { font-size: 1rem; }
+    .shell { max-width: 1240px; margin: auto; padding: 2rem; }
+    .topbar, .row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+    .topbar { justify-content: space-between; margin-bottom: 1.5rem; }
+    .eyebrow { color: #316e60; text-transform: uppercase; letter-spacing: .14em; font-size: .72rem; font-weight: 750; }
+    .muted, .hint { color: #536762; }
+    .hint { font-size: .85rem; margin: .5rem 0; }
+    .pill { border: 1px solid #bfd1c9; border-radius: 99px; padding: .2rem .7rem; font-size: .75rem; color: #316e60; background: #edf5ef; }
+    .notice { padding: .8rem 1rem; border-left: 3px solid #bd863d; border-radius: 4px; background: #fff5e5; font-size: .85rem; margin-bottom: 1rem; }
+    .panel { border: 1px solid #d2ded7; border-radius: 10px; background: white; padding: 1.1rem; margin-bottom: 1rem; min-width: 0; }
+    .input-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; margin-top: 1rem; }
+    .input-grid > section { min-width: 0; }
+    .message { min-height: 1.6rem; margin: .5rem 0; font-size: .9rem; overflow-wrap: anywhere; }
+    #analysis-error { color: #a02920; }
+    .literal, pre { white-space: pre-wrap; white-space: break-spaces; overflow-wrap: anywhere; }
+    .literal { unicode-bidi: plaintext; }
+    pre { font-size: .85rem; background: #f3f6f3; border-radius: 6px; padding: 1rem; margin: .4rem 0; }
+    .notes { min-height: 3rem; }
+    summary { font-size: .85rem; font-weight: 650; }
+    ol { padding-left: 1.7rem; }
+    #returned-files > li { padding: .6rem 0; }
+    #returned-files .row { margin-top: .4rem; }
+    #source-results, #overlap-results { list-style: none; padding: 0; }
+    .issues { margin: .5rem 0; }
+    .proposal { border-top: 1px solid #d2ded7; padding: .8rem 0; min-width: 0; }
+    .proposal h4 { font-size: .9rem; margin: .2rem 0; }
+    .filters { max-width: 22rem; margin: 1rem 0; }
+    .pager { margin: .7rem 0; }
+    footer { margin-top: 1.3rem; font-size: .8rem; color: #536762; }
+    [hidden] { display: none !important; }
+    @media (max-width: 720px) {
+      .shell { padding: 1rem; }
+      .input-grid { grid-template-columns: 1fr; }
+      .panel { padding: .9rem; }
+    }
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div><div class="eyebrow">Record Desk · read-only</div><h1>Returned review analysis</h1><p class="muted">Compare proposals. Keep every source visible.</p></div>
+    <span class="pill">Offline · memory only · no uploads</span>
+  </header>
+  <noscript><p class="notice">JavaScript is needed to analyze snapshots or view saved reports. Open this self-contained HTML file with JavaScript enabled.</p></noscript>
+  <p class="notice">Analysis only: no winners chosen and no reviews applied. Nothing is saved automatically, copied to a clipboard or sent over a network. A completed FRESH analysis can be downloaded explicitly as a JSON report. Reloading clears all choices and results.</p>
+  <section class="panel" aria-labelledby="inputs-heading">
+    <h2 id="inputs-heading">1. Choose a workflow</h2>
+    <div class="filters">
+      <label for="workflow">Report workflow</label>
+      <select id="workflow" aria-describedby="workflow-policy"><option value="analyze">Analyze input files</option><option value="saved">View saved report</option></select>
+    </div>
+    <p id="workflow-policy" class="hint">Analyze complete version-1 snapshots, or read an existing analysis report without the originals. Changing workflow clears the displayed result; choices remain in memory until removed or reloaded.</p>
+    <div id="analyze-inputs">
+    <h3>Choose complete version-1 snapshots</h3>
+    <div class="input-grid">
+      <section aria-label="Working snapshot">
+        <label for="working-file">Working review file</label>
+        <input id="working-file" type="file" accept=".json,application/json" aria-describedby="input-policy">
+        <p class="hint">Chosen working file:</p><p id="working-name" class="literal">None chosen</p>
+        <button id="clear-working" type="button" disabled>Remove working file</button>
+      </section>
+      <section aria-label="Returned snapshots">
+        <label for="returned-input">Add returned review files (one or more)</label>
+        <input id="returned-input" type="file" accept=".json,application/json" multiple aria-describedby="source-policy input-policy">
+        <p id="source-policy" class="hint">Each selection appends to the list below. Source numbers follow this order, not reviewer identity. Repeated files are separate sources; a synthetic variant is not an independent reviewer. Use Move up / Move down to reorder.</p>
+        <p id="returned-count" class="hint" role="status">0 returned files</p>
+        <ol id="returned-files" aria-label="Returned files in source order"></ol>
+        <button id="clear-returns" type="button" disabled>Remove all returned files</button>
+      </section>
+    </div>
+    <p id="input-policy" class="hint">Choose one working file and at least one returned file, then Analyze. JSON arrays and CSV are not snapshots. All records and reviews must validate, including conflicts and unknown IDs. Changing, reordering or removing a choice clears prior results immediately.</p>
+    <div class="row">
+      <button id="analyze" type="button" class="primary" disabled>Analyze</button>
+      <button id="download-analysis" type="button" aria-describedby="download-status" hidden disabled>Download analysis report</button>
+    </div>
+    <p id="download-status" class="message" role="status" aria-live="polite">No current FRESH report is ready. Analyze the chosen files to enable download.</p>
+    </div>
+    <div id="saved-inputs" hidden>
+      <label for="saved-file">Saved analysis report JSON file</label>
+      <input id="saved-file" type="file" accept=".json,application/json" aria-describedby="saved-policy">
+      <p id="saved-policy" class="hint">Choose an existing record-review-return-analysis JSON report, then View saved report. Its complete structure is checked, but its counts and classifications remain recorded claims, not a fresh comparison. No original files named in it are opened. Saved-report mode is a reader only, with no download or re-export action. Replacing or removing this choice clears prior results immediately.</p>
+      <p class="hint">Chosen report file:</p><p id="saved-name" class="literal">None chosen</p>
+      <div class="row">
+        <button id="clear-saved" type="button" disabled>Remove saved report</button>
+        <button id="view-saved" type="button" class="primary" disabled>View saved report</button>
+      </div>
+    </div>
+    <p id="analysis-status" class="message" role="status" aria-live="polite">Choose files to begin.</p>
+    <p id="analysis-error" class="message literal" role="alert"></p>
+  </section>
+  <section id="results" hidden aria-labelledby="results-heading">
+    <h2 id="results-heading">2. Results</h2>
+    <p id="result-context" class="notice literal"></p>
+    <p class="hint">No winners are chosen. Source numbers identify files in report order, not reviewer identities. Repeated files and synthetic alternatives are not independent reviewers.</p>
+    <p id="working-summary" class="message literal"></p>
+    <h3>Each returned source</h3>
+    <p class="hint">In the producer format, eligible and unchanged reviews can propose values. Changed-record conflicts and unknown IDs are issues, never proposals. All stored counts and issues appear below in report order. For SAVED data, these are recorded claims only.</p>
+    <p class="hint">The working summary, source counts and issues describe the whole report. Overlap search, status and page choices below do not filter them.</p>
+    <ol id="source-results" aria-label="Source counts and issues"></ol>
+    <h3>Overlapping proposals</h3>
+    <p class="hint">The producer records overlaps with at least two eligible or unchanged proposals for the same working record. Report and proposal order are preserved. The producer uses exact decision and note equality, including whitespace; SAVED classifications are displayed as recorded, not recomputed. Every proposal is shown in full; empty notes are labeled separately.</p>
+    <div class="filters">
+      <label for="overlap-filter">Show overlaps</label>
+      <select id="overlap-filter" disabled><option value="all">All</option><option value="disagreement">Disagreements</option><option value="identical">Identical</option></select>
+    </div>
+    <div class="filters">
+      <label for="overlap-query">Search overlap IDs and proposal notes</label>
+      <input id="overlap-query" type="text" aria-describedby="overlap-query-policy" autocomplete="off" disabled>
+      <button id="clear-overlap-query" type="button" disabled>Clear search</button>
+    </div>
+    <p id="overlap-query-policy" class="hint">One literal, case-insensitive substring in an overlap ID or any proposal note, combined with Show overlaps before paging. Spaces and punctuation are literal; no patterns or query syntax. Search changes and Clear search return to the first page. This only changes the overlap view: no files are reread or revalidated. FRESH downloads still contain the entire accepted report, even with no matches; SAVED mode has no export.</p>
+    <div class="row pager" role="group" aria-label="Overlap pages">
+      <button id="previous-page" type="button" disabled>Previous</button>
+      <p id="page-status" role="status" aria-live="polite">No report loaded or analysis yet.</p>
+      <button id="next-page" type="button" disabled>Next</button>
+    </div>
+    <p id="overlap-empty" class="message" hidden></p>
+    <ol id="overlap-results" aria-label="Complete overlap proposals on this page"></ol>
+  </section>
+  <footer>Read-only version-1 Record Desk analysis. No installation, account or server needed.</footer>
+</main>
+<script>
+/* Shared by the offline browser app and Node's built-in tests. */
+(function (root, factory) {
+  "use strict";
+  const api = factory();
+  if (typeof module === "object" && module.exports) module.exports = api;
+  else root.RecordReview = api;
+})(typeof globalThis === "object" ? globalThis : this, function () {
+  "use strict";
+  const FORMAT = "record-review";
+  const VERSION = 1;
+  const STORAGE_KEY = "record-review:v1";
+  const DECISIONS = Object.freeze(["unreviewed", "approved", "rejected", "follow-up"]);
+  const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+  const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
+  const blankReview = () => ({ decision: "unreviewed", notes: "" });
+  const emptyState = () => ({ format: FORMAT, version: VERSION, records: [], reviews: {} });
+
+  function validateRecords(records) {
+    if (!Array.isArray(records)) throw new Error("Records must be a JSON array.");
+    const ids = new Set();
+    records.forEach((record, index) => {
+      const position = "Record " + (index + 1);
+      if (!object(record)) throw new Error(position + " must be an object.");
+      if (typeof record.id !== "string" || !record.id.trim()) {
+        throw new Error(position + " needs a non-empty string id (convert numeric IDs to strings).");
+      }
+      if (typeof record.title !== "string" || !record.title.trim()) {
+        throw new Error(position + " needs a non-empty string title.");
+      }
+      if (ids.has(record.id)) throw new Error(position + " repeats id " + JSON.stringify(record.id) + ".");
+      ids.add(record.id);
+    });
+    return ids;
+  }
+
+  function validateSnapshot(value) {
+    if (!object(value) || value.format !== FORMAT || value.version !== VERSION) {
+      throw new Error('Expected a records array or a version 1 "record-review" export.');
+    }
+    const ids = validateRecords(value.records);
+    if (!object(value.reviews)) throw new Error("Export reviews must be an object keyed by record ID.");
+    if (Object.keys(value.reviews).length !== ids.size) {
+      throw new Error("Export must contain exactly one review for every record.");
+    }
+    for (const [id, review] of Object.entries(value.reviews)) {
+      if (!ids.has(id)) throw new Error("Export contains a review for unknown id " + JSON.stringify(id) + ".");
+      if (!object(review) || !DECISIONS.includes(review.decision) || typeof review.notes !== "string") {
+        throw new Error("Invalid decision or notes for id " + JSON.stringify(id) + ".");
+      }
+    }
+    return {
+      format: FORMAT, version: VERSION, records: value.records,
+      reviews: Object.fromEntries(value.records.map(({ id }) => [id, {
+        decision: value.reviews[id].decision, notes: value.reviews[id].notes,
+      }])),
+    };
+  }
+
+  function parseJSON(text) {
+    if (typeof text !== "string" || !text.trim()) throw new Error("Choose a JSON file or paste JSON first.");
+    try { return JSON.parse(text.replace(/^\uFEFF/, "")); }
+    catch { throw new Error("Invalid JSON. Check commas, quotes, and brackets. Nothing was replaced."); }
+  }
+
+  // CSV syntax only: no trimming, type inference, or review metadata. A single
+  // leading BOM is ignored; quoted line endings are kept exactly as supplied.
+  function parseCSV(text) {
+    if (typeof text !== "string") throw new Error("Choose a CSV file or paste CSV first.");
+    text = text.replace(/^\uFEFF/, "");
+    if (!text.length) throw new Error("CSV needs a header row including id and title.");
+    const rows = [];
+    let row = [], cell = "", quoted = false, closed = false;
+    const endCell = () => { row.push(cell); cell = ""; closed = false; };
+    const endRow = () => { endCell(); rows.push(row); row = []; };
+    for (let index = 0; index < text.length; index++) {
+      const char = text[index];
+      if (quoted) {
+        if (char !== '"') cell += char;
+        else if (text[index + 1] === '"') { cell += '"'; index++; }
+        else { quoted = false; closed = true; }
+      } else if (char === ",") endCell();
+      else if (char === "\r" || char === "\n") {
+        endRow();
+        if (char === "\r" && text[index + 1] === "\n") index++;
+      } else if (closed) {
+        throw new Error("CSV row " + (rows.length + 1) + ": only a comma or line ending may follow a closing quote.");
+      } else if (char === '"') {
+        if (cell.length) throw new Error("CSV row " + (rows.length + 1) + ": a quote must start the cell.");
+        quoted = true;
+      } else cell += char;
+    }
+    if (quoted) throw new Error("CSV row " + (rows.length + 1) + ": unclosed quoted cell.");
+    // One final line ending terminates a row; it does not add a phantom row.
+    if (row.length || cell.length || closed) endRow();
+    const [headers, ...data] = rows;
+    if (headers.some(header => !header.trim())) throw new Error("CSV column names must not be blank.");
+    if (new Set(headers).size !== headers.length) throw new Error("CSV column names must be unique (exact, case-sensitive names).");
+    if (!headers.includes("id") || !headers.includes("title")) {
+      throw new Error("CSV header must include the exact column names id and title.");
+    }
+    return data.map((cells, index) => {
+      if (cells.length !== headers.length) {
+        throw new Error("CSV row " + (index + 2) + " has " + cells.length + " cells; expected " + headers.length + ".");
+      }
+      // Own properties even for __proto__, constructor, etc., just like JSON.
+      return Object.fromEntries(headers.map((header, index) => [header, cells[index]]));
+    });
+  }
+
+  // Pure transaction shared by JSON arrays and CSV: validate every record
+  // before returning a replacement, preserving reviews only by exact ID.
+  function replaceRecords(records, previous) {
+    validateRecords(records);
+    return {
+      format: FORMAT, version: VERSION, records,
+      reviews: Object.fromEntries(records.map(({ id }) => [id, own(previous.reviews, id)
+        ? { ...previous.reviews[id] } : blankReview()])),
+    };
+  }
+
+  function importJSON(text, previous = emptyState()) {
+    const value = parseJSON(text);
+    return Array.isArray(value) ? replaceRecords(value, previous) : validateSnapshot(value);
+  }
+
+  function importCSV(text, previous = emptyState()) {
+    return replaceRecords(parseCSV(text), previous);
+  }
+
+  function updateReview(state, id, patch) {
+    if (!own(state.reviews, id)) throw new Error("This record is not in the accepted dataset.");
+    const review = { ...state.reviews[id], ...patch };
+    if (!DECISIONS.includes(review.decision) || typeof review.notes !== "string") {
+      throw new Error("Choose a valid decision and use text for notes.");
+    }
+    return { ...state, reviews: { ...state.reviews, [id]: { decision: review.decision, notes: review.notes } } };
+  }
+
+  // Validate the whole batch before allocating one review-map copy. Notes and
+  // records never participate; the change list is transient undo data only.
+  function transitionDecisions(state, entries) {
+    const ids = new Set();
+    const changes = [];
+    for (const { id, decision } of entries) {
+      if (typeof id !== "string" || !own(state.reviews, id)) {
+        throw new Error("This record is not in the accepted dataset.");
+      }
+      if (ids.has(id)) throw new Error("Choose each record ID only once.");
+      if (!DECISIONS.includes(decision)) throw new Error("Choose a valid decision.");
+      ids.add(id);
+      const before = state.reviews[id].decision;
+      if (before !== decision) changes.push({ id, before, after: decision });
+    }
+    if (!changes.length) return { state, changes };
+    const reviews = { ...state.reviews };
+    for (const { id, after } of changes) reviews[id] = { ...reviews[id], decision: after };
+    return { state: { ...state, reviews }, changes };
+  }
+
+  function bulkDecision(state, ids, decision) {
+    if (!Array.isArray(ids)) throw new Error("Choose an explicit array of record IDs.");
+    if (!DECISIONS.includes(decision)) throw new Error("Choose a valid decision.");
+    return transitionDecisions(state, ids.map(id => ({ id, decision })));
+  }
+
+  function undoBulkDecision(state, changes) {
+    if (!Array.isArray(changes)) throw new Error("Invalid bulk undo.");
+    // Defense in depth: stale decision intent must never be overwritten. The
+    // adapter also discards this entry on every later decision or replacement.
+    for (const change of changes) {
+      if (!object(change) || typeof change.id !== "string" || !own(state.reviews, change.id) ||
+          !DECISIONS.includes(change.before) || !DECISIONS.includes(change.after) ||
+          change.before === change.after || state.reviews[change.id].decision !== change.after) {
+        throw new Error("This bulk undo no longer matches the current decisions.");
+      }
+    }
+    return transitionDecisions(state, changes.map(({ id, before }) => ({ id, decision: before })));
+  }
+
+  // Comparison and returned reviews share the saved-snapshot contract.
+  function parseSnapshotJSON(text, purpose = "Compare") {
+    const value = parseJSON(text);
+    if (Array.isArray(value)) throw new Error(purpose + ' needs a saved version 1 "record-review" snapshot, not a records array.');
+    return validateSnapshot(value);
+  }
+
+  // JSON object member order is irrelevant; array order and types are not.
+  function equalJSON(left, right) {
+    if (Object.is(left, right)) return true;
+    if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
+    if (Array.isArray(left) !== Array.isArray(right)) return false;
+    const keys = Object.keys(left);
+    return keys.length === Object.keys(right).length &&
+      keys.every(key => own(right, key) && equalJSON(left[key], right[key]));
+  }
+
+  // Pure projection of accepted snapshots. No sorting/mutation or storage; full
+  // before/after values remain available, including absent vs null/empty fields.
+  function compareSnapshots(current, compared) {
+    const currentById = new Map(current.records.map(record => [record.id, record]));
+    const comparedById = new Map(compared.records.map(record => [record.id, record]));
+    const counts = { current: current.records.length, compared: compared.records.length,
+      added: 0, removed: 0, shared: 0, changed: 0, unchanged: 0,
+      recordChanged: 0, reviewChanged: 0, decisionChanged: 0, notesChanged: 0 };
+    const entries = [];
+    const ids = [...currentById.keys(), ...[...comparedById.keys()].filter(id => !currentById.has(id))];
+    for (const id of ids) {
+      const before = currentById.has(id) ? { record: currentById.get(id), review: current.reviews[id] } : null;
+      const after = comparedById.has(id) ? { record: comparedById.get(id), review: compared.reviews[id] } : null;
+      if (!before || !after) {
+        const kind = before ? "removed" : "added";
+        counts[kind]++;
+        entries.push({ id, kind, before, after });
+        continue;
+      }
+      counts.shared++;
+      const fields = [...Object.keys(before.record), ...Object.keys(after.record).filter(key => !own(before.record, key))]
+        .filter(key => !own(before.record, key) || !own(after.record, key) || !equalJSON(before.record[key], after.record[key]));
+      const decisionChanged = before.review.decision !== after.review.decision;
+      const notesChanged = before.review.notes !== after.review.notes;
+      if (!fields.length && !decisionChanged && !notesChanged) { counts.unchanged++; continue; }
+      counts.changed++;
+      if (fields.length) counts.recordChanged++;
+      if (decisionChanged || notesChanged) counts.reviewChanged++;
+      if (decisionChanged) counts.decisionChanged++;
+      if (notesChanged) counts.notesChanged++;
+      entries.push({ id, kind: "changed", before, after, fields, decisionChanged, notesChanged });
+    }
+    return { counts, entries };
+  }
+
+  // A returned snapshot proposes review metadata only. Validate ALL entries
+  // before classifying, including reviews on unknown/conflicting records.
+  // Use the comparison owner's exact recursive values, never display strings.
+  function previewReviewUpdates(current, incoming) {
+    const snapshot = validateSnapshot(incoming);
+    const currentById = new Map(current.records.map(record => [record.id, record]));
+    const counts = { total: snapshot.records.length, eligible: 0, unchanged: 0, unknown: 0, conflict: 0 };
+    const entries = snapshot.records.map(record => {
+      const before = currentById.has(record.id)
+        ? { record: currentById.get(record.id), review: current.reviews[record.id] } : null;
+      const after = { record, review: snapshot.reviews[record.id] };
+      const kind = !before ? "unknown" : !equalJSON(before.record, record) ? "conflict"
+        : equalJSON(before.review, after.review) ? "unchanged" : "eligible";
+      counts[kind]++;
+      return { id: record.id, kind, before, after };
+    });
+    return { counts, entries };
+  }
+
+  // All working-state transitions are immutable. A preview retains its state
+  // identity as a freshness guard, not a candidate state to overwrite from.
+  // Revalidate and rederive first, then make one complete review-map copy.
+  function applyReviewUpdates(current, incoming, previewState) {
+    const preview = previewReviewUpdates(current, incoming);
+    if (current !== previewState) return { state: current, preview, stale: true, changed: 0 };
+    const changes = preview.entries.filter(entry => entry.kind === "eligible");
+    if (!changes.length) return { state: current, preview, stale: false, changed: 0 };
+    const reviews = { ...current.reviews };
+    for (const { id, after } of changes) reviews[id] = { ...after.review };
+    return { state: { ...current, reviews }, preview, stale: false, changed: changes.length };
+  }
+
+  function visibleRecords(state, query = "", decision = "all") {
+    const needle = query.trim().toLowerCase();
+    return state.records.filter(record =>
+      (decision === "all" || state.reviews[record.id].decision === decision) &&
+      (!needle || (record.id + "\n" + record.title + "\n" + state.reviews[record.id].notes).toLowerCase().includes(needle)));
+  }
+
+  function counts(state) {
+    const result = Object.fromEntries(DECISIONS.map(decision => [decision, 0]));
+    for (const review of Object.values(state.reviews)) result[review.decision]++;
+    return { ...result, total: state.records.length, reviewed: state.records.length - result.unreviewed };
+  }
+
+  function exportJSON(state) { return JSON.stringify(validateSnapshot(state), null, 2); }
+
+  // Explicit IDs only; selection order and visibility never reorder the records.
+  // Reuse the version-1 serializer, including its complete snapshot validation.
+  function exportSelectedJSON(state, ids) {
+    if (!Array.isArray(ids) || !ids.length) throw new Error("Select at least one record to export. Nothing was exported.");
+    const selected = new Set(ids);
+    const accepted = new Set(state.records.map(record => record.id));
+    if (selected.size !== ids.length || ids.some(id => typeof id !== "string" || !accepted.has(id))) {
+      throw new Error("Choose each selected record ID exactly once from the working review.");
+    }
+    const records = state.records.filter(record => selected.has(record.id));
+    return exportJSON({ ...state, records,
+      reviews: Object.fromEntries(records.map(({ id }) => [id, state.reviews[id]])),
+    });
+  }
+
+  // The getter itself can throw in an opaque-origin iframe, before getItem runs.
+  function restore(getStorage) {
+    let text;
+    try { text = getStorage().getItem(STORAGE_KEY); }
+    catch { return { status: "unavailable", state: null }; }
+    if (text === null) return { status: "empty", state: null };
+    try { return { status: "restored", state: validateSnapshot(JSON.parse(text)) }; }
+    catch { return { status: "invalid", state: null }; }
+  }
+
+  function persist(getStorage, state) {
+    try {
+      getStorage().setItem(STORAGE_KEY, exportJSON(state));
+      return true;
+    } catch { return false; }
+  }
+
+  return Object.freeze({
+    FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON, importCSV,
+    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, previewReviewUpdates, applyReviewUpdates, visibleRecords, counts, exportJSON, exportSelectedJSON, restore, persist,
+  });
+});
+
+</script>
+<script>
+/* Pure multi-return analysis, shared by the real CLI and offline page. */
+(function (root, factory) {
+  "use strict";
+  if (typeof module === "object" && module.exports) module.exports = factory(require("./review-state.js"));
+  else root.RecordReturnAnalysis = factory(root.RecordReview);
+})(typeof globalThis === "object" ? globalThis : this, function (review) {
+  "use strict";
+
+  // Adapters supply exact display filenames and whole-file text. The optional
+  // purpose retains the CLI's full-path diagnostics. Validate ALL snapshots
+  // before aggregation, including unknown/conflicting records and their reviews.
+  function analyzeReturns(workingInput, returnedInputs) {
+    if (!returnedInputs.length) throw new Error("Choose at least one returned snapshot.");
+    const inputs = [workingInput, ...returnedInputs];
+    const [working, ...returned] = inputs.map(input =>
+      review.parseSnapshotJSON(input.text, input.purpose || "Input " + JSON.stringify(input.filename)));
+    const proposalsById = new Map();
+    const sources = returned.map((snapshot, index) => {
+      const ordinal = index + 1;
+      const filename = inputs[ordinal].filename;
+      const { counts, entries } = review.previewReviewUpdates(working, snapshot);
+      const conflicts = new Set(entries.filter(entry => entry.kind === "conflict").map(entry => entry.id));
+      const issues = [
+        ...working.records.filter(record => conflicts.has(record.id)).map(({ id }) => ({ id, kind: "conflict" })),
+        ...entries.filter(entry => entry.kind === "unknown").map(({ id }) => ({ id, kind: "unknown" })),
+      ];
+      for (const { id, kind, after } of entries) {
+        if (kind !== "eligible" && kind !== "unchanged") continue;
+        if (!proposalsById.has(id)) proposalsById.set(id, []);
+        proposalsById.get(id).push({ sourceOrdinal: ordinal, filename,
+          decision: after.review.decision, notes: after.review.notes });
+      }
+      return { ordinal, filename, counts, issues };
+    });
+    const overlaps = working.records.flatMap(({ id }) => {
+      const proposals = proposalsById.get(id);
+      if (!proposals || proposals.length < 2) return [];
+      const identical = proposals.every(proposal =>
+        proposal.decision === proposals[0].decision && proposal.notes === proposals[0].notes);
+      return [{ id, status: identical ? "identical" : "disagreement", proposals }];
+    });
+    return { kind: "record-review-return-analysis",
+      working: { filename: inputs[0].filename, recordCount: working.records.length },
+      sources, overlaps };
+  }
+
+  // Saved reports use the producer above’s unversioned JSON shape, not a
+  // snapshot. Validate the entire boundary before exposing any result. These
+  // are recorded claims: no original records are available to reclassify them.
+  function parseReportJSON(text) {
+    const fail = (where, message) => { throw new Error("Saved report " + where + ": " + message); };
+    const shape = (value, keys, where) => {
+      if (!value || typeof value !== "object" || Array.isArray(value) ||
+          Object.keys(value).length !== keys.length ||
+          !keys.every(key => Object.prototype.hasOwnProperty.call(value, key))) {
+        fail(where, "expected exactly " + keys.join(", ") + ".");
+      }
+    };
+    const string = (value, where) => {
+      if (typeof value !== "string") fail(where, "expected text.");
+    };
+    const id = (value, where) => {
+      string(value, where);
+      if (!value.trim()) fail(where, "expected a non-empty record ID.");
+    };
+    const count = (value, where) => {
+      if (!Number.isSafeInteger(value) || value < 0) fail(where, "expected a non-negative integer.");
+    };
+    const array = (value, where) => {
+      if (!Array.isArray(value)) fail(where, "expected an array.");
+    };
+    if (typeof text !== "string" || !text.trim()) fail("input", "choose a saved analysis JSON file.");
+    let value;
+    try { value = JSON.parse(text.replace(/^\uFEFF/, "")); }
+    catch { fail("input", "invalid JSON. Check commas, quotes and brackets."); }
+    shape(value, ["kind", "working", "sources", "overlaps"], "root");
+    if (value.kind !== "record-review-return-analysis") fail("kind", "expected record-review-return-analysis.");
+    shape(value.working, ["filename", "recordCount"], "working");
+    string(value.working.filename, "working.filename");
+    count(value.working.recordCount, "working.recordCount");
+    array(value.sources, "sources");
+    if (!value.sources.length) fail("sources", "expected at least one returned source.");
+    const sourceIssues = [];
+    const workingIds = new Set(), unknownIds = new Set();
+    value.sources.forEach((source, index) => {
+      const where = "source " + (index + 1);
+      shape(source, ["ordinal", "filename", "counts", "issues"], where);
+      if (source.ordinal !== index + 1) fail(where, "ordinals must follow source order starting at 1.");
+      string(source.filename, where + " filename");
+      const c = source.counts;
+      const keys = ["total", "eligible", "unchanged", "unknown", "conflict"];
+      shape(c, keys, where + " counts");
+      keys.forEach(key => count(c[key], where + " counts." + key));
+      if (c.total !== c.eligible + c.unchanged + c.unknown + c.conflict ||
+          c.total - c.unknown > value.working.recordCount) fail(where, "inconsistent recorded counts.");
+      array(source.issues, where + " issues");
+      const ids = new Set();
+      let conflicts = 0, unknowns = 0;
+      source.issues.forEach(issue => {
+        shape(issue, ["id", "kind"], where + " issue");
+        id(issue.id, where + " issue ID");
+        if (ids.has(issue.id)) fail(where, "duplicate issue ID.");
+        ids.add(issue.id);
+        if (issue.kind === "conflict" && !unknowns) conflicts++;
+        else if (issue.kind === "unknown") unknowns++;
+        else fail(where, "issues must be conflicts followed by unknown IDs.");
+        (issue.kind === "conflict" ? workingIds : unknownIds).add(issue.id);
+      });
+      if (conflicts !== c.conflict || unknowns !== c.unknown) fail(where, "issue counts do not match recorded counts.");
+      sourceIssues.push(ids);
+    });
+    array(value.overlaps, "overlaps");
+    if (value.overlaps.length > value.working.recordCount) fail("overlaps", "exceeds the recorded working count.");
+    const overlapIds = new Set();
+    const proposalCounts = value.sources.map(() => 0);
+    value.overlaps.forEach((overlap, index) => {
+      const where = "overlap " + (index + 1);
+      shape(overlap, ["id", "status", "proposals"], where);
+      id(overlap.id, where + " ID");
+      if (overlapIds.has(overlap.id)) fail(where, "duplicate overlap ID.");
+      overlapIds.add(overlap.id);
+      workingIds.add(overlap.id);
+      // Deliberately do not recompute the saved classification.
+      if (!["identical", "disagreement"].includes(overlap.status)) fail(where, "unknown recorded status.");
+      array(overlap.proposals, where + " proposals");
+      if (overlap.proposals.length < 2) fail(where, "expected at least two proposals.");
+      let previousOrdinal = 0;
+      overlap.proposals.forEach(proposal => {
+        shape(proposal, ["sourceOrdinal", "filename", "decision", "notes"], where + " proposal");
+        const ordinal = proposal.sourceOrdinal;
+        if (!Number.isSafeInteger(ordinal) || ordinal <= previousOrdinal || ordinal > value.sources.length) {
+          fail(where, "proposal sources must exist and follow source order without repeats.");
+        }
+        previousOrdinal = ordinal;
+        if (proposal.filename !== value.sources[ordinal - 1].filename) fail(where, "proposal filename differs from its source.");
+        if (!review.DECISIONS.includes(proposal.decision)) fail(where, "unknown decision.");
+        string(proposal.notes, where + " notes");
+        if (sourceIssues[ordinal - 1].has(overlap.id)) fail(where, "an issue cannot also propose from the same source.");
+        proposalCounts[ordinal - 1]++;
+      });
+    });
+    proposalCounts.forEach((total, index) => {
+      const c = value.sources[index].counts;
+      if (total > c.eligible + c.unchanged) fail("source " + (index + 1), "too many overlapping proposals for its recorded counts.");
+    });
+    // All sources refer to one working snapshot. Check only internal ID claims,
+    // not original record equality or the saved identical/disagreement status.
+    for (const id of workingIds) {
+      if (unknownIds.has(id)) fail("IDs", "a working-record ID cannot also be recorded as unknown.");
+    }
+    if (workingIds.size > value.working.recordCount) fail("IDs", "known working IDs exceed the recorded working count.");
+    // Return the parsed values and array order untouched, including empty notes,
+    // whitespace, line endings, duplicate filenames and prototype-like IDs.
+    return value;
+  }
+
+  return Object.freeze({ analyzeReturns, parseReportJSON });
+});
+
+</script>
+<script>
+/* DOM/file adapter only. Classification and exact proposal policy live in the
+   shared analysis owner; accepted results and choices live only in this closure. */
+(function () {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const PAGE_SIZE = 10;
+  let workingFile = null;
+  let returnedFiles = [];
+  let savedFile = null;
+  let workflow = "analyze";
+  let savedResult = false;
+  let revision = 0;
+  let report = null;
+  let page = 0;
+  let busy = false;
+
+  function node(tag, text, className) {
+    const element = document.createElement(tag);
+    if (text !== undefined) element.textContent = text;
+    if (className) element.className = className;
+    return element;
+  }
+
+  function freshReportReady() {
+    return workflow === "analyze" && !savedResult && !busy && report !== null;
+  }
+
+  function updateAnalyze() {
+    $("analyze").disabled = busy || workflow !== "analyze" || !workingFile || !returnedFiles.length;
+    $("view-saved").disabled = busy || workflow !== "saved" || !savedFile;
+    $("download-analysis").hidden = !freshReportReady();
+    $("download-analysis").disabled = !freshReportReady();
+  }
+
+  // Every input change and each Analyze attempt supersedes BOTH pending success
+  // and pending failure. Clearing the DOM also releases the prior report values.
+  function invalidate(message) {
+    revision++;
+    busy = false;
+    report = null;
+    savedResult = false;
+    page = 0;
+    $("results").hidden = true;
+    $("results-heading").textContent = "2. Results";
+    $("result-context").textContent = "";
+    $("working-summary").textContent = "";
+    $("source-results").replaceChildren();
+    $("overlap-results").replaceChildren();
+    $("overlap-filter").value = "all";
+    $("overlap-filter").disabled = true;
+    $("overlap-query").value = "";
+    $("overlap-query").disabled = true;
+    $("clear-overlap-query").disabled = true;
+    $("previous-page").disabled = true;
+    $("next-page").disabled = true;
+    $("page-status").textContent = "No report loaded or analysis yet.";
+    $("overlap-empty").hidden = true;
+    $("overlap-empty").textContent = "";
+    $("analysis-error").textContent = "";
+    $("analysis-status").textContent = message;
+    $("download-status").textContent = "No current FRESH report is ready. Analyze the chosen files to enable download.";
+    updateAnalyze();
+  }
+
+  function choicesChanged() {
+    invalidate(workflow === "saved" ? "Choices changed. View saved report to read the chosen JSON file." :
+      "Choices changed. Analyze to read the current files.");
+    renderChoices();
+  }
+
+  function renderChoices() {
+    $("saved-name").textContent = savedFile ? savedFile.name : "None chosen";
+    $("clear-saved").disabled = !savedFile;
+    $("working-name").textContent = workingFile ? workingFile.name : "None chosen";
+    $("clear-working").disabled = !workingFile;
+    $("clear-returns").disabled = !returnedFiles.length;
+    $("returned-count").textContent = returnedFiles.length + " returned file(s) in source order";
+    $("returned-files").replaceChildren(...returnedFiles.map((file, index) => {
+      const item = node("li");
+      const sourceLabel = node("span", "Source " + (index + 1) + ": " + file.name, "literal");
+      sourceLabel.tabIndex = -1; // Neutral focus target when a move reaches its bound.
+      item.append(sourceLabel);
+      const controls = node("div", undefined, "row");
+      for (const [label, delta] of [["Move up", -1], ["Move down", 1], ["Remove", 0]]) {
+        const button = node("button", label);
+        button.type = "button";
+        button.setAttribute("aria-label", label + " returned source " + (index + 1));
+        button.disabled = delta === -1 ? index === 0 : delta === 1 ? index === returnedFiles.length - 1 : false;
+        button.addEventListener("click", () => {
+          if (button.disabled) return;
+          const destination = delta ? index + delta : Math.min(index, returnedFiles.length - 2);
+          if (delta) [returnedFiles[index], returnedFiles[destination]] = [returnedFiles[destination], returnedFiles[index]];
+          else returnedFiles.splice(index, 1);
+          choicesChanged();
+          // Keep the same action after an interior move/removal. At a move
+          // boundary focus the neutral label, never the opposite move action.
+          const row = $("returned-files").children[destination];
+          const buttons = row ? [...row.querySelectorAll("button")] : [];
+          (buttons.find(control => control.textContent === label && !control.disabled) ||
+            row?.children[0] || $("returned-input")).focus();
+        });
+        controls.append(button);
+      }
+      item.append(controls);
+      return item;
+    }));
+  }
+
+  function renderSources() {
+    $("working-summary").textContent = "Working: " + report.working.filename +
+      " · " + report.working.recordCount + " records · " + report.sources.length + " returned source(s).";
+    $("source-results").replaceChildren(...report.sources.map(source => {
+      const item = node("li", undefined, "panel");
+      item.append(node("h3", "Source " + source.ordinal + ": " + source.filename, "literal"));
+      const c = source.counts;
+      item.append(node("p", (savedResult ? "SAVED recorded counts · " : "") +
+        "Total: " + c.total + " · Eligible: " + c.eligible + " · Unchanged: " + c.unchanged +
+        " · Changed-record conflicts: " + c.conflict + " · Unknown IDs: " + c.unknown, "message"));
+      if (!source.issues.length) item.append(node("p", savedResult ? "No issues recorded." : "No issues.", "hint"));
+      else {
+        const issues = node("ul", undefined, "issues");
+        for (const issue of source.issues) {
+          const row = node("li");
+          row.append(node("span", issue.kind === "conflict" ? "Changed-record conflict: " : "Unknown ID: "),
+            node("span", issue.id, "literal"));
+          issues.append(row);
+        }
+        item.append(issues);
+      }
+      return item;
+    }));
+  }
+
+  function renderOverlaps() {
+    if (!report) return;
+    const filter = $("overlap-filter").value;
+    // View-only intersection on the accepted report, before paging. Case folding
+    // is the only transformation; never trim, normalize, interpret or cache it.
+    const query = $("overlap-query").value.toLowerCase();
+    const matches = report.overlaps.filter(overlap =>
+      (filter === "all" || overlap.status === filter) &&
+      (overlap.id.toLowerCase().includes(query) ||
+        overlap.proposals.some(proposal => proposal.notes.toLowerCase().includes(query))));
+    $("clear-overlap-query").disabled = query.length === 0;
+    const pages = Math.ceil(matches.length / PAGE_SIZE);
+    page = Math.max(0, Math.min(page, pages - 1));
+    const start = page * PAGE_SIZE;
+    const end = Math.min(start + PAGE_SIZE, matches.length);
+    $("page-status").textContent = (savedResult ? "SAVED report · " : "") +
+      (matches.length ? "Showing " + (start + 1) + "–" + end : "Showing 0") +
+      " of " + matches.length + " matching overlaps · " + report.overlaps.length + " total · Page " +
+      (pages ? page + 1 : 0) + " of " + pages + " · Up to " + PAGE_SIZE + " per page";
+    $("previous-page").disabled = !matches.length || page === 0;
+    $("next-page").disabled = !matches.length || page >= pages - 1;
+    $("overlap-empty").hidden = matches.length !== 0;
+    $("overlap-empty").textContent = report.overlaps.length ?
+      (query ? "No overlaps match this search and filter." : "No overlaps match this filter.") :
+      savedResult ? "No overlapping proposals recorded in this saved report." :
+        "No overlapping proposals. An overlap needs at least two eligible or unchanged returned proposals for a working record.";
+    $("overlap-results").replaceChildren(...matches.slice(start, end).map(overlap => {
+      const item = node("li", undefined, "panel");
+      item.append(node("h3", "Record ID: " + overlap.id, "literal"),
+        node("p", (savedResult ? "SAVED recorded classification: " : "") +
+          (overlap.status === "identical" ? "Identical" : "Disagreement") +
+          " · " + overlap.proposals.length + " proposals", "message"));
+      for (const proposal of overlap.proposals) {
+        const section = node("section", undefined, "proposal");
+        section.append(node("h4", "Source " + proposal.sourceOrdinal + ": " + proposal.filename, "literal"),
+          node("p", "Decision: " + proposal.decision),
+          node("p", proposal.notes === "" ? "Notes: empty (0 characters)" : "Notes (exact text):", "hint"),
+          node("pre", proposal.notes, "notes literal"));
+        // Literal text stays primary. This optional representation makes CR/LF,
+        // tabs, trailing spaces and empty strings distinguishable without export.
+        const exact = node("details");
+        exact.append(node("summary", "Exact note string (JSON escapes)"), node("pre", JSON.stringify(proposal.notes)));
+        section.append(exact);
+        item.append(section);
+      }
+      return item;
+    }));
+  }
+
+  $("workflow").addEventListener("change", () => {
+    workflow = $("workflow").value;
+    $("analyze-inputs").hidden = workflow !== "analyze";
+    $("saved-inputs").hidden = workflow !== "saved";
+    choicesChanged();
+  });
+  $("saved-file").addEventListener("change", () => {
+    savedFile = $("saved-file").files[0] || null;
+    choicesChanged();
+  });
+  $("clear-saved").addEventListener("click", () => {
+    savedFile = null;
+    $("saved-file").value = "";
+    choicesChanged();
+    $("saved-file").focus();
+  });
+  $("working-file").addEventListener("change", () => {
+    workingFile = $("working-file").files[0] || null;
+    choicesChanged();
+  });
+  $("returned-input").addEventListener("change", () => {
+    const files = [...$("returned-input").files];
+    if (!files.length) return; // A cancelled add has not changed any choices.
+    returnedFiles.push(...files);
+    $("returned-input").value = ""; // Allow the same file to be explicitly added again.
+    choicesChanged();
+  });
+  $("clear-working").addEventListener("click", () => {
+    workingFile = null;
+    $("working-file").value = "";
+    choicesChanged();
+    $("working-file").focus();
+  });
+  $("clear-returns").addEventListener("click", () => {
+    returnedFiles = [];
+    $("returned-input").value = "";
+    choicesChanged();
+    $("returned-input").focus();
+  });
+  async function readCurrent() {
+    const saved = workflow === "saved";
+    if (busy || (saved ? !savedFile : !workingFile || !returnedFiles.length)) return;
+    invalidate(saved ? "Reading the chosen saved report…" : "Reading the current files…");
+    const attempt = revision;
+    const files = saved ? [savedFile] : [workingFile, ...returnedFiles];
+    busy = true;
+    updateAnalyze();
+    try {
+      const inputs = await Promise.all(files.map(async file => {
+        try { return { filename: file.name, text: await file.text() }; }
+        catch (error) { throw new Error("Could not read " + JSON.stringify(file.name) + ": " + error.message); }
+      }));
+      if (attempt !== revision) return;
+      const result = saved ? RecordReturnAnalysis.parseReportJSON(inputs[0].text) :
+        RecordReturnAnalysis.analyzeReturns(inputs[0], inputs.slice(1));
+      if (attempt !== revision) return;
+      report = result;
+      savedResult = saved;
+      $("results-heading").textContent = saved ? "2. SAVED report data" : "2. Fresh analysis";
+      $("result-context").textContent = saved ? "SAVED report file: " + inputs[0].filename +
+        "\nCounts, eligibility, issues and classifications are recorded claims from this report, not a fresh comparison or revalidation of original records. Only this report file was read; no named working or returned file was opened." :
+        "FRESH analysis of the currently chosen working and returned snapshots. All complete snapshots were validated and compared for this run.";
+      renderSources();
+      $("overlap-filter").disabled = false;
+      $("overlap-query").disabled = false;
+      renderOverlaps();
+      $("results").hidden = false;
+      $("analysis-status").textContent = saved ? "SAVED report loaded for the current choice. No original records revalidated. No reviews applied." :
+        "Analysis complete for the current choices. No reviews applied.";
+      if (!saved) $("download-status").textContent = "FRESH report ready. Download the complete analysis JSON, including all sources and overlaps regardless of filter or page.";
+    } catch (error) {
+      if (attempt !== revision) return;
+      invalidate((saved ? "Saved report could not be loaded." : "Analysis failed.") +
+        " Check the chosen files and try again. No results retained.");
+      $("analysis-error").textContent = error.message;
+    } finally {
+      if (attempt === revision) { busy = false; updateAnalyze(); }
+    }
+  }
+  $("download-analysis").addEventListener("click", () => {
+    if (!freshReportReady()) return;
+    let url;
+    let link;
+    try {
+      // Exactly the existing CLI serialization of the accepted report. Never
+      // reread inputs, recompute analysis, or serialize the filtered/paged DOM.
+      const json = JSON.stringify(report, null, 2) + "\n";
+      url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+      link = document.createElement("a");
+      link.href = url;
+      link.download = "record-review-return-analysis.json";
+      document.body.append(link);
+      link.click();
+      $("download-status").textContent = "Download requested, not confirmed (" + link.download + "). Check your browser downloads for the file before handing it on. An embedded preview may block downloads silently; if needed, open this HTML directly and analyze your chosen files there.";
+    } catch {
+      $("download-status").textContent = "Download could not be requested here. Try again, or open this HTML directly in a browser that permits downloads and analyze your chosen files there.";
+    } finally {
+      if (link) link.remove();
+      if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  });
+  $("analyze").addEventListener("click", readCurrent);
+  $("view-saved").addEventListener("click", readCurrent);
+  $("overlap-filter").addEventListener("change", () => { page = 0; renderOverlaps(); });
+  $("overlap-query").addEventListener("input", () => { page = 0; renderOverlaps(); });
+  $("clear-overlap-query").addEventListener("click", () => {
+    $("overlap-query").value = "";
+    page = 0;
+    renderOverlaps();
+    $("overlap-query").focus();
+  });
+  $("previous-page").addEventListener("click", () => {
+    if (!$("previous-page").disabled) { page--; renderOverlaps(); }
+  });
+  $("next-page").addEventListener("click", () => {
+    if (!$("next-page").disabled) { page++; renderOverlaps(); }
+  });
+  renderChoices();
+  updateAnalyze();
+})();
+
+</script>
+</body>
+</html>
