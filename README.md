@@ -221,6 +221,73 @@ The terminal adapter reuses the exported `parseSnapshotJSON`,
 behind those owners. There is no second merge policy or change to the UI, scalar
 APIs, format, persistence or schema.
 
+### Analyze multiple returned snapshots (read-only)
+
+With Node.js 22 or newer, use the separate analysis command:
+
+```sh
+node review-return-analysis.js working.json first.json second.json --output report.json
+node review-return-analysis.js --help
+```
+
+One working snapshot and **one or more** returned snapshots are required, followed
+by an explicit `--output` and fresh report path. Each input must be a complete
+version-1 `record-review` snapshot, including valid reviews for unknown IDs
+and changed records. Selected-record snapshots and empty snapshots are valid;
+raw arrays, CSV and malformed snapshots are not. Paths may be relative or
+absolute; quote spaces and prefix names beginning with `-` with `./`.
+Filenames in the report are the original argument **basenames**, not full paths.
+
+This command only analyzes: it does not apply reviews, select winners, vote,
+infer approval or reviewer independence, merge records, or create a replacement
+review snapshot. An unchanged review is still a proposal. Repeated input files
+and duplicate basenames remain separate sources identified by one-based ordinal
+in returned-argument order; repetition does not establish independent reviewers.
+
+The UTF-8, indented JSON report has exactly these top-level fields (no
+`format`, `version`, `records` or `reviews` snapshot envelope):
+
+- `kind`: `"record-review-return-analysis"`. This is an analysis report,
+  **not an importable version-1 review** or an apply plan.
+- `working`: `{ filename, recordCount }` for the working input.
+- `sources`: entries `{ ordinal, filename, counts, issues }` in returned-input
+  order. `counts` reuses the canonical `total`, `eligible`, `unchanged`,
+  `conflict` and `unknown` fields, each measured against the same working
+  snapshot. `issues` contains only `{ id, kind }` entries: changed-record
+  `conflict` issues first in working-record order, then `unknown` IDs in
+  that returned file's record order. These counts/issues are not votes.
+- `overlaps`: entries `{ id, status, proposals }` in working-record order,
+  only for working IDs with matching complete original record data in at least
+  two input sources. **Both eligible and unchanged proposals participate**;
+  unknown IDs and changed-record conflicts are excluded from proposals, even
+  when several returned files share them. Each proposal contains exactly
+  `{ sourceOrdinal, filename, decision, notes }` in returned-input order,
+  preserving the exact decision and notes (including whitespace, CRLF/LF,
+  Unicode, empty notes and `unreviewed`). `status` is `"identical"` only
+  when **all** decision-and-notes pairs match exactly; otherwise it is
+  `"disagreement"`. Neither status chooses or approves anything. A single
+  returned input produces per-file analysis with no overlap rows.
+
+The adapter calls the existing exported `parseSnapshotJSON` and
+`previewReviewUpdates` APIs. Version-1 validation, recursive record equality
+(object member order irrelevant; array order and types significant) and preview
+classifications remain owned by `review-state.js`. It adds no validator,
+merge policy, state owner, v1 schema change or change to existing UI/scalar APIs.
+The existing JSON numeric-precision and parsing limits still apply.
+
+Every complete input is read and validated, and the report serialized, **before
+any output-file effect**. Inputs are read only and their bytes are not rewritten.
+Output uses exclusive fresh creation (`wx`), not an existence precheck: existing
+destinations, any input, path aliases, hard links and symlinks (even dangling
+links) are refused without overwrite. Parent directories must already exist.
+Success/help exit 0; usage, read, validation and write errors exit 1 with a
+diagnostic and usage. A write failure may leave an empty or partial new file;
+inspect it and use a fresh path for a retry. There is no atomic-disk-write,
+crash-durability, rollback or automatic cleanup promise. Each invocation rereads
+all inputs; no saved plan, file locking, concurrent-input-edit detection or
+cross-invocation stale-plan protection is provided. Keep real input files,
+reports and command receipts private and outside Git.
+
 ### Explicit selected-record decisions and one-step undo
 
 Use a row's **Select** toggle to include that exact ID in a bulk set. Its pressed
@@ -395,6 +462,8 @@ Exports remain JSON so all record fields and separately owned reviews round-trip
   also usable in Node tests.
 - `review-return.js`: thin Node terminal/file adapter for returned-review preview
   and exclusive fresh-output apply; `review-return.test.js` executes the real command.
+- `review-return-analysis.js`: read-only multi-return report adapter;
+  `review-return-analysis.test.js` exercises the real command and complete reports.
 - `review-app.js`: DOM events, independent async import/comparison/returned-read
   ordering, transient selection/undo/preview freshness, rendering and download UI.
 - `review-template.html`: accessible, responsive markup and inline CSS.
@@ -415,7 +484,7 @@ After editing those sources, run:
 ```sh
 node build-review.js
 node build-review.js --check
-node --test review-state.test.js review-app.test.js review-return.test.js parcel-label.test.js
+node --test review-state.test.js review-app.test.js review-return.test.js review-return-analysis.test.js parcel-label.test.js
 git diff --check
 ```
 
@@ -423,6 +492,10 @@ Terminal tests use real Node subprocesses and temporary synthetic files to check
 preview, full-output preservation, complete invalid-input rejection, help/errors,
 zero-update output, rereading between invocations and exclusive-output protection
 (including aliases, links and competing writers). No production test seam is used.
+Multi-return command tests also cover unchanged proposals, exact decision/notes
+pairs, identical/disagreeing overlaps, source/record order, excluded issues,
+duplicate basenames/repeated inputs, and rejection of any invalid complete input
+before report creation.
 For CLI-only changes, run the named Node tests and `node build-review.js --check`;
 no page rebuild or browser run is needed. Keep real handoff inputs, outputs and
 command receipts private and outside Git, separate from synthetic test fixtures.
