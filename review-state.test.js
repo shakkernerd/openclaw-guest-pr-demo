@@ -25,6 +25,80 @@ test("raw import retains arbitrary JSON fields and creates independent blank rev
   assert.deepEqual(R.importJSON("\uFEFF" + JSON.stringify(records)), state);
 });
 
+test("CSV preserves source strings, quoted syntax, exact headers and special object keys", () => {
+  const csv = '\uFEFFid,title,amount,notes,decision,__proto__,constructor, extra ,"a,b","say ""hi""",empty\r\n' +
+    '001,"  雪, ""hello""\r\nnext\nline\rlast  ",1e3,"source notes",rejected,safe,false, null ,value,quote,\r' +
+    '__proto__,Title,0007,,not a decision,own,key,  ,comma,"""",\n';
+  const state = R.importCSV(csv);
+  const headers = ["id", "title", "amount", "notes", "decision", "__proto__", "constructor", " extra ", "a,b", 'say "hi"', "empty"];
+  const expected = [
+    ["001", '  雪, "hello"\r\nnext\nline\rlast  ', "1e3", "source notes", "rejected", "safe", "false", " null ", "value", "quote", ""],
+    ["__proto__", "Title", "0007", "", "not a decision", "own", "key", "  ", "comma", '"', ""],
+  ].map(cells => Object.fromEntries(headers.map((header, index) => [header, cells[index]])));
+  assert.deepEqual(state.records, expected);
+  assert.ok(state.records.every(record => Object.values(record).every(value => typeof value === "string")));
+  assert.equal(Object.getPrototypeOf(state.records[0]), Object.prototype);
+  assert.deepEqual(state.reviews["001"], { decision: "unreviewed", notes: "" });
+  assert.deepEqual(state.reviews.__proto__, { decision: "unreviewed", notes: "" });
+  assert.equal({}.safe, undefined);
+  assert.deepEqual(R.importJSON(R.exportJSON(state)), state);
+});
+
+test("CSV and JSON arrays share exact-ID reconciliation and separate source fields from reviews", () => {
+  const previous = freeze(reviewed());
+  const csv = "id,title,notes,decision\nb,Now first,source note,approved\na,Renamed,not a review,rejected\nA,Case differs,,approved\n a ,Spaced ID, ,follow-up";
+  const next = R.importCSV(csv, previous);
+  assert.deepEqual(next, R.importJSON(JSON.stringify(next.records), previous));
+  assert.deepEqual(next.reviews.a, previous.reviews.a);
+  assert.notEqual(next.reviews.a, previous.reviews.a);
+  assert.equal(next.reviews.b.decision, "unreviewed");
+  assert.equal(next.records[1].notes, "not a review");
+  assert.equal(next.reviews.A.decision, "unreviewed");
+  assert.equal(next.reviews[" a "].notes, "");
+  const replaced = R.importCSV("title,id\nOnly B,b", previous);
+  assert.deepEqual(Object.keys(replaced.reviews), ["b"]);
+  assert.equal(previous.records.length, 2);
+  // Saved reviews still restore their own metadata rather than reconciling it.
+  assert.deepEqual(R.importJSON(R.exportJSON(previous), next), previous);
+  assert.throws(() => R.parseSnapshotJSON(csv));
+});
+
+test("CSV permits LF, CRLF and CR row endings, an optional final ending, and header-only clearing", () => {
+  const previous = freeze(reviewed());
+  for (const ending of ["\n", "\r\n", "\r"]) {
+    for (const final of ["", ending]) {
+      assert.deepEqual(R.importCSV("id,title" + final, previous), R.emptyState());
+      assert.deepEqual(R.importCSV('"title","id"' + ending + '" X ","\uFEFF007 "' + final).records,
+        [{ title: " X ", id: "\uFEFF007 " }]);
+    }
+  }
+  assert.deepEqual(R.importCSV("\uFEFFid,title\n", previous), R.emptyState());
+});
+
+test("CSV syntax, header, row and record failures reject atomically, including late failures", () => {
+  const previous = freeze(reviewed());
+  const before = R.exportJSON(previous);
+  const invalid = [
+    ["", /header row/], ["\uFEFF", /header row/], [" ", /blank/], ["\n", /blank/],
+    ["id,title,id", /unique/], ['id,title,"id"', /unique/], ["id,title,", /blank/],
+    ['id,title,""', /blank/], ["id,title, ", /blank/],
+    ["ID,title", /exact column/], ["id, title", /exact column/], ["other,title", /exact column/],
+    ['id,title\na,"Unclosed', /unclosed/], ['id,title\na,Un"quoted', /quote must start/],
+    ['id,title\na,"Closed"x', /closing quote/], ['id,title\na,"Closed" ', /closing quote/],
+    ['id,title\na, "Leading space"', /quote must start/],
+    ["id,title\na,Valid\nb", /row 3 has 1 cells/], ["id,title\na,Valid\nb,Title,extra", /row 3 has 3 cells/],
+    ["id,title\na,Valid\n\n", /row 3 has 1 cells/], ["id,title\n\n", /row 2 has 1 cells/],
+    ["id,title\na,Valid\n,Title", /non-empty string id/],
+    ["id,title\na,Valid\nb, ", /non-empty string title/],
+    ['id,title\na,Valid\nb,""', /non-empty string title/],
+    ["id,title\na,Valid\na,Duplicate", /repeats id/],
+  ];
+  for (const [input, error] of invalid) {
+    assert.throws(() => R.importCSV(input, previous), error, JSON.stringify(input));
+    assert.equal(R.exportJSON(previous), before);
+  }
+});
+
 const invalidImports = [
   "", " ", "{bad json", "null", "true", "42", '"text"', "{}", '{"records":[]}',
   "[null]", "[[]]", '[{"id":1,"title":"Numeric ID"}]',

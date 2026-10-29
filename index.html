@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>Record Desk — offline JSON review</title>
+  <title>Record Desk — offline record review</title>
   <style>
     :root { font-family: system-ui, -apple-system, sans-serif; color: #203335; background: #f4f6f3; line-height: 1.5; }
     * { box-sizing: border-box; }
@@ -102,15 +102,20 @@
         <p class="hint">Use a JSON array with a unique, non-empty string <strong>id</strong> and <strong>title</strong> on each record. Extra fields are kept. Or import a Record Desk export.</p>
         <label for="file-input">Choose JSON file</label>
         <input id="file-input" type="file" accept=".json,application/json" aria-describedby="import-policy">
+        <label for="csv-file-input" class="actions">Or choose CSV records file</label>
+        <input id="csv-file-input" type="file" accept=".csv,text/csv" aria-describedby="csv-policy import-policy">
         <div class="actions"><button type="button" id="sample">Try sample records</button></div>
       </section>
       <section aria-label="Paste import">
-        <label for="paste-json">Or paste JSON</label>
-        <textarea id="paste-json" rows="4" spellcheck="false" placeholder='[{"id":"R-101","title":"Check delivery address"}]' aria-describedby="import-policy"></textarea>
+        <label for="paste-format">Pasted content format</label>
+        <select id="paste-format" aria-describedby="csv-policy import-policy"><option value="json">JSON records array or saved review</option><option value="csv">CSV records (header row required)</option></select>
+        <label for="paste-json" class="actions">Paste content in the selected format</label>
+        <textarea id="paste-json" rows="4" spellcheck="false" aria-describedby="csv-policy import-policy"></textarea>
         <div class="actions"><button type="button" id="import-paste" class="primary">Import &amp; replace</button></div>
       </section>
     </div>
-    <p class="hint" id="import-policy">All import actions replace the list. Record arrays keep decisions and notes for matching IDs; omitted IDs are removed. Review exports restore their exact state. Export first to keep a backup. Invalid imports change nothing.</p>
+    <p class="hint" id="csv-policy">CSV: unique, non-blank column names including exact <strong>id</strong> and <strong>title</strong>. All cells stay text; extra columns (including notes and decision) are record fields, not reviews. Quote cells containing commas or line breaks; double quotes inside quoted cells. A valid header alone clears the list. Use the matching file control or paste format; formats are not auto-detected.</p>
+    <p class="hint" id="import-policy">All import actions replace the list. JSON record arrays and CSV keep decisions and notes for matching IDs; omitted IDs are removed. JSON review exports restore their exact state. Export first to keep a backup. Invalid imports change nothing.</p>
     <p id="import-error" class="message" role="alert"></p>
   </details>
   <p id="activity" class="message" role="status" aria-live="polite"></p>
@@ -130,7 +135,7 @@
       <ul id="record-list" aria-label="Records"></ul>
     </aside>
     <section class="editor" aria-label="Selected record">
-      <div id="empty" class="empty"><h2>Your next review starts here</h2><p>Import JSON above, or try the sample records.</p></div>
+      <div id="empty" class="empty"><h2>Your next review starts here</h2><p>Import JSON or CSV above, or try the sample records.</p></div>
       <div id="record-editor" hidden>
         <p id="record-id"></p><h2 id="record-title"></h2>
         <p id="selection-status" class="hint" role="status" hidden></p>
@@ -246,17 +251,69 @@
     catch { throw new Error("Invalid JSON. Check commas, quotes, and brackets. Nothing was replaced."); }
   }
 
-  // Pure transaction: finish all validation before returning a replacement.
-  // Raw datasets preserve reviews by exact ID; exports restore an exact snapshot.
-  function importJSON(text, previous = emptyState()) {
-    const value = parseJSON(text);
-    if (!Array.isArray(value)) return validateSnapshot(value);
-    validateRecords(value);
+  // CSV syntax only: no trimming, type inference, or review metadata. A single
+  // leading BOM is ignored; quoted line endings are kept exactly as supplied.
+  function parseCSV(text) {
+    if (typeof text !== "string") throw new Error("Choose a CSV file or paste CSV first.");
+    text = text.replace(/^\uFEFF/, "");
+    if (!text.length) throw new Error("CSV needs a header row including id and title.");
+    const rows = [];
+    let row = [], cell = "", quoted = false, closed = false;
+    const endCell = () => { row.push(cell); cell = ""; closed = false; };
+    const endRow = () => { endCell(); rows.push(row); row = []; };
+    for (let index = 0; index < text.length; index++) {
+      const char = text[index];
+      if (quoted) {
+        if (char !== '"') cell += char;
+        else if (text[index + 1] === '"') { cell += '"'; index++; }
+        else { quoted = false; closed = true; }
+      } else if (char === ",") endCell();
+      else if (char === "\r" || char === "\n") {
+        endRow();
+        if (char === "\r" && text[index + 1] === "\n") index++;
+      } else if (closed) {
+        throw new Error("CSV row " + (rows.length + 1) + ": only a comma or line ending may follow a closing quote.");
+      } else if (char === '"') {
+        if (cell.length) throw new Error("CSV row " + (rows.length + 1) + ": a quote must start the cell.");
+        quoted = true;
+      } else cell += char;
+    }
+    if (quoted) throw new Error("CSV row " + (rows.length + 1) + ": unclosed quoted cell.");
+    // One final line ending terminates a row; it does not add a phantom row.
+    if (row.length || cell.length || closed) endRow();
+    const [headers, ...data] = rows;
+    if (headers.some(header => !header.trim())) throw new Error("CSV column names must not be blank.");
+    if (new Set(headers).size !== headers.length) throw new Error("CSV column names must be unique (exact, case-sensitive names).");
+    if (!headers.includes("id") || !headers.includes("title")) {
+      throw new Error("CSV header must include the exact column names id and title.");
+    }
+    return data.map((cells, index) => {
+      if (cells.length !== headers.length) {
+        throw new Error("CSV row " + (index + 2) + " has " + cells.length + " cells; expected " + headers.length + ".");
+      }
+      // Own properties even for __proto__, constructor, etc., just like JSON.
+      return Object.fromEntries(headers.map((header, index) => [header, cells[index]]));
+    });
+  }
+
+  // Pure transaction shared by JSON arrays and CSV: validate every record
+  // before returning a replacement, preserving reviews only by exact ID.
+  function replaceRecords(records, previous) {
+    validateRecords(records);
     return {
-      format: FORMAT, version: VERSION, records: value,
-      reviews: Object.fromEntries(value.map(({ id }) => [id, own(previous.reviews, id)
+      format: FORMAT, version: VERSION, records,
+      reviews: Object.fromEntries(records.map(({ id }) => [id, own(previous.reviews, id)
         ? { ...previous.reviews[id] } : blankReview()])),
     };
+  }
+
+  function importJSON(text, previous = emptyState()) {
+    const value = parseJSON(text);
+    return Array.isArray(value) ? replaceRecords(value, previous) : validateSnapshot(value);
+  }
+
+  function importCSV(text, previous = emptyState()) {
+    return replaceRecords(parseCSV(text), previous);
   }
 
   function updateReview(state, id, patch) {
@@ -353,7 +410,7 @@
   }
 
   return Object.freeze({
-    FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON,
+    FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON, importCSV,
     updateReview, parseSnapshotJSON, compareSnapshots, visibleRecords, counts, exportJSON, restore, persist,
   });
 });
@@ -553,7 +610,7 @@
     $("empty").hidden = Boolean(record);
     if (!record) {
       $("empty").querySelector("h2").textContent = totals.total ? "No matching records" : "Your next review starts here";
-      $("empty").querySelector("p").textContent = totals.total ? "Try another search or decision filter. Your reviews are still here." : "Import JSON above, or try the sample records.";
+      $("empty").querySelector("p").textContent = totals.total ? "Try another search or decision filter. Your reviews are still here." : "Import JSON or CSV above, or try the sample records.";
       $("notes").value = "";
       return;
     }
@@ -570,9 +627,9 @@
     $("activity").textContent = "Import rejected. Nothing was replaced.";
   }
 
-  function acceptImport(text, source) {
+  function acceptImport(text, source, format = "json") {
     let next;
-    try { next = review.importJSON(text, state); }
+    try { next = format === "csv" ? review.importCSV(text, state) : review.importJSON(text, state); }
     catch (error) { rejectImport(error); return; }
     state = next;
     selectedId = null;
@@ -587,24 +644,29 @@
 
   $("import-paste").addEventListener("click", () => {
     importSequence++;
-    acceptImport($("paste-json").value, "pasted JSON");
+    const format = $("paste-format").value;
+    acceptImport($("paste-json").value, "pasted " + format.toUpperCase(), format);
   });
 
-  $("file-input").addEventListener("change", async event => {
-    const file = event.target.files[0];
-    if (!file) return;
-    const sequence = ++importSequence;
-    event.target.value = ""; // allow retrying the same file
-    $("activity").textContent = "Reading " + file.name + "…";
-    try {
-      const text = await file.text();
-      // A slow earlier read must never replace a newer import, even a rejected one.
-      if (sequence !== importSequence) return;
-      acceptImport(text, file.name);
-    } catch {
-      if (sequence === importSequence) rejectImport(new Error("Could not read that file. Try pasting its JSON instead."));
-    }
-  });
+  // Explicit controls choose the parser, never the filename/MIME type or text.
+  // Both file types, paste, and sample share the same latest-started counter.
+  for (const [id, format] of [["file-input", "json"], ["csv-file-input", "csv"]]) {
+    $(id).addEventListener("change", async event => {
+      const file = event.target.files[0];
+      if (!file) return;
+      const sequence = ++importSequence;
+      event.target.value = ""; // allow retrying the same file
+      $("activity").textContent = "Reading " + file.name + "…";
+      try {
+        const text = await file.text();
+        // A slow earlier read must never replace a newer import, even a rejected one.
+        if (sequence !== importSequence) return;
+        acceptImport(text, file.name, format);
+      } catch {
+        if (sequence === importSequence) rejectImport(new Error("Could not read that file. Try pasting its contents with the matching format instead."));
+      }
+    });
+  }
 
   $("sample").addEventListener("click", () => {
     importSequence++;

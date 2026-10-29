@@ -58,6 +58,7 @@ function app(initial) {
     querySelectorAll: selector => { assert.equal(selector, "[data-decision]"); return buttons; }, addEventListener() {} };
   $("empty").append(new Element("h2"), new Element("p"));
   $("filter").value = "all";
+  $("paste-format").value = "json";
   let saved = R.exportJSON(initial);
   let writes = 0;
   const storage = { getItem: () => saved, setItem: (key, value) => { assert.equal(key, R.STORAGE_KEY); writes++; saved = value; } };
@@ -66,6 +67,9 @@ function app(initial) {
   });
   const fire = (id, type = "click") => $(id).emit(type);
   const compare = async text => { $("compare-json").value = text; await fire("compare-paste"); };
+  const paste = async (text, format = "json") => {
+    $("paste-format").value = format; $("paste-json").value = text; await fire("import-paste");
+  };
   const pendingFile = (id = "compare-file", name = "pending.json") => {
     let resolve, reject;
     const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -78,13 +82,133 @@ function app(initial) {
     noteWrites: $("notes").valueWrites, search: $("search").value, filter: $("filter").value,
     count: $("list-count").textContent, storageStatus: $("storage-status").textContent,
     activity: $("activity").textContent, exported: $("export-json").value });
-  return { $, fire, compare, pendingFile, working, document, buttons };
+  return { $, fire, compare, paste, pendingFile, working, document, buttons };
 }
 
 const fixture = () => R.importJSON(JSON.stringify({ format: R.FORMAT, version: R.VERSION,
   records: [{ id: "a", title: "Alpha", extra: { a: 1, b: 2 } }, { id: "b", title: "Beta" }],
   reviews: { a: { decision: "approved", notes: "keep Alpha" }, b: { decision: "approved", notes: "keep Beta" } },
 }));
+
+test("CSV and JSON paste use the same acceptance transition and update a fixed comparison", async () => {
+  const csv = "id,title,notes,decision\nb,Renamed,source note,rejected\na,Alpha,,approved\nc,New,not review notes,follow-up";
+  const records = R.importCSV(csv).records;
+  for (const format of ["csv", "json"]) {
+    const ui = app(fixture());
+    const { $, fire, paste } = ui;
+    await fire("compare-open"); await ui.compare(R.exportJSON(fixture()));
+    await fire("export-open");
+    $("search").value = "keep"; await fire("search", "input");
+    $("filter").value = "approved"; await fire("filter", "change");
+    const writes = ui.working().writes;
+    await paste(format === "csv" ? csv : JSON.stringify(records), format);
+    assert.deepEqual(JSON.parse(ui.working().saved), R.importJSON(JSON.stringify(records), fixture()));
+    assert.equal(ui.working().writes, writes + 1);
+    assert.equal($("export-json").value, ui.working().saved);
+    assert.equal($("record-id").textContent, "b");
+    assert.equal($("notes").value, "keep Beta");
+    assert.equal($("search").value, "");
+    assert.equal($("filter").value, "all");
+    assert.equal($("import-panel").open, false);
+    assert.equal($("import-error").textContent, "");
+    assert.match($("activity").textContent, new RegExp("Accepted 3 records from pasted " + format.toUpperCase()));
+    assert.match($("compare-status").textContent, /Current: 3 records · Compared: 2/);
+    assert.match($("compare-breakdown").textContent, /Decision[/]note changes: 0/);
+    const values = $("compare-list").querySelectorAll("details")[0].querySelectorAll("pre").map(node => JSON.parse(node.textContent));
+    assert.deepEqual(values[0], records[0]);
+    assert.deepEqual(values[2], fixture().records[1]); // compared side did not change
+    await paste("id,title", "csv");
+    assert.equal($("record-editor").hidden, true);
+    assert.deepEqual(JSON.parse(ui.working().saved), R.emptyState());
+    await paste(R.exportJSON(fixture())); // JSON snapshot restore remains exact
+    assert.deepEqual(JSON.parse(ui.working().saved), fixture());
+    assert.equal($("compare-empty").hidden, false);
+  }
+});
+
+test("rejected CSV/JSON paste and files preserve data, selection, filters, storage and comparison", async () => {
+  const ui = app(fixture());
+  const { $, fire, paste, pendingFile } = ui;
+  $("search").value = "keep"; await fire("search", "input");
+  $("filter").value = "approved"; await fire("filter", "change");
+  await $("record-list").children[1].firstElementChild.emit("click");
+  await fire("export-open");
+  await fire("compare-open"); await ui.compare(R.exportJSON(R.emptyState()));
+  const stable = () => { const { activity, ...working } = ui.working(); return working; };
+  const before = stable();
+  const row = $("record-list").children[1];
+  const comparison = $("compare-list").firstElementChild;
+  for (const [format, invalid] of [["csv", 'id,title\na,Valid\nb,"Unclosed'],
+    ["csv", "id,title\na,Valid\na,Duplicate"], ["json", "{bad"],
+    ["json", '[{"id":"a","title":"Valid"},{"id":"a","title":"Duplicate"}]']]) {
+    await paste(invalid, format);
+    assert.deepEqual(stable(), before);
+    assert.match($("import-error").textContent, /unchanged/);
+    const file = pendingFile(format === "csv" ? "csv-file-input" : "file-input");
+    file.resolve(invalid); await file.done;
+    assert.deepEqual(stable(), before);
+    assert.equal($("record-list").children[1], row);
+    assert.equal($("compare-list").firstElementChild, comparison);
+  }
+  for (const id of ["file-input", "csv-file-input"]) {
+    const file = pendingFile(id); file.reject(new Error("Unreadable")); await file.done;
+    assert.match($("import-error").textContent, /Could not read/);
+    assert.deepEqual(stable(), before);
+  }
+});
+
+test("JSON and CSV files/paste/sample share latest-started-wins, including rejected attempts", async () => {
+  const ui = app(fixture());
+  const { $, paste, pendingFile } = ui;
+  const json = '[{"id":"json","title":"JSON"}]';
+  const csv = "id,title\ncsv,CSV";
+  const oldJSON = pendingFile("file-input");
+  // The explicit file control, not extension or the paste selector, owns parsing.
+  const newCSV = pendingFile("csv-file-input", "records.json");
+  assert.equal($("csv-file-input").value, "");
+  $("paste-format").value = "json";
+  newCSV.resolve(csv); await newCSV.done;
+  oldJSON.resolve(json); await oldJSON.done;
+  assert.equal($("record-id").textContent, "csv");
+  const oldCSV = pendingFile("csv-file-input");
+  const newJSON = pendingFile("file-input", "records.csv");
+  $("paste-format").value = "csv";
+  newJSON.resolve(json); await newJSON.done;
+  oldCSV.reject(new Error("Late failure")); await oldCSV.done;
+  assert.equal($("record-id").textContent, "json");
+  assert.equal($("import-error").textContent, "");
+
+  for (const [id, content, format, pasted] of [["file-input", json, "csv", csv], ["csv-file-input", csv, "json", json]]) {
+    const pending = pendingFile(id);
+    await paste(pasted, format);
+    const accepted = ui.working();
+    pending.resolve(content); await pending.done;
+    assert.deepEqual(ui.working(), accepted);
+    const stale = pendingFile(id);
+    // Valid content in the *wrong* explicit format is rejected, not guessed.
+    await paste(content, format);
+    const rejected = ui.working();
+    assert.match($("import-error").textContent, /unchanged/);
+    stale.resolve(content); await stale.done;
+    assert.deepEqual(ui.working(), rejected);
+  }
+  const superseded = pendingFile("csv-file-input");
+  const failed = pendingFile("file-input");
+  failed.reject(new Error("Unreadable")); await failed.done;
+  const failure = ui.working();
+  superseded.resolve(csv); await superseded.done;
+  assert.deepEqual(ui.working(), failure);
+  assert.match($("import-error").textContent, /Could not read/);
+  const csvBeforeSample = pendingFile("csv-file-input");
+  const jsonBeforeSample = pendingFile("file-input");
+  $("paste-format").value = "csv"; // sample is still JSON, independent of paste choice
+  await ui.fire("sample");
+  const sample = ui.working();
+  csvBeforeSample.resolve(csv); jsonBeforeSample.reject(new Error("Late"));
+  await Promise.all([csvBeforeSample.done, jsonBeforeSample.done]);
+  assert.deepEqual(ui.working(), sample);
+  assert.equal($("record-id").textContent, "R-101");
+});
 
 test("comparison UI renders complete text while leaving working/editor/storage state untouched", async () => {
   const ui = app(fixture());
@@ -207,7 +331,8 @@ test("comparison follows live working edits/imports without taking ownership of 
   assert.equal($("record-id").textContent, "new");
   assert.equal($("compare-results").hidden, true);
   const currentRead = pendingFile();
-  $("paste-json").value = "[]"; await fire("import-paste");
+  const csvRead = pendingFile("csv-file-input");
+  csvRead.resolve("id,title"); await csvRead.done;
   currentRead.resolve(original); await currentRead.done;
   assert.match($("compare-status").textContent, /Current: 0 records · Compared: 2 · Added: 2/);
   $("paste-json").value = original; await fire("import-paste");

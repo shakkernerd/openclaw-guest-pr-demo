@@ -62,17 +62,69 @@
     catch { throw new Error("Invalid JSON. Check commas, quotes, and brackets. Nothing was replaced."); }
   }
 
-  // Pure transaction: finish all validation before returning a replacement.
-  // Raw datasets preserve reviews by exact ID; exports restore an exact snapshot.
-  function importJSON(text, previous = emptyState()) {
-    const value = parseJSON(text);
-    if (!Array.isArray(value)) return validateSnapshot(value);
-    validateRecords(value);
+  // CSV syntax only: no trimming, type inference, or review metadata. A single
+  // leading BOM is ignored; quoted line endings are kept exactly as supplied.
+  function parseCSV(text) {
+    if (typeof text !== "string") throw new Error("Choose a CSV file or paste CSV first.");
+    text = text.replace(/^\uFEFF/, "");
+    if (!text.length) throw new Error("CSV needs a header row including id and title.");
+    const rows = [];
+    let row = [], cell = "", quoted = false, closed = false;
+    const endCell = () => { row.push(cell); cell = ""; closed = false; };
+    const endRow = () => { endCell(); rows.push(row); row = []; };
+    for (let index = 0; index < text.length; index++) {
+      const char = text[index];
+      if (quoted) {
+        if (char !== '"') cell += char;
+        else if (text[index + 1] === '"') { cell += '"'; index++; }
+        else { quoted = false; closed = true; }
+      } else if (char === ",") endCell();
+      else if (char === "\r" || char === "\n") {
+        endRow();
+        if (char === "\r" && text[index + 1] === "\n") index++;
+      } else if (closed) {
+        throw new Error("CSV row " + (rows.length + 1) + ": only a comma or line ending may follow a closing quote.");
+      } else if (char === '"') {
+        if (cell.length) throw new Error("CSV row " + (rows.length + 1) + ": a quote must start the cell.");
+        quoted = true;
+      } else cell += char;
+    }
+    if (quoted) throw new Error("CSV row " + (rows.length + 1) + ": unclosed quoted cell.");
+    // One final line ending terminates a row; it does not add a phantom row.
+    if (row.length || cell.length || closed) endRow();
+    const [headers, ...data] = rows;
+    if (headers.some(header => !header.trim())) throw new Error("CSV column names must not be blank.");
+    if (new Set(headers).size !== headers.length) throw new Error("CSV column names must be unique (exact, case-sensitive names).");
+    if (!headers.includes("id") || !headers.includes("title")) {
+      throw new Error("CSV header must include the exact column names id and title.");
+    }
+    return data.map((cells, index) => {
+      if (cells.length !== headers.length) {
+        throw new Error("CSV row " + (index + 2) + " has " + cells.length + " cells; expected " + headers.length + ".");
+      }
+      // Own properties even for __proto__, constructor, etc., just like JSON.
+      return Object.fromEntries(headers.map((header, index) => [header, cells[index]]));
+    });
+  }
+
+  // Pure transaction shared by JSON arrays and CSV: validate every record
+  // before returning a replacement, preserving reviews only by exact ID.
+  function replaceRecords(records, previous) {
+    validateRecords(records);
     return {
-      format: FORMAT, version: VERSION, records: value,
-      reviews: Object.fromEntries(value.map(({ id }) => [id, own(previous.reviews, id)
+      format: FORMAT, version: VERSION, records,
+      reviews: Object.fromEntries(records.map(({ id }) => [id, own(previous.reviews, id)
         ? { ...previous.reviews[id] } : blankReview()])),
     };
+  }
+
+  function importJSON(text, previous = emptyState()) {
+    const value = parseJSON(text);
+    return Array.isArray(value) ? replaceRecords(value, previous) : validateSnapshot(value);
+  }
+
+  function importCSV(text, previous = emptyState()) {
+    return replaceRecords(parseCSV(text), previous);
   }
 
   function updateReview(state, id, patch) {
@@ -169,7 +221,7 @@
   }
 
   return Object.freeze({
-    FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON,
+    FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON, importCSV,
     updateReview, parseSnapshotJSON, compareSnapshots, visibleRecords, counts, exportJSON, restore, persist,
   });
 });

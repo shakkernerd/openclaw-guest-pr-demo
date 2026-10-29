@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>Record Desk — offline JSON review</title>
+  <title>Record Desk — offline record review</title>
   <style>
     :root { font-family: system-ui, -apple-system, sans-serif; color: #203335; background: #f4f6f3; line-height: 1.5; }
     * { box-sizing: border-box; }
@@ -102,15 +102,20 @@
         <p class="hint">Use a JSON array with a unique, non-empty string <strong>id</strong> and <strong>title</strong> on each record. Extra fields are kept. Or import a Record Desk export.</p>
         <label for="file-input">Choose JSON file</label>
         <input id="file-input" type="file" accept=".json,application/json" aria-describedby="import-policy">
+        <label for="csv-file-input" class="actions">Or choose CSV records file</label>
+        <input id="csv-file-input" type="file" accept=".csv,text/csv" aria-describedby="csv-policy import-policy">
         <div class="actions"><button type="button" id="sample">Try sample records</button></div>
       </section>
       <section aria-label="Paste import">
-        <label for="paste-json">Or paste JSON</label>
-        <textarea id="paste-json" rows="4" spellcheck="false" placeholder='[{"id":"R-101","title":"Check delivery address"}]' aria-describedby="import-policy"></textarea>
+        <label for="paste-format">Pasted content format</label>
+        <select id="paste-format" aria-describedby="csv-policy import-policy"><option value="json">JSON records array or saved review</option><option value="csv">CSV records (header row required)</option></select>
+        <label for="paste-json" class="actions">Paste content in the selected format</label>
+        <textarea id="paste-json" rows="4" spellcheck="false" aria-describedby="csv-policy import-policy"></textarea>
         <div class="actions"><button type="button" id="import-paste" class="primary">Import &amp; replace</button></div>
       </section>
     </div>
-    <p class="hint" id="import-policy">All import actions replace the list. Record arrays keep decisions and notes for matching IDs; omitted IDs are removed. Review exports restore their exact state. Export first to keep a backup. Invalid imports change nothing.</p>
+    <p class="hint" id="csv-policy">CSV: unique, non-blank column names including exact <strong>id</strong> and <strong>title</strong>. All cells stay text; extra columns (including notes and decision) are record fields, not reviews. Quote cells containing commas or line breaks; double quotes inside quoted cells. A valid header alone clears the list. Use the matching file control or paste format; formats are not auto-detected.</p>
+    <p class="hint" id="import-policy">All import actions replace the list. JSON record arrays and CSV keep decisions and notes for matching IDs; omitted IDs are removed. JSON review exports restore their exact state. Export first to keep a backup. Invalid imports change nothing.</p>
     <p id="import-error" class="message" role="alert"></p>
   </details>
   <p id="activity" class="message" role="status" aria-live="polite"></p>
@@ -130,7 +135,7 @@
       <ul id="record-list" aria-label="Records"></ul>
     </aside>
     <section class="editor" aria-label="Selected record">
-      <div id="empty" class="empty"><h2>Your next review starts here</h2><p>Import JSON above, or try the sample records.</p></div>
+      <div id="empty" class="empty"><h2>Your next review starts here</h2><p>Import JSON or CSV above, or try the sample records.</p></div>
       <div id="record-editor" hidden>
         <p id="record-id"></p><h2 id="record-title"></h2>
         <p id="selection-status" class="hint" role="status" hidden></p>

@@ -191,7 +191,7 @@
     $("empty").hidden = Boolean(record);
     if (!record) {
       $("empty").querySelector("h2").textContent = totals.total ? "No matching records" : "Your next review starts here";
-      $("empty").querySelector("p").textContent = totals.total ? "Try another search or decision filter. Your reviews are still here." : "Import JSON above, or try the sample records.";
+      $("empty").querySelector("p").textContent = totals.total ? "Try another search or decision filter. Your reviews are still here." : "Import JSON or CSV above, or try the sample records.";
       $("notes").value = "";
       return;
     }
@@ -208,9 +208,9 @@
     $("activity").textContent = "Import rejected. Nothing was replaced.";
   }
 
-  function acceptImport(text, source) {
+  function acceptImport(text, source, format = "json") {
     let next;
-    try { next = review.importJSON(text, state); }
+    try { next = format === "csv" ? review.importCSV(text, state) : review.importJSON(text, state); }
     catch (error) { rejectImport(error); return; }
     state = next;
     selectedId = null;
@@ -225,24 +225,29 @@
 
   $("import-paste").addEventListener("click", () => {
     importSequence++;
-    acceptImport($("paste-json").value, "pasted JSON");
+    const format = $("paste-format").value;
+    acceptImport($("paste-json").value, "pasted " + format.toUpperCase(), format);
   });
 
-  $("file-input").addEventListener("change", async event => {
-    const file = event.target.files[0];
-    if (!file) return;
-    const sequence = ++importSequence;
-    event.target.value = ""; // allow retrying the same file
-    $("activity").textContent = "Reading " + file.name + "…";
-    try {
-      const text = await file.text();
-      // A slow earlier read must never replace a newer import, even a rejected one.
-      if (sequence !== importSequence) return;
-      acceptImport(text, file.name);
-    } catch {
-      if (sequence === importSequence) rejectImport(new Error("Could not read that file. Try pasting its JSON instead."));
-    }
-  });
+  // Explicit controls choose the parser, never the filename/MIME type or text.
+  // Both file types, paste, and sample share the same latest-started counter.
+  for (const [id, format] of [["file-input", "json"], ["csv-file-input", "csv"]]) {
+    $(id).addEventListener("change", async event => {
+      const file = event.target.files[0];
+      if (!file) return;
+      const sequence = ++importSequence;
+      event.target.value = ""; // allow retrying the same file
+      $("activity").textContent = "Reading " + file.name + "…";
+      try {
+        const text = await file.text();
+        // A slow earlier read must never replace a newer import, even a rejected one.
+        if (sequence !== importSequence) return;
+        acceptImport(text, file.name, format);
+      } catch {
+        if (sequence === importSequence) rejectImport(new Error("Could not read that file. Try pasting its contents with the matching format instead."));
+      }
+    });
+  }
 
   $("sample").addEventListener("click", () => {
     importSequence++;

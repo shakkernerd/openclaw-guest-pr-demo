@@ -15,14 +15,16 @@ The tests use the built-in `node:test` runner and `node:assert/strict`; no depen
 installation is needed. They cover parcel counts 0, 1, and 3, expecting `0 items`,
 `1 item`, and `3 items`, respectively.
 
-## Record Desk: offline JSON review
+## Record Desk: offline JSON/CSV record review
 
 Open **index.html** in the repository's Files preview, or open the file directly
 in a modern browser. It is self-contained: no server, installation, network,
 account, or build step is required to use it. Click **Try sample records** for a
 four-record walkthrough.
 
-1. Choose a JSON file or paste an array and click **Import & replace**:
+1. Use **Choose JSON file** for a records array or saved review. To paste, select
+   **JSON records array or saved review** (the default), paste the content, and
+   click **Import & replace**:
 
    ```json
    [
@@ -30,6 +32,21 @@ four-record walkthrough.
      { "id": "R-102", "title": "Confirm parcel count", "items": 3 }
    ]
    ```
+
+   CSV is an alternative for records: use **Or choose CSV records file**, or
+   select **CSV records (header row required)** before pasting and clicking
+   **Import & replace**. File selection imports immediately. The chosen control
+   or paste format determines the parser, not the filename, MIME type, or content;
+   there is no auto-detection or fallback to another format. For example:
+
+   ```csv
+   id,title,items
+   R-101,"Verify address, including postcode",
+   R-102,Confirm parcel count,003
+   ```
+
+   Here `items` is `""` or `"003"`, not a number. CSV imports records only; use JSON
+   to restore or compare a saved review. See the exact CSV rules below.
 
 2. Select a record; mark it **Approve**, **Reject**, **Needs follow-up**, or return
    it to **Unreviewed**. Notes apply as you type. Expand **Original record** to see
@@ -53,7 +70,7 @@ four-record walkthrough.
 Use **Compare saved review**, then choose a saved JSON file or paste its contents
 and activate **Compare pasted review**. Comparison accepts the same version 1
 Record Desk snapshot that Export produces, validated by the existing state
-owner. Raw record arrays are deliberately not accepted for comparison; the
+owner. Raw record arrays and CSV are deliberately not accepted for comparison; the
 import/export contract and format/version are unchanged.
 
 - The comparison is **read-only**. It does not import, merge, write storage,
@@ -93,15 +110,24 @@ import/export contract and format/version are unchanged.
   Use stable IDs for the same entities, not row numbers. Additional fields stay
   in the original records and exports; review metadata is stored separately.
 - Every import action, including sample data, **replaces the record list**.
-  Arrays retain reviews for matching IDs, even if titles change. New IDs start
-  unreviewed; omitted IDs and their reviews are removed. An empty array clears
-  the list. Export before replacing data you may want later.
+  JSON record arrays and CSV retain reviews for matching IDs, even if titles
+  change. New IDs start unreviewed; omitted IDs and their reviews are removed.
+  An empty array clears
+  the list; a valid header-only CSV does the same. Accepted CSV uses the same
+  replacement transition as arrays: selection resets to the first record, search
+  clears, the decision filter returns to All records, and the new state is saved
+  when storage permits. Export before replacing data you may want later.
 - A Record Desk export has `format: "record-review"`, `version: 1`, `records`,
   and `reviews` keyed by ID. It restores its own reviews, not a merge. Unsupported
   versions, missing/extra reviews, invalid decisions, duplicate IDs, malformed
-  JSON, and unreadable files are rejected without changing accepted data,
-  decisions, notes, or storage. A newer import supersedes an earlier pending
-  file read, even if the newer import is rejected.
+  JSON/CSV, and unreadable files are rejected without changing accepted data,
+  decisions, notes, selection, search/filter, or storage. JSON and CSV files,
+  pasted content, and sample imports share one latest-started-wins order: a newer
+  import supersedes an earlier pending file read, even if the newer import is
+  rejected. Merely changing the paste selector does not start an import or change
+  the parser of a pending file read. Saved-review comparison keeps its independent
+  read order and fixed compared snapshot; its current side follows accepted CSV
+  just as it follows accepted JSON.
 - When available, localStorage holds one review under `record-review:v1`.
   Reloading the same browser location restores it. Access/write failures leave
   the app usable in memory and display a warning. Corrupt/unsupported saved data
@@ -114,14 +140,60 @@ import/export contract and format/version are unchanged.
   to copy**, then Ctrl/Cmd+C, and save the text yourself. Export **before closing
   or reloading** a memory-only preview. Direct-file storage also varies by browser;
   moving the HTML file may change its storage location.
-- Intended for modest datasets that fit in browser memory; the entire JSON is
+- Intended for modest datasets that fit in browser memory; the entire input is
   parsed/rendered locally. No data is uploaded. JSON numbers use JavaScript's
   normal numeric precision; keep exact large identifiers/values as strings.
 
+### CSV parser contract
+
+The small, dependency-free parser in the existing state owner supports comma-
+separated records, not spreadsheet dialect detection or a separate record schema.
+
+- The first row is a header. Decoded names must be unique, case-sensitive and
+  non-blank (empty or whitespace-only names are rejected), and must include exact
+  `id` and `title`. Names are not trimmed: `ID` or ` title` cannot replace those
+  required names, and `extra` and ` extra ` are distinct ordinary fields. Quoted
+  headers follow the same quoting rules as data cells.
+- All decoded cells are source **strings**, including empty strings, leading
+  zeroes, large numbers, whitespace and Unicode. No trimming, type conversion,
+  formula evaluation or source priority is applied. Extra columns become ordinary
+  record fields, including `notes`, `decision`, `__proto__` and `constructor`;
+  none imports review metadata. The existing JSON-array record validation then
+  requires non-whitespace IDs/titles and unique exact IDs.
+- CSV preserves decoded strings, not original file bytes. For file imports,
+  `File.text()` first decodes UTF-8, consuming a leading UTF-8 BOM and replacing
+  malformed UTF-8 with U+FFFD. The parser then removes one leading U+FEFF from
+  its supplied string; other U+FEFF characters in that string are preserved.
+  Thus two consecutive leading encoded BOMs can both disappear during file
+  import: one during decoding and one during parsing. Direct string input skips
+  file decoding and loses only one leading U+FEFF. Other encodings are not
+  detected; file import does not provide strict UTF-8 validation or byte preservation.
+- Outside quotes, LF, CRLF and CR separate rows (mixed endings are accepted).
+  Inside quotes, commas and line endings are literal cell content, with line
+  endings preserved as supplied to the parser. A browser textarea normalizes
+  pasted CR/CRLF to LF; use file import when those distinctions matter.
+- A quoted cell must start with `"` as its first character. Inside it, `""`
+  represents one literal `"`. A closing quote must be followed immediately by a
+  comma, row ending or end of input: even trailing spaces are rejected. Quotes
+  within unquoted cells and unclosed quotes are errors; nothing is repaired.
+- Every data row must have exactly as many cells as the header. Empty extra-field
+  cells are kept, including a final empty cell after a comma. Blank rows are not
+  skipped. One final row ending is optional and adds no extra row; another ending
+  creates a blank row and is rejected. Error row numbers count logical CSV rows
+  (including the header), not physical lines inside quoted cells.
+- Empty input (including BOM-only input), whitespace-only input, blank/duplicate
+  headers, missing required columns, malformed quotes, inconsistent row lengths
+  and invalid records are rejected atomically. A valid header without data rows
+  is an intentional empty dataset and **clears the list**, like JSON `[]`.
+
+CSV import does not change version-1 JSON export, restoration or comparison.
+Exports remain JSON so all record fields and separately owned reviews round-trip.
+
 ### Small source layout
 
-- `review-state.js`: pure validation, identity-based state transitions, snapshot
-  comparison, filtering, export, and guarded storage; also usable in Node tests.
+- `review-state.js`: JSON/CSV parsing, pure validation, identity-based state
+  transitions, snapshot comparison, filtering, export, and guarded storage;
+  also usable in Node tests.
 - `review-app.js`: DOM events, independent async import/comparison ordering,
   rendering, and download UI.
 - `review-template.html`: accessible, responsive markup and inline CSS.
@@ -147,6 +219,10 @@ actual DOM adapter against a small Node harness for complete text rendering,
 working/editor/storage isolation, live updates, and deterministic file-read
 success/failure/supersession races. This harness does not test browser layout or
 native keyboard/Undo behavior.
+CSV checks cover lossless string/quote/line-ending handling, strict header and row
+errors, shared JSON-array validation/reconciliation, ordinary metadata-like column
+names, atomic UI/storage rejection, explicit format routing, mixed-format pending
+read ordering, header-only clearing, JSON snapshot restoration, and live comparison.
 
 The eleven optional real-browser scenarios in `review-browser.test.js` are
 skipped unless `RECORD_REVIEW_BROWSER` points to an already installed Chromium.
