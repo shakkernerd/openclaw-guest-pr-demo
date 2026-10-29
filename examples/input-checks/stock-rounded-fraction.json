@@ -1,0 +1,7 @@
+{
+  "items": [
+    { "sku": "SOCK-ADULT", "quantity": 10 },
+    { "sku": "HYGIENE-KIT", "quantity": 6.0000000000000001 },
+    { "sku": "BLANKET-FLEECE", "quantity": 3 }
+  ]
+}

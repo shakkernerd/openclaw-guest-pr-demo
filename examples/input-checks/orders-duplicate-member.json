@@ -1,0 +1,15 @@
+{
+  "orders": [
+    {
+      "id": "CHECK-DUPLICATE",
+      "recipient": "Example Training Desk",
+      "address": {
+        "lines": ["2 Training Square", "Sampleford"],
+        "postcode": "ZZ1 3ZZ",
+        "country": "United Kingdom"
+      },
+      "items": [{ "sku": "HYGIENE-KIT", "quantity": 1 }]
+    }
+  ],
+  "orders": []
+}

@@ -3,6 +3,13 @@
 Before printing the label:
 
 1. Run the dispatch manifest command in the [README](README.md) and resolve any errors.
+   Supply `--stock` to compare the batch with a current on-hand snapshot. Missing
+   SKU rows count as zero. If it exits 4 or says **STOCK SHORTAGE — DO NOT PACK**,
+   stop: the report is planning-only. Ask the coordinator to resolve shortages
+   or explicitly revise the orders, then rerun. No recipient has been allocated
+   scarce stock, and none of the requested quantities have been reduced.
+   Without `--stock`, availability has not been checked. Even a sufficient
+   snapshot does not reserve stock: verify current shelf counts before packing.
 2. Pick the combined quantities from the pick list, then separate them by order ID.
 3. Check each order's SKUs and quantities, not just its total item count. A catalogue
    unit may be a kit or a pair; count it as one unit.

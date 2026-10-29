@@ -1,0 +1,8 @@
+{
+  "items": [
+    { "sku": "SOCK-ADULT", "quantity": 0 },
+    { "sku": "HYGIENE-KIT", "quantity": 4 },
+    { "sku": "BLANKET-FLEECE", "quantity": 1 },
+    { "sku": "MUG-REUSABLE", "quantity": 8 }
+  ]
+}
