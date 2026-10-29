@@ -1,0 +1,1 @@
+{"total":3,"succeeded":3,"failed":0,"results":[{"position":1,"file":"./bom-valid.json","ok":true,"formatted":"﻿inside\n  Ω  "},{"position":2,"file":"bom-valid.json","ok":true,"formatted":"﻿inside\n  Ω  "},{"position":3,"file":"bom-valid.json","ok":true,"formatted":"﻿inside\n  Ω  "}]}

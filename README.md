@@ -237,3 +237,75 @@ HTML-entry tests cover its browser-script use without a duplicate codec-rule
 suite or test-only production API. Those Node checks are not actual browser
 compatibility proof. Browser behavior and interchange policy are unchanged;
 actual client checks remain with the retained approved browser.
+
+## Offline saved batch-report viewer
+
+Open `saved-batch-report.html` directly as a local file, keeping
+`saved-batch-report.css`, `saved-batch-report.js`, and
+`saved-batch-report-viewer.js` beside it. No server, installation, dependency, or
+network connection is needed. Choose one **saved report (UTF-8 JSON)**: the entire
+stdout JSON document previously saved from the batch command, not an address
+draft. The viewer never runs or imports the command, codec, or formatter and
+never opens paths named by report occurrences. It has no export, clipboard,
+printing, storage, automatic persistence, network, or dispatch behavior.
+
+The input boundary decodes UTF-8 fatally, parses once, and validates the envelope,
+counts, and result shapes once per current completed read. A leading UTF-8
+encoding BOM is consumed; FEFF inside parsed strings remains data. It requires
+safe nonnegative integer `total`, `succeeded`, and `failed`, matching the results
+length and actual outcome counts. Results must have consecutive 1-based
+`position`, string `file`, boolean `ok`, and either string `formatted` for success
+or `error` with stage `read`/`decode`/`format` and string `name`/`message` for failure.
+A zero-total report with `results: []` is valid. Unknown fields remain in the
+parsed report but are not interpreted or displayed; there is no added schema or
+version. Structural acceptance does not establish authenticity, freshness,
+postal validity, or whether any saved success would format successfully now.
+
+Every required string may be empty. Parsed values retain whitespace, FEFF,
+Unicode, LF, CR, and CRLF without trimming, coercion, repair, or normalization.
+This is preservation of **parsed strings**, not original JSON escape spelling or
+byte formatting. The app does not modify the selected file. Read-only text nodes
+in `pre` elements, not textarea values or HTML, present file names, formatted
+output, and errors. Empty strings get a separate annotation. Browser layout may
+render different whitespace/line-break characters alike; the underlying text
+is not rewritten. Use normal browser text selection; literal fields are
+keyboard-focusable, with visible focus styles. There is no custom selection or
+clipboard handler.
+
+The single file boundary owns the accepted report separately from latest-read
+status. The page labels both the latest selection and the **displayed accepted
+report**, with its file name, read byte count, and full original totals. Reading,
+invalid data, read failure, and empty/cancelled selections leave accepted content
+intact. Only a newer valid read replaces it atomically. Obsolete read successes
+and errors cannot replace accepted data or newer status. Cancelling the native
+picker (in browsers that emit its standard `cancel` event), an empty selection,
+and leaving the page invalidate pending work without aborting its underlying
+read. There is no persistence after closing/reloading. You can reselect the same
+file; the picker resets after capturing each choice, independently of accepted
+identity.
+
+**All**, **Successes**, **All failures**, and **Read/Decode/Format failures**
+project rows only. The selected filter persists across all loads and failures;
+choose **All** to reset that projection. Full totals, literal file spelling,
+original positions, order, and duplicate occurrences remain unchanged. Visible
+count is labelled separately. No accepted report, an accepted zero-result report,
+and a nonempty report with no filter matches have distinct messages. Status-only
+updates leave the displayed accepted row elements in place.
+
+Run only the viewer's focused native Node checks with:
+
+```sh
+node --test saved-batch-report.test.js
+```
+
+These load the actual production classic-script boundary in a Node VM, without
+CommonJS/test exports or a fake browser. The two small fixtures are retained
+saved stdout documents, consumed directly with independent expected results and
+byte identities; they do not authorize reading any paths inside them. Tests
+cover literal/empty strings, envelope/count/shape refusals, filters and duplicate
+order, atomic replacement, and controlled asynchronous success/error/empty
+selection races. The deferred reads prove the new boundary's generation logic,
+**not native filesystem timing**. They never execute the command, codec,
+formatter, or old tests. Native Files, standalone loading, actual UI rendering,
+filter controls, narrow layout, and keyboard/accessibility behavior remain for
+the retained approved browser; these Node checks are not that proof.
