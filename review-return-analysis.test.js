@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync, spawn } = require("node:child_process");
 const { parseSnapshotJSON } = require("./review-state.js");
+const { analyzeReturns } = require("./review-analysis.js");
 const command = path.join(__dirname, "review-return-analysis.js");
 const exactNotes = '  "quoted"\r\nline\n雪 e\u0301 <em>x</em>  ';
 
@@ -98,6 +99,10 @@ test("complete report preserves canonical classifications, exact pairs and both 
         { decision: "rejected", notes: "Keep decision" }),
     ],
   });
+  const inputs = ["working.json", "first.json", "second.json"].map(filename =>
+    Object.freeze({ filename, text: f.bytes(filename).toString() }));
+  const direct = analyzeReturns(inputs[0], Object.freeze(inputs.slice(1)));
+  assert.equal(f.bytes("report.json").toString(), JSON.stringify(direct, null, 2) + "\n");
   assert.deepEqual(f.inputBytes(), before);
   assert.throws(() => parseSnapshotJSON(f.bytes("report.json").toString()), /version 1/);
   assert.deepEqual(fs.readdirSync(f.directory).sort(), ["first.json", "report.json", "second.json", "working.json"]);
@@ -310,4 +315,35 @@ test("two real commands competing for one fresh path cannot overwrite each other
   success(f.run("working.json", "first.json", "second.json", "--output", "comparison.json"));
   assert.deepEqual(f.bytes("race.json"), f.bytes("comparison.json"));
   assert.deepEqual(f.inputBytes(), before);
+});
+
+
+test("real CLI delegates once to the production shared owner with complete ordered input text", t => {
+  const f = fixtures(t);
+  const ownerPath = require.resolve("./review-analysis.js");
+  // Instrument Node's module boundary in this child only. No production hook,
+  // alternate policy, test-only export, or replacement of the actual analysis.
+  f.put("trace-owner.cjs", `
+    const fs = require("node:fs");
+    const ownerPath = ${JSON.stringify(ownerPath)};
+    const owner = require(ownerPath);
+    require.cache[ownerPath].exports = { analyzeReturns(working, returned) {
+      fs.appendFileSync("owner-calls.jsonl", JSON.stringify([working, ...returned]) + "\\n");
+      return owner.analyzeReturns(working, returned);
+    } };
+  `);
+  const args = ["--require", path.join(f.directory, "trace-owner.cjs"), command,
+    "working.json", "second.json", "first.json", "second.json", "--output", "delegated.json"];
+  const result = spawnSync(process.execPath, args, { cwd: f.directory, encoding: "utf8", timeout: 10000 });
+  assert.ifError(result.error); success(result);
+  const calls = f.bytes("owner-calls.jsonl").toString().trim().split("\n");
+  assert.equal(calls.length, 1);
+  const inputs = JSON.parse(calls[0]);
+  assert.deepEqual(inputs.map(input => input.filename), ["working.json", "second.json", "first.json", "second.json"]);
+  for (const input of inputs) {
+    assert.equal(input.text, f.bytes(input.filename).toString());
+    assert.equal(input.purpose, "Input " + JSON.stringify(input.filename));
+  }
+  assert.equal(f.bytes("delegated.json").toString(),
+    JSON.stringify(analyzeReturns(inputs[0], inputs.slice(1)), null, 2) + "\n");
 });

@@ -3,7 +3,7 @@
 // Read-only file adapter: validation and record equality belong to review-state.
 const fs = require("node:fs");
 const path = require("node:path");
-const review = require("./review-state.js");
+const { analyzeReturns } = require("./review-analysis.js");
 
 const usage = `Usage:
   node review-return-analysis.js working.json first.json [second.json ...] --output report.json
@@ -35,36 +35,10 @@ function main(args) {
     try { return fs.readFileSync(file, "utf8"); }
     catch (error) { throw new Error(`Input ${JSON.stringify(file)} could not be read: ${error.message}`); }
   });
-  const [working, ...returned] = texts.map((text, index) =>
-    review.parseSnapshotJSON(text, `Input ${JSON.stringify(inputFiles[index])}`));
-  const proposalsById = new Map();
-  const sources = returned.map((snapshot, index) => {
-    const ordinal = index + 1;
-    const filename = path.basename(inputFiles[ordinal]);
-    const { counts, entries } = review.previewReviewUpdates(working, snapshot);
-    const conflicts = new Set(entries.filter(entry => entry.kind === "conflict").map(entry => entry.id));
-    const issues = [
-      ...working.records.filter(record => conflicts.has(record.id)).map(({ id }) => ({ id, kind: "conflict" })),
-      ...entries.filter(entry => entry.kind === "unknown").map(({ id }) => ({ id, kind: "unknown" })),
-    ];
-    for (const { id, kind, after } of entries) {
-      if (kind !== "eligible" && kind !== "unchanged") continue;
-      if (!proposalsById.has(id)) proposalsById.set(id, []);
-      proposalsById.get(id).push({ sourceOrdinal: ordinal, filename,
-        decision: after.review.decision, notes: after.review.notes });
-    }
-    return { ordinal, filename, counts, issues };
-  });
-  const overlaps = working.records.flatMap(({ id }) => {
-    const proposals = proposalsById.get(id);
-    if (!proposals || proposals.length < 2) return [];
-    const identical = proposals.every(proposal =>
-      proposal.decision === proposals[0].decision && proposal.notes === proposals[0].notes);
-    return [{ id, status: identical ? "identical" : "disagreement", proposals }];
-  });
-  const report = { kind: "record-review-return-analysis",
-    working: { filename: path.basename(inputFiles[0]), recordCount: working.records.length },
-    sources, overlaps };
+  const inputs = texts.map((text, index) => ({ text,
+    filename: path.basename(inputFiles[index]), purpose: "Input " + JSON.stringify(inputFiles[index]) }));
+  const report = analyzeReturns(inputs[0], inputs.slice(1));
+  const { sources, overlaps } = report;
   const json = JSON.stringify(report, null, 2) + "\n";
   try {
     // Exclusive creation at the write boundary, not a racy existence precheck.

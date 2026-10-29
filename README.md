@@ -552,3 +552,69 @@ To exercise those checks with an existing browser (no download or installation):
 ```sh
 RECORD_REVIEW_BROWSER=/path/to/chromium node --test review-browser.test.js
 ```
+
+## Read-only multi-return analysis page
+
+Open **review-analysis.html** directly as a self-contained offline file. This is
+separate from Record Desk: it does not edit the working snapshot or choose a
+winning proposal.
+
+1. Choose one complete version-1 working review file.
+2. Add one or more complete returned review files. Each selection appends to the
+   visible ordered list. **Move up**, **Move down**, and **Remove** are keyboard
+   buttons; source numbers always follow this list. Duplicate filenames and
+   repeated files remain separate sources. Source count is not reviewer count:
+   a synthetic variant must not be treated as an independent reviewer.
+3. Click **Analyze** explicitly. The page reads and validates every complete
+   snapshot, including reviews on conflicting and unknown records. Errors are
+   visible; there is no partial accepted analysis.
+4. Inspect each source's total, eligible, unchanged, changed-record-conflict and
+   unknown-ID counts and its complete issue list. Overlapping proposals require
+   at least two eligible or unchanged proposals. **All**, **Disagreements**, and
+   **Identical** filter these overlaps without changing their order. Pagination
+   shows at most 10 overlaps per page, with matching/total counts and disabled
+   bounds. Every proposal on the page is shown in full, in source order.
+
+Filenames, IDs and notes render as literal text, including whitespace and
+markup-like content. Empty notes have a separate label; **Exact note string
+(JSON escapes)** makes otherwise invisible CR/LF, tabs and trailing spaces
+inspectable. The primary notes retain their exact text. Record order comes from
+the working snapshot. Equality is exact, not trimmed or normalized.
+
+Changing, reordering or removing any input invalidates prior results and errors
+immediately; click Analyze again. Older asynchronous read successes and failures
+cannot replace newer choices or results. The page has no persistence, network
+submission, clipboard access, apply action or report download/export. Reloading
+starts empty. It never loads the Record Desk editing app.
+
+### Shared analysis and checks
+
+The real CLI, **review-return-analysis.js**, retains its arguments, diagnostics,
+exclusive new-file output, report schema and serialization. It and the browser
+adapter **review-analysis-app.js** both call the pure **review-analysis.js** owner.
+The owner delegates complete version-1 validation and record comparison to
+**review-state.js**; the adapters do not duplicate classification policy.
+
+The existing standard build now produces both self-contained pages:
+
+~~~sh
+node build-review.js
+node build-review.js --check
+~~~
+
+The existing `build()` API and unaffected **index.html** output are preserved;
+`build("analysis")` supplies the separate analysis page. No dependencies or
+package scripts are added. For source/Node checks without any native browser:
+
+~~~sh
+node --test parcel-label.test.js review-state.test.js review-app.test.js review-return.test.js review-return-analysis.test.js review-analysis-app.test.js
+~~~
+
+The new adapter harness executes the actual source and bundled scripts with
+controlled asynchronous file reads and forbidden side-effect guards. It covers
+invalidation, stale success/error races, literal values, source controls/focus,
+complete proposals, filtering/paging and empty states. Real child-process CLI
+tests verify shared-owner delegation and exact report output. These checks do
+not claim native Files, layout or visual proof; those require a separately
+approved browser review. Do not set the optional browser-test switches for a
+source-only check.
