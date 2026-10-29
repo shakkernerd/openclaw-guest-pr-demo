@@ -80,14 +80,20 @@ The page loads the canonical helper as a classic script, exposing the same
 
 The editor starts with one empty draft textarea. Add line appends a blank row
 and focuses it. Remove preserves the remaining values and order, focusing the
-next row, the previous row if last, or Add line when none remain. Labels follow
-the current order. There is no required street/city/postcode schema.
+next row, the previous row if last, or Add line when none remain. Move up and
+Move down relocate the existing row one position and focus its textarea,
+preserving all draft values, controls, IDs, and text selections. Labels follow
+the current order. Move up is disabled on the first row and Move down on the
+last; both are disabled with one row. A boundary no-op changes nothing.
+There is no required street/city/postcode schema.
 
 Only Format address passes the browser-held textarea values, unchanged, to the
 canonical formatter. Embedded line breaks remain draft data and cause its
 normal errors, as do blank lines or removing every row. Errors preserve all
-drafts and are announced in the status area. Any edit, addition, or removal
-immediately clears the old result and obsolete error without revalidating.
+drafts and are announced in the status area. Any edit, addition, removal, or
+real move immediately clears the old result and obsolete error without
+revalidating. Moving never formats automatically: choose Format address to
+format the current textarea order.
 Draft controls are not rebuilt while typing. Browsers may normalize textarea
 line endings; the editor does not transform the values they expose.
 

@@ -21,6 +21,10 @@ class Element {
     this.textContent = "";
     this.value = "";
     this.hidden = false;
+    this.disabled = false;
+    this.selectionStart = 0;
+    this.selectionEnd = 0;
+    this.selectionDirection = "none";
   }
   setAttribute(name, value) {
     this.attributes[name] = value;
@@ -38,6 +42,15 @@ class Element {
     this.parent.children.splice(this.parent.children.indexOf(this), 1);
     this.parent = null;
   }
+  insertBefore(child, reference) {
+    assert.ok(reference === null || this.children.includes(reference));
+    if (child === reference) return child;
+    if (child.parent) child.remove();
+    const index = reference === null ? this.children.length : this.children.indexOf(reference);
+    this.children.splice(index, 0, child);
+    child.parent = this;
+    return child;
+  }
   querySelectorAll(tag) {
     return this.children.flatMap((child) => [
       ...(child.tagName === tag.toUpperCase() ? [child] : []),
@@ -48,12 +61,17 @@ class Element {
   addEventListener(type, listener) {
     (this.listeners[type] ||= []).push(listener);
   }
-  emit(type) {
-    for (const listener of this.listeners[type] || []) listener();
-    if (this.parent) this.parent.emit(type);
+  emit(type, event) {
+    for (const listener of this.listeners[type] || []) listener(event);
+    if (this.parent) this.parent.emit(type, event);
   }
-  click() { this.emit("click"); }
+  click() { if (!this.disabled) this.emit("click"); }
   focus() { this.document.activeElement = this; }
+  setSelectionRange(start, end, direction) {
+    this.selectionStart = start;
+    this.selectionEnd = end;
+    this.selectionDirection = direction;
+  }
 }
 
 function loadPage() {
@@ -88,7 +106,10 @@ function loadPage() {
     values: () => get("address-lines").querySelectorAll("textarea").map((node) => node.value),
     add: () => get("add-line").click(),
     format: () => get("format-address").click(),
-    remove: (index) => get("address-lines").children[index].querySelector("button").click(),
+    button: (index, text) => get("address-lines").children[index]
+      .querySelectorAll("button").find((button) => button.textContent === text),
+    remove(index) { this.button(index, "Remove").click(); },
+    move(index, direction) { this.button(index, "Move " + direction).click(); },
     edit(index, value) {
       const input = this.inputs()[index];
       input.value = value;
@@ -107,7 +128,13 @@ function assertLabels(page) {
     const input = row.querySelector("textarea");
     assert.equal(row.querySelector("label").htmlFor, input.id);
     assert.equal(row.querySelector("label").textContent, "Line " + (index + 1));
-    assert.equal(row.querySelector("button").attributes["aria-label"], "Remove line " + (index + 1));
+    assert.equal(page.button(index, "Remove").attributes["aria-label"], "Remove line " + (index + 1));
+    for (const direction of ["up", "down"]) {
+      const button = page.button(index, "Move " + direction);
+      assert.equal(button.type, "button");
+      assert.equal(button.attributes["aria-label"], "Move line " + (index + 1) + " " + direction);
+      assert.equal(button.disabled, direction === "up" ? index === 0 : index === page.rows().length - 1);
+    }
   });
   assert.equal(new Set(page.inputs().map((input) => input.id)).size, page.inputs().length);
 }
@@ -211,8 +238,10 @@ test("add/remove invalidate stale output and preserve other controls, values, or
   page.remove(2);
   assertCleared(page);
   assert.equal(page.document.activeElement, last);
+  assertLabels(page);
   page.remove(0);
   assert.equal(page.document.activeElement, last);
+  assertLabels(page);
   page.remove(0);
   assert.equal(page.document.activeElement, page.get("add-line"));
   assert.deepEqual(page.values(), []);
@@ -253,4 +282,195 @@ test("canonical blank/multiline errors preserve every draft and clear obsolete e
   assert.equal(page.get("address-status").textContent, "Draft not formatted.");
   assert.deepEqual(page.values(), ["Untouched synthetic line", ""]);
   assertCleared(page);
+});
+
+// Selection/focus assertions below describe this test double, not native-browser proof.
+function draftSnapshot(page) {
+  return page.inputs().map((input) => ({
+    input, id: input.id, value: input.value,
+    start: input.selectionStart, end: input.selectionEnd, direction: input.selectionDirection,
+  }));
+}
+
+function assertNodeOrder(actual, expected) {
+  assert.equal(actual.length, expected.length);
+  actual.forEach((node, index) => assert.equal(node, expected[index]));
+}
+
+function assertSnapshot(page, expected) {
+  assertNodeOrder(page.inputs(), expected.map(({ input }) => input));
+  assert.deepEqual(draftSnapshot(page), expected);
+}
+
+function assertDraft(page) {
+  assertCleared(page);
+  assert.equal(page.get("address-status").textContent, "Draft not formatted.");
+  assert.equal(page.get("address-status").dataset.state, "draft");
+}
+
+test("moves relocate only existing rows, preserve raw drafts/selections, and format only on request", () => {
+  const page = loadPage();
+  const values = ["  Zoe\u0308 李 📦  ", "\tشارع النيل\u00a0", "<recipient> & Co.", "duplicate", "duplicate"];
+  values.forEach((value, index) => { if (index) page.add(); page.edit(index, value); });
+  const rows = [...page.rows()];
+  const inputs = page.inputs();
+  inputs.forEach((input, index) => input.setSelectionRange(index, index + 2, index % 2 ? "backward" : "forward"));
+  const before = draftSnapshot(page);
+  page.format();
+  page.move(0, "down");
+  assertNodeOrder([...page.rows()], [rows[1], rows[0], rows[2], rows[3], rows[4]]);
+  assertSnapshot(page, [before[1], before[0], before[2], before[3], before[4]]);
+  assert.equal(page.document.activeElement, inputs[0]);
+  assertDraft(page);
+  assertLabels(page);
+  page.format();
+  assert.equal(page.get("formatted-address").value, "\tشارع النيل\u00a0\n  Zoe\u0308 李 📦  \n<recipient> & Co.\nduplicate\nduplicate");
+  page.move(4, "up");
+  assertDraft(page);
+  assertSnapshot(page, [before[1], before[0], before[2], before[4], before[3]]);
+  assert.equal(page.document.activeElement, inputs[4]);
+  page.move(2, "down");
+  page.move(3, "down");
+  assertNodeOrder([...page.rows()], [rows[1], rows[0], rows[4], rows[3], rows[2]]);
+  assertSnapshot(page, [before[1], before[0], before[4], before[3], before[2]]);
+  assert.equal(page.document.activeElement, inputs[2]);
+  assertLabels(page);
+  page.format();
+  assert.equal(page.get("formatted-address").value, "\tشارع النيل\u00a0\n  Zoe\u0308 李 📦  \nduplicate\nduplicate\n<recipient> & Co.");
+  assert.equal(page.get("formatted-address").children.length, 0);
+  assert.equal(page.get("formatted-address").hidden, false);
+  page.add();
+  assertLabels(page);
+  assertDraft(page);
+  const added = page.inputs()[5];
+  page.remove(1);
+  assertLabels(page);
+  assertNodeOrder(page.inputs(), [inputs[1], inputs[4], inputs[3], inputs[2], added]);
+  assert.equal(page.document.activeElement, inputs[4]);
+});
+
+test("boundary moves are complete no-ops for one or multiple rows with a result or error", () => {
+  for (const count of [1, 3]) {
+    for (const invalid of [false, true]) {
+      const page = loadPage();
+      for (let index = 0; index < count; index++) {
+        if (index) page.add();
+        page.edit(index, invalid && index === 0 ? "Before\nAfter" : "Line " + index);
+        page.inputs()[index].setSelectionRange(1, 3, "backward");
+      }
+      page.format();
+      assert.equal(page.get("address-status").dataset.state, invalid ? "error" : "success");
+      page.get("format-address").focus();
+      const rows = [...page.rows()];
+      const before = draftSnapshot(page);
+      const output = page.get("formatted-address");
+      const status = page.get("address-status");
+      const result = [output.value, output.hidden, status.textContent, status.dataset.state];
+      for (const [index, direction] of [[0, "up"], [count - 1, "down"]]) {
+        const button = page.button(index, "Move " + direction);
+        assert.equal(button.disabled, true);
+        button.click();
+        // Dispatch directly as well: the handler must guard its own boundary.
+        button.emit("click");
+        assertNodeOrder([...page.rows()], rows);
+        assertSnapshot(page, before);
+        assert.equal(page.document.activeElement, page.get("format-address"));
+        assert.deepEqual([output.value, output.hidden, status.textContent, status.dataset.state], result);
+        assertLabels(page);
+      }
+    }
+  }
+});
+
+test("moving invalid raw drafts clears errors without validating; explicit format uses the new error index", () => {
+  const cases = [
+    { value: " \t\u3000", reason: "must not be blank" },
+    { value: "Before\nAfter", reason: "must not contain line breaks" },
+  ];
+  for (const { value, reason } of cases) {
+    const page = loadPage();
+    page.edit(0, "Untouched");
+    page.add();
+    page.edit(1, value);
+    page.inputs()[1].setSelectionRange(0, 0, "none");
+    const before = draftSnapshot(page);
+    page.format();
+    assert.equal(page.get("address-status").textContent, "Could not format: lines[1] " + reason);
+    page.move(1, "up");
+    assertDraft(page);
+    assertSnapshot(page, [before[1], before[0]]);
+    assert.equal(page.document.activeElement, before[1].input);
+    assertLabels(page);
+    page.format();
+    assertCleared(page);
+    assert.equal(page.get("address-status").textContent, "Could not format: lines[0] " + reason);
+    assert.equal(page.get("address-status").dataset.state, "error");
+    page.move(0, "down");
+    assertDraft(page);
+    assertSnapshot(page, before);
+    assertLabels(page);
+  }
+});
+
+// Dispatch-only coverage: cancellation is observable here, native pointer focus
+// defaults are not simulated. Actual pointer/caret proof needs the retained client.
+function pointerDown(button) {
+  const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+  button.emit("pointerdown", event);
+  return event;
+}
+
+test("disabled Move pointerdown requests cancellation without touching focus or draft state", () => {
+  for (const count of [1, 2]) {
+    for (const invalid of [false, true]) {
+      const page = loadPage();
+      page.edit(0, invalid ? "Before\nAfter" : "First line");
+      if (count === 2) { page.add(); page.edit(1, "Second line"); }
+      page.format();
+      const focused = page.inputs()[count - 1];
+      focused.focus();
+      focused.setSelectionRange(2, 5, "backward");
+      const before = draftSnapshot(page);
+      const rows = [...page.rows()];
+      const output = page.get("formatted-address");
+      const status = page.get("address-status");
+      const result = [output.value, output.hidden, status.textContent, status.dataset.state];
+      for (const [index, direction] of [[0, "up"], [count - 1, "down"]]) {
+        const button = page.button(index, "Move " + direction);
+        assert.equal(button.disabled, true);
+        assert.equal(pointerDown(button).defaultPrevented, true);
+        button.click();
+        assertNodeOrder([...page.rows()], rows);
+        assertSnapshot(page, before);
+        assert.equal(page.document.activeElement, focused);
+        assert.deepEqual([output.value, output.hidden, status.textContent, status.dataset.state], result);
+        assertLabels(page);
+      }
+      // Unrelated controls must retain their own pointer defaults.
+      for (const button of [page.button(0, "Remove"), page.get("add-line"), page.get("format-address")]) {
+        assert.equal(pointerDown(button).defaultPrevented, false);
+      }
+      if (count === 2) {
+        const down = page.button(0, "Move down");
+        assert.equal(pointerDown(down).defaultPrevented, false);
+        assertSnapshot(page, before);
+        assert.equal(page.document.activeElement, focused);
+        down.click();
+        assertSnapshot(page, [before[1], before[0]]);
+        assert.equal(page.document.activeElement, before[0].input);
+        assertDraft(page);
+        assertLabels(page);
+        // The same control follows its current boundary after a real move.
+        assert.equal(down.disabled, true);
+        assert.equal(pointerDown(down).defaultPrevented, true);
+        const up = page.button(1, "Move up");
+        assert.equal(pointerDown(up).defaultPrevented, false);
+        up.click();
+        assertSnapshot(page, before);
+        assert.equal(page.document.activeElement, before[0].input);
+        assertDraft(page);
+        assertLabels(page);
+      }
+    }
+  }
 });

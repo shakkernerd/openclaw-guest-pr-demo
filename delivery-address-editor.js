@@ -17,15 +17,37 @@
 
   function labelRows() {
     Array.from(lines.children).forEach((row, index) => {
+      const [upButton, downButton, removeButton] = row.querySelectorAll("button");
       row.querySelector("label").textContent = "Line " + (index + 1);
-      row.querySelector("button").setAttribute("aria-label", "Remove line " + (index + 1));
+      upButton.setAttribute("aria-label", "Move line " + (index + 1) + " up");
+      downButton.setAttribute("aria-label", "Move line " + (index + 1) + " down");
+      removeButton.setAttribute("aria-label", "Remove line " + (index + 1));
+      upButton.disabled = index === 0;
+      downButton.disabled = index === lines.children.length - 1;
     });
+  }
+
+  function moveLine(row, offset) {
+    const rows = Array.from(lines.children);
+    const index = rows.indexOf(row);
+    if (!rows[index + offset]) return;
+    const input = row.querySelector("textarea");
+    const { selectionStart, selectionEnd, selectionDirection } = input;
+    // Relocate the existing row, never its text or controls.
+    lines.insertBefore(row, offset < 0 ? rows[index - 1] : rows[index + 2] || null);
+    labelRows();
+    invalidate();
+    input.focus();
+    input.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
   }
 
   function appendLine() {
     const row = document.createElement("li");
     const label = document.createElement("label");
     const input = document.createElement("textarea");
+    const actions = document.createElement("div");
+    const upButton = document.createElement("button");
+    const downButton = document.createElement("button");
     const removeButton = document.createElement("button");
     input.id = "address-line-" + nextLineId++;
     input.rows = 2;
@@ -33,6 +55,19 @@
     input.setAttribute("autocomplete", "off");
     input.setAttribute("aria-describedby", "draft-help");
     label.htmlFor = input.id;
+    actions.className = "actions";
+    upButton.type = "button";
+    upButton.textContent = "Move up";
+    upButton.addEventListener("click", () => moveLine(row, -1));
+    downButton.type = "button";
+    downButton.textContent = "Move down";
+    downButton.addEventListener("click", () => moveLine(row, 1));
+    for (const button of [upButton, downButton]) {
+      // Cancel the pointer's focus default, not the native disabled semantics.
+      button.addEventListener("pointerdown", (event) => {
+        if (button.disabled) event.preventDefault();
+      });
+    }
     removeButton.type = "button";
     removeButton.textContent = "Remove";
     removeButton.addEventListener("click", () => {
@@ -43,7 +78,8 @@
       const neighbor = lines.children[index] || lines.children[index - 1];
       (neighbor ? neighbor.querySelector("textarea") : addButton).focus();
     });
-    row.append(label, input, removeButton);
+    actions.append(upButton, downButton, removeButton);
+    row.append(label, input, actions);
     lines.append(row);
     labelRows();
     return input;
