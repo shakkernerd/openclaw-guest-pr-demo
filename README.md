@@ -173,6 +173,54 @@ Closing clears only the returned preview, not the working review or comparison.
 The proposal, source text and freshness guard are transient; reload restores only
 the existing version-1 working snapshot.
 
+### Returned reviews from the terminal
+
+With Node.js 22 or newer, run from the repository root (no installation, package
+script, browser, or service required):
+
+```sh
+node review-return.js working.json returned.json
+node review-return.js working.json returned.json --apply result.json
+node review-return.js --help
+```
+
+Both files must be complete version-1 `record-review` snapshots, including one
+valid review for each record in that file. A returned snapshot may contain only
+selected records; raw record arrays and CSV are not accepted. Quote paths with
+spaces; prefix a filename beginning with `-` with `./`. Relative paths resolve
+from the current directory, and absolute paths work too.
+
+- The default is a **read-only preview**: it prints eligible, unchanged,
+  changed-record-conflict and unknown-ID counts, without writing a file.
+- `--apply result.json` explicitly creates **one fresh full snapshot**, even
+  when there are zero eligible updates. It applies only eligible decisions and
+  notes through the shared owner. Every original working record, field, JSON
+  value/type and array order remains; other reviews and conflicts stay unchanged.
+  Unknown IDs are not added. Object key order is irrelevant to eligibility;
+  array order, exact IDs and value types are significant, just as in the UI.
+- Both complete inputs are read and validated before any output-file effect;
+  invalid entries on unknown or conflicting IDs reject the whole operation.
+  The existing version-1 JSON parsing/serialization limits still apply. This is
+  a canonical JSON export, not preservation of input whitespace or byte layout.
+- Output uses exclusive fresh creation (`wx`) at the write boundary, **not an
+  existence precheck**. An existing destination, either input, a path alias,
+  symlink (including a dangling link), or hard link is refused without overwrite.
+  Parent directories must already exist. Inputs are opened only for reading.
+- Success/help exit 0; usage, validation, read and write errors exit 1 with a
+  diagnostic and usage. A write failure can leave an empty or partial **new**
+  output file; inspect it and choose a fresh path before retrying. There is no
+  atomic-disk-write, crash-durability, rollback, or automatic cleanup promise.
+- Each invocation rereads both files and derives eligibility from that invocation's
+  working snapshot. A preview is not a saved plan or approval token: changes
+  between commands are considered afresh by Apply. There is no cross-invocation
+  stale-plan protection, file locking, or detection of concurrent input edits.
+
+The terminal adapter reuses the exported `parseSnapshotJSON`,
+`previewReviewUpdates`, `applyReviewUpdates` and `exportJSON` APIs from
+`review-state.js`. The existing private validator and recursive comparison stay
+behind those owners. There is no second merge policy or change to the UI, scalar
+APIs, format, persistence or schema.
+
 ### Explicit selected-record decisions and one-step undo
 
 Use a row's **Select** toggle to include that exact ID in a bulk set. Its pressed
@@ -345,6 +393,8 @@ Exports remain JSON so all record fields and separately owned reviews round-trip
   transitions, snapshot comparison, returned-review eligibility/batch apply,
   filtering, export, and guarded storage;
   also usable in Node tests.
+- `review-return.js`: thin Node terminal/file adapter for returned-review preview
+  and exclusive fresh-output apply; `review-return.test.js` executes the real command.
 - `review-app.js`: DOM events, independent async import/comparison/returned-read
   ordering, transient selection/undo/preview freshness, rendering and download UI.
 - `review-template.html`: accessible, responsive markup and inline CSS.
@@ -365,9 +415,17 @@ After editing those sources, run:
 ```sh
 node build-review.js
 node build-review.js --check
-node --test review-state.test.js review-app.test.js parcel-label.test.js
+node --test review-state.test.js review-app.test.js review-return.test.js parcel-label.test.js
 git diff --check
 ```
+
+Terminal tests use real Node subprocesses and temporary synthetic files to check
+preview, full-output preservation, complete invalid-input rejection, help/errors,
+zero-update output, rereading between invocations and exclusive-output protection
+(including aliases, links and competing writers). No production test seam is used.
+For CLI-only changes, run the named Node tests and `node build-review.js --check`;
+no page rebuild or browser run is needed. Keep real handoff inputs, outputs and
+command receipts private and outside Git, separate from synthetic test fixtures.
 
 The existing parcel helper and its three tests are unchanged. The additional
 Node checks cover atomic rejection, stable-ID reconciliation, special object-key
@@ -387,9 +445,9 @@ export invalidation, full round trips, fixed comparison, text-only rendering,
 note-exit ordering and independent file-read cancellation/races. These are source
 and Node-harness checks, not actual returned-file or client/media acceptance.
 For this contribution, run only the named Node files: do not launch a browser,
-run the optional browser suite, or enable its browser/sandbox switches. Actual
-returned-file and client/media acceptance remain a separate manual gate in the
-retained approved browser before publication.
+run the optional browser suite, or enable its browser/sandbox switches. UI client/media acceptance is separate from these Node checks. For terminal-only
+work, execute the command on the actual supplied snapshots and retain its output
+for comparison with existing UI evidence; do not replay the UI or browser suite.
 Selected-handoff Node checks cover exact membership and original order, all
 decision statuses, complete nested/special-key values and notes, empty/invalid
 selection, hidden selections, explicit scope switching and invalidation,
