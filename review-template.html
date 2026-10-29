@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Record Desk — offline JSON review</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, sans-serif; color: #203335; background: #f4f6f3; line-height: 1.5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button, input, select, textarea { font: inherit; }
+    button, summary, select { cursor: pointer; }
+    button { padding: .65rem 1rem; border: 1px solid #b6c6c3; border-radius: 7px; background: white; color: #203335; }
+    button:hover { background: #e9f1ee; border-color: #537c73; }
+    button.primary { background: #176856; color: white; border-color: #176856; }
+    button.primary:hover { background: #115344; }
+    :focus-visible { outline: 3px solid #b76c20; outline-offset: 3px; }
+    input, select, textarea { width: 100%; border: 1px solid #aebfba; border-radius: 6px; padding: .65rem; background: white; color: #203335; }
+    textarea { resize: vertical; }
+    label, legend { font-size: .85rem; font-weight: 650; }
+    label { display: block; margin-bottom: .35rem; }
+    h1, h2, p { margin: 0; }
+    h1 { font-size: 1.8rem; letter-spacing: -.055rem; }
+    h2 { font-size: 1.2rem; }
+    .shell { max-width: 1240px; margin: auto; padding: 2rem; }
+    .topbar, .row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+    .topbar { justify-content: space-between; margin-bottom: 1.5rem; }
+    .eyebrow { color: #316e60; text-transform: uppercase; letter-spacing: .14em; font-size: .72rem; font-weight: 750; }
+    .muted, .hint { color: #536762; }
+    .hint { font-size: .85rem; margin-top: .5rem; }
+    .pill { border: 1px solid #bfd1c9; border-radius: 99px; padding: .2rem .7rem; font-size: .75rem; color: #316e60; background: #edf5ef; }
+    .notice { padding: .8rem 1rem; border-left: 3px solid #bd863d; border-radius: 4px; background: #fff5e5; font-size: .85rem; margin-bottom: 1rem; }
+    .notice.saved { border-color: #28795f; background: #e9f4ec; }
+    .panel { border: 1px solid #d2ded7; border-radius: 10px; background: white; }
+    details.panel { padding: .9rem 1.1rem; margin-bottom: 1rem; }
+    summary { font-weight: 650; }
+    .import-grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 1.5rem; margin-top: 1rem; }
+    .import-grid p { margin-bottom: 1rem; }
+    .actions { margin-top: .7rem; }
+    .message { min-height: 1.6rem; margin: .5rem 0; font-size: .9rem; overflow-wrap: anywhere; }
+    #import-error, #compare-error { color: #a02920; }
+    .comparison-sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .comparison-sides section, .import-grid section { min-width: 0; }
+    .comparison-sides h3 { font-size: 1rem; margin: .75rem 0; }
+    .comparison-sides h4 { font-size: .85rem; margin: .5rem 0; }
+    .comparison-sides pre { max-height: none; overflow: visible; }
+    #compare-list { list-style: none; padding: 0; }
+    #compare-list > li { border-top: 1px solid #d2ded7; padding: .8rem 0; }
+    #compare-list, #compare-source { overflow-wrap: anywhere; }
+    #compare-panel { margin-top: 1rem; }
+    .overview { display: grid; grid-template-columns: minmax(160px, 1.2fr) repeat(3, 1fr); gap: 1rem; margin: 1.25rem 0; }
+    .stat { padding: 1rem 1.1rem; }
+    .stat strong { display: block; font-size: 1.7rem; line-height: 1.2; }
+    .stat span { font-size: .8rem; color: #536762; }
+    progress { width: 100%; height: 7px; accent-color: #176856; display: block; margin-top: .55rem; }
+    .workspace { display: grid; grid-template-columns: minmax(270px, .8fr) minmax(0, 1.6fr); min-height: 480px; overflow: hidden; }
+    .sidebar { border-right: 1px solid #d2ded7; padding: 1.1rem; min-width: 0; background: #fbfcfa; }
+    .filters { display: grid; gap: .7rem; }
+    #record-list { display: grid; gap: .45rem; list-style: none; padding: 0; margin: .75rem 0 0; max-height: 520px; overflow: auto; }
+    .record { width: 100%; text-align: left; display: block; padding: .7rem .8rem; }
+    .record[aria-current="true"] { background: #e8f3ed; border-color: #438570; box-shadow: inset 3px 0 #176856; }
+    .record strong, .record small { display: block; overflow-wrap: anywhere; }
+    .record small { color: #536762; margin-top: .2rem; }
+    .editor { padding: 1.5rem; min-width: 0; }
+    #record-id { font-family: ui-monospace, monospace; font-size: .8rem; color: #537268; margin-bottom: .35rem; overflow-wrap: anywhere; }
+    #record-title { overflow-wrap: anywhere; }
+    fieldset { border: 0; padding: 0; margin: 1.5rem 0; }
+    legend { padding: 0; margin-bottom: .5rem; }
+    .decisions { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .decisions button[aria-pressed="true"] { background: #176856; border-color: #176856; color: white; }
+    #record-details { margin-top: 1.2rem; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; background: #f3f6f3; border-radius: 6px; padding: 1rem; max-height: 320px; overflow: auto; }
+    .empty { padding: 3rem 1rem; text-align: center; color: #536762; }
+    .empty h2 { color: #203335; margin-bottom: .5rem; }
+    #export-panel { margin-top: 1rem; }
+    #export-json, #paste-json, #compare-json { font-family: ui-monospace, monospace; font-size: .85rem; }
+    footer { margin-top: 1.3rem; font-size: .8rem; color: #536762; }
+    [hidden] { display: none !important; }
+    @media (max-width: 720px) {
+      .shell { padding: 1rem; }
+      .import-grid, .workspace, .comparison-sides { grid-template-columns: 1fr; }
+      .overview { grid-template-columns: repeat(2, 1fr); gap: .6rem; }
+      .sidebar { border-right: 0; border-bottom: 1px solid #d2ded7; }
+      #record-list { max-height: 250px; }
+      .editor { padding: 1.1rem; }
+    }
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div><div class="eyebrow">A little clarity for your data</div><h1>Record Desk</h1><p class="muted">Import. Decide. Leave a useful note.</p></div>
+    <div class="row"><span class="pill">Offline · no uploads</span><button type="button" id="compare-open" aria-controls="compare-panel">Compare saved review</button><button type="button" id="export-open" class="primary">Export review</button></div>
+  </header>
+  <noscript><p class="notice">JavaScript is needed to review records. Open this HTML file in a browser with JavaScript enabled.</p></noscript>
+  <p id="storage-status" class="notice" role="status" aria-live="polite">Checking browser storage…</p>
+  <details class="panel" id="import-panel" open>
+    <summary>Import records or restore a review</summary>
+    <div class="import-grid">
+      <section aria-label="File import">
+        <p class="hint">Use a JSON array with a unique, non-empty string <strong>id</strong> and <strong>title</strong> on each record. Extra fields are kept. Or import a Record Desk export.</p>
+        <label for="file-input">Choose JSON file</label>
+        <input id="file-input" type="file" accept=".json,application/json" aria-describedby="import-policy">
+        <div class="actions"><button type="button" id="sample">Try sample records</button></div>
+      </section>
+      <section aria-label="Paste import">
+        <label for="paste-json">Or paste JSON</label>
+        <textarea id="paste-json" rows="4" spellcheck="false" placeholder='[{"id":"R-101","title":"Check delivery address"}]' aria-describedby="import-policy"></textarea>
+        <div class="actions"><button type="button" id="import-paste" class="primary">Import &amp; replace</button></div>
+      </section>
+    </div>
+    <p class="hint" id="import-policy">All import actions replace the list. Record arrays keep decisions and notes for matching IDs; omitted IDs are removed. Review exports restore their exact state. Export first to keep a backup. Invalid imports change nothing.</p>
+    <p id="import-error" class="message" role="alert"></p>
+  </details>
+  <p id="activity" class="message" role="status" aria-live="polite"></p>
+  <section class="overview" aria-label="Review totals">
+    <div class="stat panel"><strong id="count-progress">0 / 0</strong><span>records reviewed</span><progress id="review-progress" max="1" value="0" aria-label="Records reviewed"></progress></div>
+    <div class="stat panel"><strong id="count-approved">0</strong><span>Approved</span></div>
+    <div class="stat panel"><strong id="count-rejected">0</strong><span>Rejected</span></div>
+    <div class="stat panel"><strong id="count-follow-up">0</strong><span>Needs follow-up</span></div>
+  </section>
+  <section class="workspace panel" aria-label="Review workspace">
+    <aside class="sidebar">
+      <div class="filters">
+        <div><label for="search">Search title, ID, or notes</label><input id="search" type="search" placeholder="Find a record…" autocomplete="off"></div>
+        <div><label for="filter">Decision</label><select id="filter"><option value="all">All records</option><option value="unreviewed">Unreviewed</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="follow-up">Needs follow-up</option></select></div>
+      </div>
+      <p id="list-count" class="hint" aria-live="polite">0 records</p>
+      <ul id="record-list" aria-label="Records"></ul>
+    </aside>
+    <section class="editor" aria-label="Selected record">
+      <div id="empty" class="empty"><h2>Your next review starts here</h2><p>Import JSON above, or try the sample records.</p></div>
+      <div id="record-editor" hidden>
+        <p id="record-id"></p><h2 id="record-title"></h2>
+        <p id="selection-status" class="hint" role="status" hidden></p>
+        <fieldset><legend>Review decision</legend><div class="decisions">
+          <button type="button" data-decision="unreviewed" aria-pressed="false">Unreviewed</button>
+          <button type="button" data-decision="approved" aria-pressed="false">Approve</button>
+          <button type="button" data-decision="rejected" aria-pressed="false">Reject</button>
+          <button type="button" data-decision="follow-up" aria-pressed="false">Needs follow-up</button>
+        </div></fieldset>
+        <label for="notes">Review notes</label><textarea id="notes" rows="5" placeholder="What should the next person know?" aria-describedby="notes-hint"></textarea>
+        <p class="hint" id="notes-hint">Changes apply as you type; search results refresh when you leave this field. A record that stops matching stays open for editing. Check the storage notice before closing this page.</p>
+        <details id="record-details"><summary>Original record · all fields</summary><pre id="record-json"></pre></details>
+      </div>
+    </section>
+  </section>
+  <details class="panel" id="compare-panel">
+    <summary id="compare-toggle">Compare saved review · read-only</summary>
+    <p class="hint" id="compare-policy">Inspect a saved Record Desk export (version 1), not a records array. Nothing is imported or saved: your working records, decisions, notes, selection, search and filter stay unchanged. Closing this panel clears the comparison and cancels pending reads.</p>
+    <div class="import-grid">
+      <section aria-label="Comparison file">
+        <label for="compare-file">Choose saved review to compare</label>
+        <input id="compare-file" type="file" accept=".json,application/json" aria-describedby="compare-policy">
+      </section>
+      <section aria-label="Paste comparison">
+        <label for="compare-json">Or paste saved review JSON</label>
+        <textarea id="compare-json" rows="4" spellcheck="false" aria-describedby="compare-policy"></textarea>
+        <div class="actions"><button type="button" id="compare-paste">Compare pasted review</button></div>
+      </section>
+    </div>
+    <div class="actions"><button type="button" id="compare-close">Close &amp; clear comparison</button></div>
+    <p id="compare-error" class="message" role="alert"></p>
+    <p id="compare-status" class="message" role="status" aria-live="polite"></p>
+    <section id="compare-results" aria-labelledby="compare-heading" hidden>
+      <h2 id="compare-heading">Current working review vs compared snapshot</h2>
+      <p id="compare-source" class="hint"></p>
+      <p id="compare-breakdown" class="hint"></p>
+      <p class="hint">Added and removed are relative to the current review. Shared IDs match exactly, including case. Expand each entry for complete before/after records and reviews as JSON text: empty strings appear as &quot;&quot;, and absent records are explicitly marked. Current IDs keep their order; added IDs follow in snapshot order.</p>
+      <p id="compare-empty" class="message" hidden>No differences. All records, decisions, and notes match.</p>
+      <ul id="compare-list" aria-label="Changed, removed, and added records"></ul>
+    </section>
+  </details>
+  <details class="panel" id="export-panel">
+    <summary>Portable review JSON</summary>
+    <p class="hint">Includes every record, decision, and note—not just filtered results. Re-import it to restore this review.</p>
+    <div class="row actions"><button type="button" id="download">Try download JSON</button><button type="button" id="select-export">Select JSON to copy</button></div>
+    <p id="download-status" class="message" role="status">The embedded Files preview may block downloads silently. If no file appears, select the JSON below, copy it with Ctrl/Cmd+C, and save it in a text file.</p>
+    <label for="export-json">Review export (read-only)</label><textarea id="export-json" rows="10" readonly spellcheck="false"></textarea>
+  </details>
+  <footer>No network requests, accounts, or external assets. Browser storage is a convenience, not a backup. Keep an export before closing an embedded preview.</footer>
+</main>
+<!-- REVIEW_SCRIPTS -->
+</body>
+</html>
