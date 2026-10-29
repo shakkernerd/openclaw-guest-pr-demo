@@ -120,6 +120,7 @@
     <p id="working-summary" class="message literal"></p>
     <h3>Each returned source</h3>
     <p class="hint">In the producer format, eligible and unchanged reviews can propose values. Changed-record conflicts and unknown IDs are issues, never proposals. All stored counts and issues appear below in report order. For SAVED data, these are recorded claims only.</p>
+    <p class="hint">The working summary, source counts and issues describe the whole report. Overlap search, status and page choices below do not filter them.</p>
     <ol id="source-results" aria-label="Source counts and issues"></ol>
     <h3>Overlapping proposals</h3>
     <p class="hint">The producer records overlaps with at least two eligible or unchanged proposals for the same working record. Report and proposal order are preserved. The producer uses exact decision and note equality, including whitespace; SAVED classifications are displayed as recorded, not recomputed. Every proposal is shown in full; empty notes are labeled separately.</p>
@@ -127,6 +128,12 @@
       <label for="overlap-filter">Show overlaps</label>
       <select id="overlap-filter" disabled><option value="all">All</option><option value="disagreement">Disagreements</option><option value="identical">Identical</option></select>
     </div>
+    <div class="filters">
+      <label for="overlap-query">Search overlap IDs and proposal notes</label>
+      <input id="overlap-query" type="text" aria-describedby="overlap-query-policy" autocomplete="off" disabled>
+      <button id="clear-overlap-query" type="button" disabled>Clear search</button>
+    </div>
+    <p id="overlap-query-policy" class="hint">One literal, case-insensitive substring in an overlap ID or any proposal note, combined with Show overlaps before paging. Spaces and punctuation are literal; no patterns or query syntax. Search changes and Clear search return to the first page. This only changes the overlap view: no files are reread or revalidated. FRESH downloads still contain the entire accepted report, even with no matches; SAVED mode has no export.</p>
     <div class="row pager" role="group" aria-label="Overlap pages">
       <button id="previous-page" type="button" disabled>Previous</button>
       <p id="page-status" role="status" aria-live="polite">No report loaded or analysis yet.</p>
@@ -667,6 +674,9 @@
     $("overlap-results").replaceChildren();
     $("overlap-filter").value = "all";
     $("overlap-filter").disabled = true;
+    $("overlap-query").value = "";
+    $("overlap-query").disabled = true;
+    $("clear-overlap-query").disabled = true;
     $("previous-page").disabled = true;
     $("next-page").disabled = true;
     $("page-status").textContent = "No report loaded or analysis yet.";
@@ -750,7 +760,14 @@
   function renderOverlaps() {
     if (!report) return;
     const filter = $("overlap-filter").value;
-    const matches = report.overlaps.filter(overlap => filter === "all" || overlap.status === filter);
+    // View-only intersection on the accepted report, before paging. Case folding
+    // is the only transformation; never trim, normalize, interpret or cache it.
+    const query = $("overlap-query").value.toLowerCase();
+    const matches = report.overlaps.filter(overlap =>
+      (filter === "all" || overlap.status === filter) &&
+      (overlap.id.toLowerCase().includes(query) ||
+        overlap.proposals.some(proposal => proposal.notes.toLowerCase().includes(query))));
+    $("clear-overlap-query").disabled = query.length === 0;
     const pages = Math.ceil(matches.length / PAGE_SIZE);
     page = Math.max(0, Math.min(page, pages - 1));
     const start = page * PAGE_SIZE;
@@ -762,7 +779,8 @@
     $("previous-page").disabled = !matches.length || page === 0;
     $("next-page").disabled = !matches.length || page >= pages - 1;
     $("overlap-empty").hidden = matches.length !== 0;
-    $("overlap-empty").textContent = report.overlaps.length ? "No overlaps match this filter." :
+    $("overlap-empty").textContent = report.overlaps.length ?
+      (query ? "No overlaps match this search and filter." : "No overlaps match this filter.") :
       savedResult ? "No overlapping proposals recorded in this saved report." :
         "No overlapping proposals. An overlap needs at least two eligible or unchanged returned proposals for a working record.";
     $("overlap-results").replaceChildren(...matches.slice(start, end).map(overlap => {
@@ -852,6 +870,7 @@
         "FRESH analysis of the currently chosen working and returned snapshots. All complete snapshots were validated and compared for this run.";
       renderSources();
       $("overlap-filter").disabled = false;
+      $("overlap-query").disabled = false;
       renderOverlaps();
       $("results").hidden = false;
       $("analysis-status").textContent = saved ? "SAVED report loaded for the current choice. No original records revalidated. No reviews applied." :
@@ -891,6 +910,13 @@
   $("analyze").addEventListener("click", readCurrent);
   $("view-saved").addEventListener("click", readCurrent);
   $("overlap-filter").addEventListener("change", () => { page = 0; renderOverlaps(); });
+  $("overlap-query").addEventListener("input", () => { page = 0; renderOverlaps(); });
+  $("clear-overlap-query").addEventListener("click", () => {
+    $("overlap-query").value = "";
+    page = 0;
+    renderOverlaps();
+    $("overlap-query").focus();
+  });
   $("previous-page").addEventListener("click", () => {
     if (!$("previous-page").disabled) { page--; renderOverlaps(); }
   });

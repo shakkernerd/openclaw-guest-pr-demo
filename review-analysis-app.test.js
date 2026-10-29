@@ -12,7 +12,7 @@ const source = name => fs.readFileSync(path.join(__dirname, name), "utf8");
 // Like the existing app harness: actual production scripts and event handlers,
 // with controlled reads and a small DOM. Not native browser/layout proof.
 function app({ built = false, savedOnly = false, downloadError = "" } = {}) {
-  let document, analysisCalls = 0;
+  let document, acceptedReport, analysisCalls = 0, reportParseCalls = 0;
   const downloads = [], urls = new Map(), timers = [];
   let nextURL = 0;
   class Element {
@@ -84,7 +84,12 @@ function app({ built = false, savedOnly = false, downloadError = "" } = {}) {
   context.RecordReturnAnalysis = { ...owner, analyzeReturns(...inputs) {
     analysisCalls++;
     if (savedOnly) forbidden("fresh analysis in saved workflow")();
-    return owner.analyzeReturns(...inputs);
+    acceptedReport = owner.analyzeReturns(...inputs);
+    return acceptedReport;
+  }, parseReportJSON(...inputs) {
+    reportParseCalls++;
+    acceptedReport = owner.parseReportJSON(...inputs);
+    return acceptedReport;
   } };
   const choose = async (id, files) => { $(id).files = files; await $(id).emit("change"); };
   const working = file => choose("working-file", file ? [file] : []);
@@ -95,7 +100,9 @@ function app({ built = false, savedOnly = false, downloadError = "" } = {}) {
   const control = (index, label) => $("returned-files").children[index].querySelectorAll("button")
     .find(button => button.textContent === label);
   return { $, fire, working, saved, workflow, add, control, document, downloads, urls, timers,
-    get analysisCalls() { return analysisCalls; } };
+    get analysisCalls() { return analysisCalls; },
+    get reportParseCalls() { return reportParseCalls; },
+    get acceptedReport() { return acceptedReport; } };
 }
 
 function snapshot(count = 1) {
@@ -139,7 +146,8 @@ function invalidated(ui) {
   downloadUnavailable(ui);
   assert.equal(ui.$("results").hidden, true);
   for (const id of ["result-context", "working-summary", "source-results", "overlap-results", "analysis-error"]) assert.equal(ui.$(id).textContent, "");
-  for (const id of ["overlap-filter", "previous-page", "next-page"]) assert.equal(ui.$(id).disabled, true);
+  for (const id of ["overlap-filter", "overlap-query", "clear-overlap-query", "previous-page", "next-page"]) assert.equal(ui.$(id).disabled, true);
+  assert.equal(ui.$("overlap-query").value, "");
 }
 
 test("explicit Analyze, ordered additions, duplicate names, reorder bounds and keyboard focus", async () => {
@@ -179,6 +187,7 @@ test("every choice replacement, addition and removal clears results, errors, fil
   for (const built of [false, true]) for (const mutate of mutations) {
     const ui = app({ built }); await ready(ui, snapshot(11)); await ui.fire("analyze");
     downloadReady(ui);
+    await searchOverlaps(ui, "id");
     await ui.fire("next-page");
     const changed = mutate(ui); invalidated(ui); // synchronous, before awaiting a read/event
     await changed; invalidated(ui);
@@ -353,10 +362,15 @@ test("standard build stays self-contained, preserves desk output and accessible 
   assert.equal([...html.matchAll(/<script>/g)].length, 3);
   assert.doesNotMatch(html, /<(?:script|link|img|iframe)[^>]+(?:src|href)=|<form\b|\bon(?:click|change)=/i);
   assert.match(html, /connect-src 'none'; form-action 'none'; base-uri 'none'/);
-  for (const id of ["workflow", "saved-file", "working-file", "returned-input", "overlap-filter"]) assert.ok(html.includes('for="' + id + '"'));
+  for (const id of ["workflow", "saved-file", "working-file", "returned-input", "overlap-filter", "overlap-query"]) assert.ok(html.includes('for="' + id + '"'));
   assert.match(html, /id="analysis-error"[^>]+role="alert"/);
   assert.match(html, /id="download-analysis"[^>]+aria-describedby="download-status"[^>]+hidden disabled>Download analysis report<\/button>/);
   assert.match(html, /id="download-status"[^>]+role="status"[^>]+aria-live="polite"/);
+  assert.match(html, /id="overlap-query"[^>]+type="text"[^>]+aria-describedby="overlap-query-policy"[^>]+disabled/);
+  assert.ok(html.includes('id="clear-overlap-query" type="button" disabled>Clear search</button>'));
+  assert.match(html, /id="page-status"[^>]+role="status"[^>]+aria-live="polite"/);
+  assert.ok(html.indexOf('id="source-results"') < html.indexOf('id="overlap-query"'));
+  assert.match(html, /source counts and issues describe the whole report/);
   assert.match(html, /white-space: break-spaces/);
   assert.match(html, /@media \(max-width: 720px\)/);
   assert.doesNotMatch(source("review-analysis-app.js"), /innerHTML|localStorage|sessionStorage|indexedDB|clipboard|fetch\(|XMLHttpRequest|applyReviewUpdates|exportJSON|\.persist\(/);
@@ -490,7 +504,7 @@ test("saved replacement, clearing, workflow switch and failed reread invalidate 
   for (const built of [false, true]) {
     for (const mutate of [ui => ui.saved(file("new.json", savedReport())), ui => ui.saved(null),
       ui => ui.fire("clear-saved"), ui => ui.workflow("analyze")]) {
-      const ui = app({ built }); await openSaved(ui); await ui.fire("next-page");
+      const ui = app({ built }); await openSaved(ui); await searchOverlaps(ui, "id-"); await ui.fire("next-page");
       await mutate(ui); invalidated(ui); assert.equal(ui.$("overlap-filter").value, "all");
     }
     const ui = app({ built }); await ready(ui); await ui.fire("analyze");
@@ -499,7 +513,9 @@ test("saved replacement, clearing, workflow switch and failed reread invalidate 
     assert.equal(ui.$("analyze-inputs").hidden, true); assert.equal(ui.$("saved-inputs").hidden, false);
     let text = JSON.stringify(savedReport());
     await ui.saved({ name: "reread.json", text: async () => text }); await ui.fire("view-saved");
+    await searchOverlaps(ui, "id-"); await ui.fire("next-page");
     text = "{"; await ui.fire("view-saved");
+    assert.equal(ui.$("overlap-query").value, "");
     assert.equal(ui.$("results").hidden, true); assert.equal(ui.$("result-context").textContent, "");
     assert.equal(ui.$("source-results").textContent, ""); assert.equal(ui.$("overlap-results").textContent, "");
     assert.match(ui.$("analysis-error").textContent, /invalid JSON/);
@@ -545,11 +561,14 @@ test("saved and fresh late successes/failures never replace newer choices, resul
       if (newMode === "saved") await ui.saved(file("new.json", newFails ? "[]" : savedReport()));
       else await ui.working(file("new.json", newFails ? "[]" : snapshot()));
       await ui.fire(newMode === "saved" ? "view-saved" : "analyze");
+      if (!newFails) await searchOverlaps(ui, "id-");
       const expected = visibleState(ui);
+      const expectedQuery = ui.$("overlap-query").value;
       if (oldFails) old.reject(new Error("stale <error>"));
       else old.resolve(JSON.stringify(oldMode === "saved" ? savedReport() : snapshot()));
       await pending;
       assert.deepEqual(visibleState(ui), expected); assert.equal(ui.$("results").hidden, newFails);
+      assert.equal(ui.$("overlap-query").value, expectedQuery);
       assert.equal(ui.$(newMode === "saved" ? "view-saved" : "analyze").disabled, false);
       if (newMode === "analyze" && !newFails) {
         downloadReady(ui); await ui.fire("download-analysis");
@@ -608,9 +627,13 @@ test("explicit FRESH download preserves the whole real report, CLI bytes and lit
     downloadReady(ui); assert.equal(ui.downloads.length, 0); assert.equal(ui.urls.size, 0);
     assert.match(ui.$("download-status").textContent, /FRESH report ready/);
     await ui.fire("next-page");
-    for (const filter of ["all", "identical", "disagreement"]) {
-      ui.$("overlap-filter").value = filter; await ui.fire("overlap-filter", "change");
+    for (const [filter, query, count] of [["all", ""], ["identical", ""], ["disagreement", ""],
+      ["all", "__PROTO__", 1], ["all", "absent literal", 0]]) {
+      await filterOverlaps(ui, filter);
+      await searchOverlaps(ui, query);
       await ui.fire("next-page");
+      if (count !== undefined) assert.equal(ui.$("overlap-results").children.length, count);
+      downloadReady(ui);
       await ui.fire("download-analysis");
       const download = ui.downloads.at(-1);
       assert.equal(download.filename, "record-review-return-analysis.json");
@@ -623,9 +646,9 @@ test("explicit FRESH download preserves the whole real report, CLI bytes and lit
       assert.equal(ui.analysisCalls, 1); assert.deepEqual(files.map(f => f.reads), [1, 1, 1]);
       downloadReady(ui);
     }
-    assert.equal(ui.downloads.length, 3);
-    assert.equal(new Set(ui.downloads.map(d => d.url)).size, 3);
-    assert.equal(ui.urls.size, 3); assert.equal(ui.timers.length, 3);
+    assert.equal(ui.downloads.length, 5);
+    assert.equal(new Set(ui.downloads.map(d => d.url)).size, 5);
+    assert.equal(ui.urls.size, 5); assert.equal(ui.timers.length, 5);
     for (const timer of ui.timers) { assert.equal(timer.delay, 60000); timer.callback(); }
     assert.equal(ui.urls.size, 0);
     const savedUI = app({ built, savedOnly: true });
@@ -633,6 +656,12 @@ test("explicit FRESH download preserves the whole real report, CLI bytes and lit
     assert.equal(savedUI.analysisCalls, 0); assert.equal(savedUI.downloads.length, 0);
     assert.match(savedUI.$("result-context").textContent, /^SAVED/);
     assert.equal(savedUI.$("source-results").children.length, expected.sources.length);
+    for (const [query, count] of [["__PROTO__", 1], ["absent literal", 0]]) {
+      await searchOverlaps(savedUI, query);
+      assert.equal(savedUI.$("overlap-results").children.length, count);
+      downloadUnavailable(savedUI);
+      assert.equal(savedUI.reportParseCalls, 1);
+    }
     // Switching away drops the fresh report; returning cannot revive it.
     await ui.workflow("saved"); downloadUnavailable(ui);
     await ui.saved(file("downloaded.json", expectedText)); await ui.fire("view-saved"); downloadUnavailable(ui);
@@ -652,6 +681,7 @@ test("a new analysis immediately removes download readiness; current failure and
     await ui.fire("download-analysis");
     // A cancelled append did not alter the choices or invalidate their report.
     await ui.add(); downloadReady(ui);
+    await searchOverlaps(ui, "id-");
     const next = deferred("reread"); read = next.file.text;
     const pending = ui.fire("analyze"); invalidated(ui);
     if (failure === "read") next.reject(new Error("read failed")); else next.resolve("{");
@@ -689,5 +719,121 @@ test("download failures give honest retry guidance and clean links/URLs without 
     assert.equal(ui.urls.size, 0);
     await ui.control(0, "Remove").emit(); invalidated(ui);
     assert.match(ui.$("download-status").textContent, /No current FRESH report/);
+  }
+});
+
+
+async function searchOverlaps(ui, query) {
+  ui.$("overlap-query").value = query;
+  await ui.fire("overlap-query", "input");
+}
+async function filterOverlaps(ui, status) {
+  ui.$("overlap-filter").value = status;
+  await ui.fire("overlap-filter", "change");
+}
+function assertOverlapRows(ui, rows, saved) {
+  assert.deepEqual(ui.$("overlap-results").querySelectorAll("h3").map(n => n.textContent),
+    rows.map(row => "Record ID: " + row.id));
+  assert.deepEqual(ui.$("overlap-results").children.map(item => item.children[1].textContent),
+    rows.map(row => (saved ? "SAVED recorded classification: " : "") +
+      (row.status === "identical" ? "Identical" : "Disagreement") + " · " + row.proposals.length + " proposals"));
+  const expected = rows.flatMap(row => row.proposals);
+  assert.deepEqual(proposals(ui).map(section => section.querySelectorAll("h4")[0].textContent),
+    expected.map(p => "Source " + p.sourceOrdinal + ": " + p.filename));
+  assert.deepEqual(proposals(ui).map(section => section.querySelectorAll("p")[0].textContent),
+    expected.map(p => "Decision: " + p.decision));
+  assert.deepEqual(notes(ui), expected.map(p => p.notes));
+  assert.deepEqual(proposals(ui).map(section => JSON.parse(section.querySelectorAll("pre")[1].textContent)),
+    expected.map(p => p.notes));
+}
+
+test("overlap lookup intersects literal ID/any-note matches and status before paging without changing the report", async () => {
+  const current = snapshot(25);
+  ["__proto__", "constructor", "<em>literal-id</em>"].forEach((id, i) => { current.records[i].id = id; });
+  current.reviews = Object.fromEntries(current.records.map(({ id }) => [id, { decision: "unreviewed", notes: "" }]));
+  const first = structuredClone(current), second = structuredClone(current);
+  current.records.forEach(({ id }, i) => {
+    first.reviews[id].notes = i === 0 ? "  雪 <b>literal</b> e\u0301\t  \r\n" : i === 1 ? "Constructor note" :
+      i === 2 ? "" : "Needle " + i;
+    second.reviews[id].notes = i % 2 ? "other proposal" : first.reviews[id].notes;
+  });
+  second.records.reverse();
+  const inputs = [current, first, second].map((value, i) => ({ filename: "file-" + i + ".json", text: JSON.stringify(value) }));
+  const expected = analyzeReturns(inputs[0], inputs.slice(1));
+  for (const built of [false, true]) for (const saved of [false, true]) {
+    const ui = app({ built, savedOnly: saved });
+    assert.equal(ui.$("overlap-query").disabled, true);
+    assert.equal(ui.$("clear-overlap-query").disabled, true);
+    const files = saved ? [file("report.json", expected)] : inputs.map(input => file(input.filename, input.text));
+    if (saved) {
+      await ui.workflow("saved"); await ui.saved(files[0]); await ui.fire("view-saved");
+    } else {
+      await ui.working(files[0]); await ui.add(...files.slice(1)); await ui.fire("analyze");
+    }
+    assert.equal(ui.$("overlap-query").disabled, false);
+    const accepted = ui.acceptedReport, before = JSON.stringify(accepted);
+    const summaryIDs = ["working-summary", "source-results", "result-context", "results-heading", "analysis-status", "download-status"];
+    const summaries = summaryIDs.map(id => ui.$(id).textContent);
+    const sourceNodes = [...ui.$("source-results").children];
+    const checkUnchanged = () => {
+      assert.equal(ui.acceptedReport, accepted);
+      assert.equal(JSON.stringify(accepted), before);
+      assert.deepEqual(summaryIDs.map(id => ui.$(id).textContent), summaries);
+      assert.deepEqual(ui.$("source-results").children, sourceNodes);
+      assert.deepEqual(files.map(f => f.reads), files.map(() => 1));
+      assert.equal(ui.analysisCalls, saved ? 0 : 1);
+      assert.equal(ui.reportParseCalls, saved ? 1 : 0);
+      if (saved) downloadUnavailable(ui); else downloadReady(ui);
+    };
+    await ui.fire("next-page"); await ui.fire("next-page");
+    assert.match(ui.$("page-status").textContent, /Page 3 of 3/);
+    await searchOverlaps(ui, "nEeDlE");
+    assertOverlapRows(ui, expected.overlaps.slice(3, 13), saved);
+    assert.match(ui.$("page-status").textContent, /Showing 1–10 of 22 matching overlaps · 25 total · Page 1 of 3/);
+    for (const [status, indexes] of [["disagreement", Array.from({ length: 11 }, (_, i) => 3 + i * 2)],
+      ["identical", Array.from({ length: 11 }, (_, i) => 4 + i * 2)]]) {
+      await filterOverlaps(ui, status);
+      assertOverlapRows(ui, indexes.slice(0, 10).map(i => expected.overlaps[i]), saved);
+      assert.match(ui.$("page-status").textContent, /Showing 1–10 of 11 matching overlaps · 25 total · Page 1 of 2/);
+      await ui.fire("next-page");
+      assertOverlapRows(ui, [expected.overlaps[indexes[10]]], saved);
+      assert.equal(ui.$("next-page").disabled, true);
+    }
+    await ui.fire("clear-overlap-query");
+    assert.equal(ui.$("overlap-query").value, "");
+    assert.equal(ui.$("overlap-filter").value, "identical");
+    assert.equal(ui.document.activeElement, ui.$("overlap-query"));
+    assert.equal(ui.$("clear-overlap-query").disabled, true);
+    assertOverlapRows(ui, [0, 2, 4, 6, 8, 10, 12, 14, 16, 18].map(i => expected.overlaps[i]), saved);
+    assert.match(ui.$("page-status").textContent, /Page 1 of 2/);
+    checkUnchanged();
+    await filterOverlaps(ui, "all");
+    for (const [query, indexes] of [["雪", [0]], ["__PROTO__", [0]], ["CONSTRUCTOR", [1]], ["<EM>", [2]],
+      ["<B>LITERAL</B>", [0]], ["e\u0301", [0]], ["é", []], ["  ", [0]], [" constructor ", []],
+      ["[.*]", []], ["id:constructor", []], ["constructor OR 雪", []], ["file-1.json", []],
+      ["unreviewed", []], ["identical", []], ["absent literal", []]]) {
+      await searchOverlaps(ui, query);
+      assertOverlapRows(ui, indexes.map(i => expected.overlaps[i]), saved);
+      assert.ok(ui.$("page-status").textContent.includes("of " + indexes.length + " matching overlaps · 25 total"));
+      assert.equal(ui.$("overlap-empty").hidden, indexes.length !== 0);
+      if (!indexes.length) {
+        assert.equal(ui.$("overlap-empty").textContent, "No overlaps match this search and filter.");
+        assert.match(ui.$("page-status").textContent, /Showing 0.*Page 0 of 0/);
+        assert.equal(ui.$("previous-page").disabled, true); assert.equal(ui.$("next-page").disabled, true);
+      }
+      checkUnchanged();
+    }
+    // A match in only the second proposal still displays both proposals in full.
+    await searchOverlaps(ui, "OTHER PROPOSAL");
+    assertOverlapRows(ui, Array.from({ length: 10 }, (_, i) => expected.overlaps[1 + i * 2]), saved);
+    await searchOverlaps(ui, "snow-not-present"); await ui.fire("clear-overlap-query");
+    assertOverlapRows(ui, expected.overlaps.slice(0, 10), saved);
+    checkUnchanged();
+    await searchOverlaps(ui, "needle"); await ui.fire("next-page");
+    const pending = ui.fire(saved ? "view-saved" : "analyze");
+    invalidated(ui); await pending;
+    assert.equal(ui.$("overlap-query").value, "");
+    assertOverlapRows(ui, expected.overlaps.slice(0, 10), saved);
+    assert.match(ui.$("page-status").textContent, /Page 1 of 3/);
   }
 });

@@ -48,6 +48,9 @@
     $("overlap-results").replaceChildren();
     $("overlap-filter").value = "all";
     $("overlap-filter").disabled = true;
+    $("overlap-query").value = "";
+    $("overlap-query").disabled = true;
+    $("clear-overlap-query").disabled = true;
     $("previous-page").disabled = true;
     $("next-page").disabled = true;
     $("page-status").textContent = "No report loaded or analysis yet.";
@@ -131,7 +134,14 @@
   function renderOverlaps() {
     if (!report) return;
     const filter = $("overlap-filter").value;
-    const matches = report.overlaps.filter(overlap => filter === "all" || overlap.status === filter);
+    // View-only intersection on the accepted report, before paging. Case folding
+    // is the only transformation; never trim, normalize, interpret or cache it.
+    const query = $("overlap-query").value.toLowerCase();
+    const matches = report.overlaps.filter(overlap =>
+      (filter === "all" || overlap.status === filter) &&
+      (overlap.id.toLowerCase().includes(query) ||
+        overlap.proposals.some(proposal => proposal.notes.toLowerCase().includes(query))));
+    $("clear-overlap-query").disabled = query.length === 0;
     const pages = Math.ceil(matches.length / PAGE_SIZE);
     page = Math.max(0, Math.min(page, pages - 1));
     const start = page * PAGE_SIZE;
@@ -143,7 +153,8 @@
     $("previous-page").disabled = !matches.length || page === 0;
     $("next-page").disabled = !matches.length || page >= pages - 1;
     $("overlap-empty").hidden = matches.length !== 0;
-    $("overlap-empty").textContent = report.overlaps.length ? "No overlaps match this filter." :
+    $("overlap-empty").textContent = report.overlaps.length ?
+      (query ? "No overlaps match this search and filter." : "No overlaps match this filter.") :
       savedResult ? "No overlapping proposals recorded in this saved report." :
         "No overlapping proposals. An overlap needs at least two eligible or unchanged returned proposals for a working record.";
     $("overlap-results").replaceChildren(...matches.slice(start, end).map(overlap => {
@@ -233,6 +244,7 @@
         "FRESH analysis of the currently chosen working and returned snapshots. All complete snapshots were validated and compared for this run.";
       renderSources();
       $("overlap-filter").disabled = false;
+      $("overlap-query").disabled = false;
       renderOverlaps();
       $("results").hidden = false;
       $("analysis-status").textContent = saved ? "SAVED report loaded for the current choice. No original records revalidated. No reviews applied." :
@@ -272,6 +284,13 @@
   $("analyze").addEventListener("click", readCurrent);
   $("view-saved").addEventListener("click", readCurrent);
   $("overlap-filter").addEventListener("change", () => { page = 0; renderOverlaps(); });
+  $("overlap-query").addEventListener("input", () => { page = 0; renderOverlaps(); });
+  $("clear-overlap-query").addEventListener("click", () => {
+    $("overlap-query").value = "";
+    page = 0;
+    renderOverlaps();
+    $("overlap-query").focus();
+  });
   $("previous-page").addEventListener("click", () => {
     if (!$("previous-page").disabled) { page--; renderOverlaps(); }
   });

@@ -581,6 +581,26 @@ The same literal renderer, filters and 10-overlap pages serve both workflows.
 Saved-report mode remains a reader only: no download or re-export action, even
 after switching from a completed fresh analysis.
 
+**Search overlap IDs and proposal notes** accepts one literal, case-insensitive
+substring. It matches an overlap ID or any of its proposal notes, then intersects
+with **All**, **Disagreements**, or **Identical** before the existing ten-row
+paging. Only case is folded: spaces, punctuation, Unicode and markup-like text
+are literal, with no trimming, normalization, regex or query language. An empty
+query includes all overlaps allowed by the status filter. All proposals in a
+matching overlap retain their original values and source order, not just the
+matching note. Changing the query or using **Clear search** returns to page one;
+Clear search keeps the status filter and returns focus to the search input.
+Matching/whole-report totals and no-match feedback reflect the combined view.
+
+Lookup is view-only in the existing report/render owner: it does not reread files,
+reanalyze, revalidate, mutate the accepted report or change source readiness. The
+working summary, source counts and issues remain whole-report information outside
+the overlap lookup. SAVED labels remain recorded claims. A FRESH download still
+exports the entire accepted report when the query matches one row or none; SAVED
+mode remains non-exportable. Every existing source-file, workflow and new-analysis
+(or saved reread) invalidation clears the query and page with the prior result.
+There is no extra index/cache, persistence, dependency or production test API.
+
 1. Choose one complete version-1 working review file.
 2. Add one or more complete returned review files. Each selection appends to the
    visible ordered list. **Move up**, **Move down**, and **Remove** are keyboard
@@ -661,17 +681,25 @@ invalid report rejection, literal fields, saved/fresh labels, workflow changes,
 filters/paging, and asynchronous success/failure races across both workflows.
 The actual source and generated-page handlers also exercise FRESH-only readiness,
 every input invalidation, pending/late success/error behavior, saved-mode exclusion,
-whole-report Blob bytes, repeat requests and link/object-URL cleanup. No production
+whole-report Blob bytes, repeat requests and link/object-URL cleanup. Lookup checks
+exercise the same renderer and handlers in source and generated-page form: literal
+ID/note matching, status intersection before paging, later-page reset/clear,
+unchanged values/order/whole-source summaries, invalidation and full FRESH download
+bytes for one/zero matches with saved exclusion. No production
 test API is added. These are not proof of native file selection, a saved download,
 keyboard dispatch or layout; those remain client acceptance work in the retained
 approved browser. The decisive handoff uses the real chosen snapshots, captures
 the actual downloaded file and opens that exact file in the immutable recipient
 saved viewer, comparing every value with the retained report oracle. Do not
 substitute a fabricated report or serializer-only test for that acceptance. Keep
-private inputs, reports, command receipts and media outside Git. For this download
-contribution, do not launch a native browser, enable optional browser/sandbox
-switches, export histories/transcripts, or replay the unchanged CLI producer;
-reuse its existing valid proof.
+private inputs, reports, command receipts and media outside Git. Reuse unchanged
+producer and fresh-mode proof; the actual retained browser reports are saved-view
+inputs, not replacement oracles or peer exports to regenerate. Focus new client
+acceptance on lookup and whole-report downloads for one/zero query matches using
+the retained original snapshots. For this download/lookup contribution, do not
+launch a native browser, enable optional browser/sandbox switches, export
+histories/transcripts, or replay the unchanged CLI producer; reuse its existing
+valid proof.
 
 The existing standard build now produces both self-contained pages:
 

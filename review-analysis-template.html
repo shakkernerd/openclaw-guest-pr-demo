@@ -120,6 +120,7 @@
     <p id="working-summary" class="message literal"></p>
     <h3>Each returned source</h3>
     <p class="hint">In the producer format, eligible and unchanged reviews can propose values. Changed-record conflicts and unknown IDs are issues, never proposals. All stored counts and issues appear below in report order. For SAVED data, these are recorded claims only.</p>
+    <p class="hint">The working summary, source counts and issues describe the whole report. Overlap search, status and page choices below do not filter them.</p>
     <ol id="source-results" aria-label="Source counts and issues"></ol>
     <h3>Overlapping proposals</h3>
     <p class="hint">The producer records overlaps with at least two eligible or unchanged proposals for the same working record. Report and proposal order are preserved. The producer uses exact decision and note equality, including whitespace; SAVED classifications are displayed as recorded, not recomputed. Every proposal is shown in full; empty notes are labeled separately.</p>
@@ -127,6 +128,12 @@
       <label for="overlap-filter">Show overlaps</label>
       <select id="overlap-filter" disabled><option value="all">All</option><option value="disagreement">Disagreements</option><option value="identical">Identical</option></select>
     </div>
+    <div class="filters">
+      <label for="overlap-query">Search overlap IDs and proposal notes</label>
+      <input id="overlap-query" type="text" aria-describedby="overlap-query-policy" autocomplete="off" disabled>
+      <button id="clear-overlap-query" type="button" disabled>Clear search</button>
+    </div>
+    <p id="overlap-query-policy" class="hint">One literal, case-insensitive substring in an overlap ID or any proposal note, combined with Show overlaps before paging. Spaces and punctuation are literal; no patterns or query syntax. Search changes and Clear search return to the first page. This only changes the overlap view: no files are reread or revalidated. FRESH downloads still contain the entire accepted report, even with no matches; SAVED mode has no export.</p>
     <div class="row pager" role="group" aria-label="Overlap pages">
       <button id="previous-page" type="button" disabled>Previous</button>
       <p id="page-status" role="status" aria-live="polite">No report loaded or analysis yet.</p>
