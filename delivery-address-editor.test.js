@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const vm = require("node:vm");
+const { resolveObjectURL } = require("node:buffer");
 const owner = require("./delivery-address.js");
 const source = (file) => readFileSync(join(__dirname, file), "utf8");
 
@@ -31,6 +32,11 @@ class Element {
     if (name === "id") this.id = value;
     if (name === "hidden") this.hidden = true;
     if (name === "readonly") this.readOnly = true;
+    if (name === "disabled") this.disabled = true;
+  }
+  removeAttribute(name) {
+    delete this.attributes[name];
+    if (name === "href") this.href = "";
   }
   append(...children) {
     for (const child of children) {
@@ -62,8 +68,9 @@ class Element {
     (this.listeners[type] ||= []).push(listener);
   }
   emit(type, event) {
-    for (const listener of this.listeners[type] || []) listener(event);
-    if (this.parent) this.parent.emit(type, event);
+    const results = (this.listeners[type] || []).map((listener) => listener(event));
+    if (this.parent) results.push(this.parent.emit(type, event));
+    return Promise.all(results);
   }
   click() { if (!this.disabled) this.emit("click"); }
   focus() { this.document.activeElement = this; }
@@ -74,7 +81,7 @@ class Element {
   }
 }
 
-function loadPage() {
+function loadPage(urlApi = URL) {
   const html = source("delivery-address.html");
   const nodes = new Map();
   const document = {
@@ -93,14 +100,20 @@ function loadPage() {
       nodes.set(node.id, node);
     }
   }
-  const context = vm.createContext({ document });
+  const window = new Element("window", document);
+  const context = vm.createContext({ document, window, TextDecoder, Blob, URL: urlApi });
   const scripts = [...html.matchAll(/<script\b([^>]*)><\/script>/g)];
   for (const [, attrs] of scripts) {
     const file = /src="([^"]+)"/.exec(attrs)[1];
     vm.runInContext(source(file), context, { filename: file });
   }
   const get = document.getElementById;
-  return { document, get,
+  return { document, window, get,
+    select(file) {
+      const input = get("import-draft");
+      input.files = file ? [file] : [];
+      return input.emit("change");
+    },
     rows: () => get("address-lines").children,
     inputs: () => get("address-lines").querySelectorAll("textarea"),
     values: () => get("address-lines").querySelectorAll("textarea").map((node) => node.value),
@@ -473,4 +486,404 @@ test("disabled Move pointerdown requests cancellation without touching focus or 
       }
     }
   }
+});
+
+
+// Native Node Files exercise bytes/decoding, not a native browser file picker.
+const jsonFile = (text) => new File([text], "draft.json", { type: "application/json" });
+
+function existingResult(page) {
+  page.edit(0, "Keep this result");
+  page.format();
+  return draftSnapshot(page);
+}
+
+function assertKept(page, before) {
+  assertSnapshot(page, before);
+  assert.equal(page.get("formatted-address").value, "Keep this result");
+  assert.equal(page.get("formatted-address").hidden, false);
+  assert.equal(page.get("address-status").dataset.state, "success");
+}
+
+test("interchange entry starts inert with labelled file input and read-only previews", () => {
+  const page = loadPage();
+  assert.equal(page.get("import-draft").attributes.type, "file");
+  assert.equal(page.get("replace-draft").disabled, true);
+  assert.equal(page.get("cancel-import").disabled, true);
+  assert.equal(page.get("import-decision").hidden, true);
+  for (const id of ["import-preview", "export-preview"]) {
+    assert.equal(page.get(id).readOnly, true);
+    assert.equal(page.get(id).value, "");
+  }
+  assert.equal(page.get("export-preview").hidden, true);
+  assert.equal(page.get("download-draft").hidden, true);
+  for (const id of ["import-status", "export-status"]) {
+    assert.equal(page.get(id).attributes.role, "status");
+    assert.equal(page.get(id).attributes["aria-live"], "polite");
+  }
+});
+
+test("file staging preserves independently specified parsed values; only Replace applies the snapshot", async () => {
+  const page = loadPage();
+  const before = existingResult(page);
+  // Spell the JSON independently from the expected values (no codec roundtrip oracle).
+  const literal = '["", " \\t ", "Before\\nAfter", "  Zoe\\u0308 李 📦  ", "duplicate", "duplicate", "<tag>&", "\\\\r", "\\ud800", "\\u0000"]';
+  await page.select(jsonFile(literal));
+  const expected = ["", " \t ", "Before\nAfter", "  Zoe\u0308 李 📦  ", "duplicate", "duplicate", "<tag>&", "\\r", "\ud800", "\u0000"];
+  assertKept(page, before);
+  assert.equal(page.get("replace-draft").disabled, false);
+  assert.equal(page.get("import-decision").hidden, false);
+  assert.deepEqual(JSON.parse(page.get("import-preview").value), expected);
+  // A DOM text field is not the authoritative staged snapshot.
+  page.get("import-preview").value = '["not the snapshot"]';
+  page.get("replace-draft").click();
+  assert.deepEqual(page.values(), expected);
+  assertDraft(page);
+  assertLabels(page);
+  assert.equal(page.document.activeElement, page.inputs()[0]);
+  assert.equal(page.get("import-preview").value, "");
+  assert.equal(page.get("import-decision").hidden, true);
+  assert.equal(page.get("replace-draft").disabled, true);
+  page.get("replace-draft").emit("click");
+  assert.deepEqual(page.values(), expected);
+  page.format();
+  assert.equal(page.get("address-status").textContent, "Could not format: lines[0] must not be blank");
+  page.remove(0);
+  page.remove(0);
+  page.format();
+  assert.equal(page.get("address-status").textContent, "Could not format: lines[0] must not contain line breaks");
+});
+
+test("empty array Replace focuses Add; JSON whitespace and escape spelling are not value changes", async () => {
+  const page = loadPage();
+  const before = existingResult(page);
+  await page.select(jsonFile("[]"));
+  assertKept(page, before);
+  assert.equal(page.get("import-preview").value, "[]");
+  page.get("replace-draft").click();
+  assert.deepEqual(page.values(), []);
+  assertDraft(page);
+  assert.equal(page.document.activeElement, page.get("add-line"));
+  page.get("export-draft").click();
+  assert.equal(page.get("export-preview").value, "[]");
+  await page.select(jsonFile('[\r\n "\\u0041", "A", "\\uFEFFinside"\r\n]'));
+  page.get("replace-draft").click();
+  assert.deepEqual(page.values(), ["A", "A", "\uFEFFinside"]);
+  page.format();
+  assert.equal(page.get("formatted-address").value, "A\nA\n\uFEFFinside");
+  page.add();
+  assertLabels(page);
+  assert.deepEqual(page.values(), ["A", "A", "\uFEFFinside", ""]);
+});
+
+test("a leading UTF-8 encoding BOM accepts JSON whitespace without changing literal FEFF values", async () => {
+  for (const { json, expected } of [
+    { json: '[\r\n "\uFEFFinside", "  Ω  ", "tail\uFEFF", "\uFEFF"\r\n]',
+      expected: ["\uFEFFinside", "  Ω  ", "tail\uFEFF", "\uFEFF"] },
+    { json: ' \r\n[]\r\n', expected: [] },
+  ]) {
+    const page = loadPage();
+    const before = existingResult(page);
+    // Native File bytes go through the real entry's arrayBuffer/decoder consumer.
+    await page.select(new File([new Uint8Array([0xef, 0xbb, 0xbf]), json], "bom.json"));
+    assertKept(page, before);
+    assert.equal(page.get("replace-draft").disabled, false);
+    assert.deepEqual(JSON.parse(page.get("import-preview").value), expected);
+    page.get("replace-draft").click();
+    assert.deepEqual(page.values(), expected);
+    assertDraft(page);
+    assertLabels(page);
+    page.get("export-draft").click();
+    assert.deepEqual(JSON.parse(page.get("export-preview").value), expected);
+    await page.window.emit("pagehide");
+  }
+});
+
+test("invalid file bytes and values refuse atomically, discard old staging, and preserve current result", async () => {
+  const page = loadPage();
+  const before = existingResult(page);
+  const invalid = [
+    ["", "file must contain valid JSON"],
+    ['["ok",]', "file must contain valid JSON"],
+    ['["ok"] trailing', "file must contain valid JSON"],
+    ['["raw\nnewline"]', "file must contain valid JSON"],
+    [" \uFEFF[]", "file must contain valid JSON"],
+    ["\uFEFF\uFEFF[]", "file must contain valid JSON"],
+    ...['null', '{}', '"text"', '3', 'true'].map((text) => [text, "draft must be an array of strings"]),
+    ...['null', '3', 'true', '{}', '[]'].map((text) => ['["ok",' + text + ']', "draft[1] must be a string"]),
+    ...['\\r', '\\r\\n', '\\u000d'].flatMap((cr) => ["", "\uFEFF"].map((prefix) =>
+      [prefix + '["ok","before' + cr + 'after"]', "draft[1] contains CR; textareas cannot preserve CR"],
+    )),
+    ...[
+      [0xc3, 0x28], [0xc0, 0xaf], [0xe2, 0x82], [0xed, 0xa0, 0x80], [0xf4, 0x90, 0x80, 0x80], [0xff],
+    ].flatMap((bytes) => [[], [0xef, 0xbb, 0xbf]].map((prefix) =>
+      [new Uint8Array([...prefix, 0x5b, 0x22, ...bytes, 0x22, 0x5d]), "file must contain valid UTF-8"],
+    )),
+  ];
+  for (const [content, reason] of invalid) {
+    await page.select(jsonFile('["previous valid staging"]'));
+    await page.select(jsonFile(content));
+    assertKept(page, before);
+    assert.equal(page.get("import-preview").value, "");
+    assert.equal(page.get("import-decision").hidden, true);
+    assert.equal(page.get("replace-draft").disabled, true);
+    assert.equal(page.get("import-status").textContent, "Could not import: " + reason + ". Current draft unchanged.");
+    page.get("replace-draft").emit("click");
+    assertKept(page, before);
+  }
+  await page.select({ arrayBuffer() { throw new Error("unreadable file"); } });
+  assert.equal(page.get("import-status").textContent, "Could not import: unreadable file. Current draft unchanged.");
+  assertKept(page, before);
+  await page.select(jsonFile('["recovery"]'));
+  page.get("replace-draft").click();
+  assert.deepEqual(page.values(), ["recovery"]);
+});
+
+// Deferred reads exercise delivery-address-editor.js's generation guard through
+// the real entry's change/Cancel/Replace/pagehide handlers. Not native file timing.
+function deferredFile() {
+  const { promise, resolve, reject } = Promise.withResolvers();
+  return { file: { arrayBuffer: () => promise }, resolve, reject };
+}
+const utf8 = (text) => new TextEncoder().encode(text);
+
+test("newer selection wins over stale success, invalid bytes, and failure even after Replace", async () => {
+  for (const settle of [
+    (read) => read.resolve(utf8('["old"]')),
+    (read) => read.resolve(new Uint8Array([0xff])),
+    (read) => read.reject(new Error("old failure")),
+  ]) {
+    for (const applyBeforeOldSettles of [false, true]) {
+      const page = loadPage();
+      const before = existingResult(page);
+      const old = deferredFile();
+      const pending = page.select(old.file);
+      assertKept(page, before);
+      assert.equal(page.get("replace-draft").disabled, true);
+      await page.select(jsonFile('["new"]'));
+      if (applyBeforeOldSettles) page.get("replace-draft").click();
+      const status = page.get("import-status").textContent;
+      settle(old);
+      await pending;
+      assert.equal(page.get("import-status").textContent, status);
+      if (!applyBeforeOldSettles) {
+        assertKept(page, before);
+        assert.deepEqual(JSON.parse(page.get("import-preview").value), ["new"]);
+        page.get("replace-draft").click();
+      }
+      assert.deepEqual(page.values(), ["new"]);
+    }
+  }
+});
+
+test("Cancel fences pending successes/failures and leaves edits, controls, output and newer staging alone", async () => {
+  for (const fail of [false, true]) {
+    const page = loadPage();
+    const before = existingResult(page);
+    const old = deferredFile();
+    const pending = page.select(old.file);
+    assert.equal(page.get("cancel-import").disabled, false);
+    page.get("cancel-import").click();
+    assertKept(page, before);
+    assert.equal(page.document.activeElement, page.get("import-draft"));
+    const cancelled = page.get("import-status").textContent;
+    if (fail) old.reject(new Error("late failure"));
+    else old.resolve(utf8('["late success"]'));
+    await pending;
+    assert.equal(page.get("import-status").textContent, cancelled);
+    assert.equal(page.get("import-preview").value, "");
+    assert.equal(page.get("replace-draft").disabled, true);
+    assertKept(page, before);
+    const next = deferredFile();
+    const nextPending = page.select(next.file);
+    page.edit(0, "edited while reading");
+    const input = page.inputs()[0];
+    next.resolve(utf8('["staged"]'));
+    await nextPending;
+    assert.equal(page.inputs()[0], input);
+    assert.deepEqual(page.values(), ["edited while reading"]);
+    page.edit(0, "edited after staging");
+    page.get("cancel-import").click();
+    assert.deepEqual(page.values(), ["edited after staging"]);
+    await page.select(jsonFile('["replacement"]'));
+    page.edit(0, "last edit before explicit decision");
+    page.get("replace-draft").click();
+    assert.deepEqual(page.values(), ["replacement"]);
+  }
+});
+
+test("old completion cannot fill newer loading/error/empty states or a Cancel followed by new staging", async () => {
+  for (const state of ["loading", "error", "empty", "cancel-then-new"]) {
+    const page = loadPage();
+    const before = existingResult(page);
+    const old = deferredFile();
+    const pending = page.select(old.file);
+    const newer = deferredFile();
+    let newerPending;
+    if (state === "loading") newerPending = page.select(newer.file);
+    if (state === "error") await page.select(jsonFile("null"));
+    if (state === "empty") await page.select(null);
+    if (state === "cancel-then-new") {
+      page.get("cancel-import").click();
+      await page.select(jsonFile('["after cancel"]'));
+    }
+    const status = page.get("import-status").textContent;
+    const preview = page.get("import-preview").value;
+    old.resolve(utf8('["obsolete"]'));
+    await pending;
+    assert.equal(page.get("import-status").textContent, status);
+    assert.equal(page.get("import-preview").value, preview);
+    assertKept(page, before);
+    if (newerPending) {
+      newer.resolve(utf8('["latest"]'));
+      await newerPending;
+      page.get("replace-draft").click();
+      assert.deepEqual(page.values(), ["latest"]);
+    }
+  }
+});
+
+
+test("export uses raw current order, native Blob bytes, and read-only JSON without formatting", async () => {
+  const page = loadPage();
+  const values = ["  Zoe\u0308 李 📦  ", "", "Before\nAfter", "duplicate", "duplicate", "\ud800"];
+  values.forEach((value, index) => { if (index) page.add(); page.edit(index, value); });
+  page.move(2, "up");
+  const before = draftSnapshot(page);
+  page.get("export-draft").click();
+  const expected = ["  Zoe\u0308 李 📦  ", "Before\nAfter", "", "duplicate", "duplicate", "\ud800"];
+  const preview = page.get("export-preview");
+  assert.deepEqual(JSON.parse(preview.value), expected);
+  assert.equal(preview.readOnly, true);
+  assert.equal(preview.hidden, false);
+  assertSnapshot(page, before);
+  assertDraft(page);
+  const link = page.get("download-draft");
+  assert.equal(link.attributes.download, "address-draft.json");
+  assert.equal(link.hidden, false);
+  const blob = resolveObjectURL(link.href);
+  assert.ok(blob instanceof Blob);
+  assert.equal(blob.type, "application/json;charset=utf-8");
+  assert.equal(await blob.text(), preview.value);
+  assert.deepEqual(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await blob.arrayBuffer())), expected);
+  // A second explicit export releases only the old resource.
+  const oldUrl = link.href;
+  page.get("export-draft").click();
+  assert.equal(resolveObjectURL(oldUrl), undefined);
+  assert.ok(resolveObjectURL(link.href));
+  const currentUrl = link.href;
+  await page.window.emit("pagehide");
+  assert.equal(resolveObjectURL(currentUrl), undefined);
+  assert.equal(preview.hidden, true);
+  assert.equal(preview.value, "");
+});
+
+test("export is not formatting and its snapshot clears only through the existing invalidation lifecycle", async () => {
+  for (const action of ["edit", "add", "remove", "move", "replace", "format"]) {
+    const page = loadPage();
+    page.edit(0, "First");
+    page.add();
+    page.edit(1, "Second");
+    page.format();
+    page.get("export-draft").click();
+    const preview = page.get("export-preview");
+    const link = page.get("download-draft");
+    const url = link.href;
+    assert.equal(preview.value, '[\n  "First",\n  "Second"\n]');
+    assert.equal(page.get("formatted-address").value, "First\nSecond");
+    page.move(0, "up");
+    await page.select(jsonFile('["staged"]'));
+    page.get("cancel-import").click();
+    await page.select(jsonFile('["ok",false]'));
+    assert.equal(preview.value, '[\n  "First",\n  "Second"\n]');
+    assert.equal(link.href, url);
+    assert.ok(resolveObjectURL(url));
+    assert.equal(page.get("formatted-address").value, "First\nSecond");
+    if (action === "edit") page.edit(0, "changed");
+    if (action === "add") page.add();
+    if (action === "remove") page.remove(0);
+    if (action === "move") page.move(0, "down");
+    if (action === "replace") {
+      await page.select(jsonFile('["replacement"]'));
+      page.get("replace-draft").click();
+    }
+    if (action === "format") page.format();
+    assert.equal(resolveObjectURL(url), undefined, action);
+    assert.equal(link.hidden, true, action);
+    assert.equal(link.href, "", action);
+    assert.equal(preview.value, "", action);
+    assert.equal(preview.hidden, true, action);
+  }
+});
+
+test("download unavailable retains selectable JSON; export refusal leaves draft/result alone", () => {
+  const page = loadPage({}); // No object-URL support, not a call-shape spy.
+  const before = existingResult(page);
+  page.get("export-draft").click();
+  assertKept(page, before);
+  assert.equal(page.get("export-preview").value, '[\n  "Keep this result"\n]');
+  assert.equal(page.get("export-preview").hidden, false);
+  assert.equal(page.get("download-draft").hidden, true);
+  assert.equal(page.get("export-status").textContent, "Download unavailable. Select the read-only JSON below.");
+  // The double does not normalize CR. Verify the codec refuses rather than
+  // silently repairing such a value; native textarea normalization is unproven.
+  page.edit(0, "before\rafter");
+  const draft = draftSnapshot(page);
+  page.get("export-draft").click();
+  assertSnapshot(page, draft);
+  assert.equal(page.get("export-preview").value, "");
+  assert.equal(page.get("export-preview").hidden, true);
+  assert.equal(page.get("export-status").textContent, "Could not export: draft[0] contains CR; textareas cannot preserve CR");
+});
+
+test("pagehide clears staged/loading imports and export resources, fencing late read success and failure", async () => {
+  for (const fail of [false, true]) {
+    const page = loadPage();
+    const before = existingResult(page);
+    await page.select(jsonFile('["staged"]'));
+    await page.window.emit("pagehide");
+    assert.equal(page.get("import-preview").value, "");
+    assert.equal(page.get("replace-draft").disabled, true);
+    const read = deferredFile();
+    const pending = page.select(read.file);
+    page.get("export-draft").click();
+    const url = page.get("download-draft").href;
+    assert.ok(resolveObjectURL(url));
+    await page.window.emit("pagehide");
+    const status = page.get("import-status").textContent;
+    if (fail) read.reject(new Error("late failure"));
+    else read.resolve(utf8('["late success"]'));
+    await pending;
+    assert.equal(page.get("import-status").textContent, status);
+    assert.equal(page.get("replace-draft").disabled, true);
+    assert.equal(page.get("cancel-import").disabled, true);
+    assert.equal(page.get("import-decision").hidden, true);
+    assert.equal(resolveObjectURL(url), undefined);
+    assertKept(page, before);
+    await page.select(jsonFile('["new after return"]'));
+    page.get("replace-draft").click();
+    assert.deepEqual(page.values(), ["new after return"]);
+  }
+});
+
+
+test("bulk Replace uses the row owner for complete values, labels, boundaries and subsequent Add/Move/Remove", async () => {
+  const page = loadPage();
+  const before = existingResult(page);
+  const expected = Array.from({ length: 256 }, (_, index) => " Line " + index + " ");
+  await page.select(jsonFile(JSON.stringify(expected)));
+  assertKept(page, before);
+  page.get("replace-draft").click();
+  assert.deepEqual(page.values(), expected);
+  assertLabels(page);
+  assert.equal(page.document.activeElement, page.inputs()[0]);
+  assertDraft(page);
+  page.add();
+  assert.deepEqual(page.values(), [...expected, ""]);
+  assertLabels(page);
+  page.move(256, "up");
+  assert.deepEqual(page.values(), [...expected.slice(0, 255), "", expected[255]]);
+  page.remove(255);
+  assert.deepEqual(page.values(), expected);
+  assertLabels(page);
 });

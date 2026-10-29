@@ -55,4 +55,5 @@ button:disabled { color: #596572; background: #edf0f3; cursor: default; }
 .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
 #address-status { min-height: 1.5em; font-weight: 600; }
 #address-status[data-state="error"] { color: #a31515; }
-#formatted-address { font-family: ui-monospace, monospace; }
+#import-draft { max-width: 100%; }
+#formatted-address, #import-preview, #export-preview { font-family: ui-monospace, monospace; }

@@ -73,7 +73,8 @@ command above.
 ## Offline line editor
 
 Open `delivery-address.html` directly as a local file in a browser, keeping
-`delivery-address.css`, `delivery-address.js`, and `delivery-address-editor.js`
+`delivery-address.css`, `delivery-address.js`, `delivery-address-draft.js`,
+and `delivery-address-editor.js`
 beside it. No server, build, installation, or network connection is needed.
 The page loads the canonical helper as a classic script, exposing the same
 `formatDeliveryAddress` function globally; its CommonJS export is unchanged.
@@ -100,8 +101,8 @@ line endings; the editor does not transform the values they expose.
 Successful output is read-only, selectable plain text, not HTML, with exact LF
 separators and no final newline. Tab to the output and use the browser's normal
 text-selection keys if needed. Formatting does not verify a postal address or
-authorize dispatch. There is no printing, clipboard API, storage, import/export,
-network request, postal verification, dispatch, or extra address field.
+authorize dispatch. There is no printing, clipboard API, storage, network request, postal
+verification, dispatch, or extra address field.
 
 `delivery-address-editor.test.js` uses Node's built-in VM and a small DOM test
 double to load the real HTML entry's scripts and exercise the event lifecycle.
@@ -109,3 +110,57 @@ It is not browser, rendering, accessibility, native Files, standalone, or narrow
 viewport proof; those need separate checks in an approved browser. The PR43
 base (`047eba34abd79b0af1f1d9caa0602d8f671b6bdd`) had only the helper and no
 editor or browser UI. This new page's empty draft is not a pre-change UI.
+
+### Explicit offline draft interchange
+
+Choose a local file with **Import draft JSON file**. The interchange is UTF-8 JSON
+containing an array of strings, including `[]`. It is **lossless-or-refuse for
+parsed values**, not arbitrary-string roundtripping or preservation of original
+JSON bytes, whitespace, escape spelling, or formatting. Blank strings, LF-multiline
+drafts, Unicode (including combining sequences), surrounding whitespace,
+duplicates, and order are preserved exactly. There is no trimming, coercion,
+Unicode normalization, repair, or postal validation on import.
+
+**Every CR (U+000D), including escaped `\r` and CR in CRLF, is refused for the
+whole import**: native textarea values normalize CR and cannot preserve it.
+A single leading UTF-8 encoding BOM is accepted and consumed by the fatal UTF-8
+decoder; literal U+FEFF inside JSON strings remains unchanged. Malformed UTF-8,
+malformed JSON, nonarrays, and nonstring entries are refused atomically. CR/CRLF
+used only as JSON whitespace outside strings is fine, including after the encoding
+BOM. Blank/LF drafts remain importable even though the unchanged canonical formatter
+will reject them when you explicitly format.
+
+Reading produces a validated, frozen staged snapshot and a read-only JSON preview.
+Nothing is applied until **Replace draft**. That decision discards the then-current
+draft, including edits made while reading or after staging. Replace uses only the
+snapshot, not a reread of the file or editable preview text; it reuses the row,
+label, invalidation, and focus owner. It clears formatted output and focuses the
+first new textarea, or Add line for `[]`. **Cancel import** and any read/validation
+error preserve the current controls, values, and formatted output. You may choose
+another file or continue editing while reading. The editor's generation guard
+ignores obsolete successes and failures after a new selection, Cancel, Replace,
+or pagehide. Cancelling does not abort the underlying file read.
+
+**Export draft JSON** explicitly snapshots the current ordered raw textarea
+values, without formatting, using the same codec. It requests a standard Blob/URL
+anchor download named `address-draft.json` and also displays read-only selectable
+JSON. The download link remains available for retry; a download request is not
+proof that a browser saved a file. If download creation fails, select the JSON
+fallback. There is no File System Access API or automatic persistence.
+
+The displayed export snapshot and object URL share the existing invalidation
+lifecycle: any edit, Add, Remove, real Move, Replace, or Format clears them. A
+boundary Move, import read/staging, Cancel, or import error does not. A new export
+releases the previous URL; pagehide releases it and clears pending import state.
+Already downloaded files remain unchanged. Export again to obtain current values.
+
+The codec has one classic-script owner in `delivery-address-draft.js`; both of its
+surfaces are consumed in production (decode for import; encode for preview/export).
+There is no CommonJS-only test branch or exported UI seam. Entry-driven tests cover
+independently specified accepted values, atomic refusals, delayed read settlement,
+Replace/Cancel, export contents and URL lifetime, and existing editor behavior.
+They use native Node TextDecoder/Blob/URL and the small existing DOM double.
+Deterministic deferred promises exercise the **editor's generation owner**, not
+native file scheduling, file dialogs, downloads, textarea normalization, browser
+focus, accessibility, layout, or narrow viewports. Those proofs belong to the
+retained approved browser; the Node suite does not claim them.
