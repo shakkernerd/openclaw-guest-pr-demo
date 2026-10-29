@@ -10,6 +10,9 @@ command. The CLI only reads the order, never edits it.
 For multiple orders, use the separate [batch JSON Lines CLI](#batch-orders-json-lines).
 It emits both policy summaries per valid record, not detailed CSV or silent checks.
 
+To save a single run's raw stdout, JSONL diagnostics, and observed process result
+for the existing capture reader, use [the batch capture command](examples/capture-batch-run.md).
+
 The planner uses CommonJS and Node.js built-ins only; no dependency installation
 is needed. The existing `parcelLabel` helper in `parcel-label.js` is unchanged.
 
