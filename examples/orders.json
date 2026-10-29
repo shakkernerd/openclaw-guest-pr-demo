@@ -1,0 +1,5 @@
+[
+  { "id": "ORD-003", "recipient": "Ada Lovelace", "itemCount": 1 },
+  { "id": "ORD-001", "recipient": "Grace Hopper", "itemCount": 3 },
+  { "id": "ORD-002", "recipient": "Katherine Johnson", "itemCount": 0 }
+]
