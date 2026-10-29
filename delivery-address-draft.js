@@ -1,6 +1,6 @@
 "use strict";
 
-// Classic-script codec shared by the real file-import and export paths.
+// Shared codec for classic-script file import/export and the CommonJS CLI.
 // Values, not the original JSON spelling, are the interchange contract.
 const addressDraftCodec = (() => {
   function validate(values) {
@@ -41,3 +41,7 @@ const addressDraftCodec = (() => {
     },
   });
 })();
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { addressDraftCodec };
+}

@@ -154,9 +154,11 @@ boundary Move, import read/staging, Cancel, or import error does not. A new expo
 releases the previous URL; pagehide releases it and clears pending import state.
 Already downloaded files remain unchanged. Export again to obtain current values.
 
-The codec has one classic-script owner in `delivery-address-draft.js`; both of its
-surfaces are consumed in production (decode for import; encode for preview/export).
-There is no CommonJS-only test branch or exported UI seam. Entry-driven tests cover
+The codec has one owner in `delivery-address-draft.js`, available as a classic
+script for the editor and as the CommonJS export `{ addressDraftCodec }` for the
+developer command below. Both codec surfaces are consumed in production (decode
+for import/the command; encode for preview/export). There is no test-only branch
+or exported UI seam. Entry-driven tests cover
 independently specified accepted values, atomic refusals, delayed read settlement,
 Replace/Cancel, export contents and URL lifetime, and existing editor behavior.
 They use native Node TextDecoder/Blob/URL and the small existing DOM double.
@@ -164,3 +166,74 @@ Deterministic deferred promises exercise the **editor's generation owner**, not
 native file scheduling, file dialogs, downloads, textarea normalization, browser
 focus, accessibility, layout, or narrow viewports. Those proofs belong to the
 retained approved browser; the Node suite does not claim them.
+
+## Batch-format saved address drafts
+
+With Node.js 22 or newer, run from the repository root:
+
+```sh
+node format-address-drafts.js path/to/first.json './draft with spaces.json' path/to/first.json
+```
+
+Every argument after the script is a literal file path, read relative to the
+current working directory when relative. Supplied spelling, order, and duplicate
+occurrences are retained; each occurrence is read and reported separately. There
+are no options (even `--help`, `--`, and `-` are file names), stdin input, glob
+expansion, directory discovery, or recursive traversal. Quote paths to prevent
+shell expansion; the command does not expand them itself. It writes no input or
+output files and does not repair, trim, normalize, verify, or persist addresses.
+It uses no network or service.
+
+The command passes raw file bytes to the existing draft decoder, then passes the
+accepted values unchanged to `formatDeliveryAddress`. The codec and formatter
+above remain the sole rule owners. An importable draft is **not necessarily
+formattable**: `[]`, blank strings, and LF-multiline values decode successfully
+but fail canonical formatting. CR in a value instead fails decoding. A leading
+encoding BOM is accepted, and literal FEFF inside a value remains data.
+
+With at least one argument, stdout is one complete JSON document followed by
+exactly one LF:
+
+```json
+{"total":1,"succeeded":1,"failed":0,"results":[{"position":1,"file":"draft.json","ok":true,"formatted":"Recipient\nStreet"}]}
+```
+
+This example assumes `draft.json` contains `["Recipient", "Street"]`.
+`total` equals the argument count and `succeeded + failed` equals `total`.
+`results` has one record per argument in the same order, with 1-based `position`,
+`file` exactly as supplied, and `ok`. Success adds `formatted`, the canonical
+formatter's exact string (JSON escapes such as `\n` represent that string).
+Failure adds only `error: { stage, name, message }` instead of `formatted`.
+`stage` is `read`, `decode`, or `format`, identifying the owner that failed;
+ordinary error names/messages are retained. Processing continues after ordinary
+per-file failures. For example, `[]` produces a `format` error named `RangeError`
+with message `lines must not be empty`. Native read-error wording is supplied by
+Node/the operating system.
+
+Exit status is **0** when every named file succeeds, **1** when any file fails,
+or **2** with no arguments. With no arguments, stderr contains
+`Usage: node format-address-drafts.js FILE...` and one LF; stdout is empty.
+Per-file failures are in the JSON report, not stderr. Normal Node stream/exit
+handling lets queued output drain; unexpected runtime or output-stream failures
+remain native Node errors, not successful file records. Files are read one at a
+time, but the complete report is held in memory; this is not a streaming or
+unbounded-input tool. It provides no snapshot guarantee against another process
+changing an input between occurrences.
+
+Focused command tests:
+
+```sh
+node --test format-address-drafts.test.js
+```
+
+These use the real subprocess entry and materialize the four exact supplied
+synthetic interchange byte sequences from escaped UTF-8 literals in test-owned
+temporary files. Each run verifies their known sizes/SHA256 identities and
+unchanged bytes afterward, then removes its temporary directory in a finally
+block. Independent expected results cover duplicate paths, all three failure
+stages, no-argument usage, and output larger than a pipe buffer. The real command
+exercises the production CommonJS codec; directly relevant unchanged classic
+HTML-entry tests cover its browser-script use without a duplicate codec-rule
+suite or test-only production API. Those Node checks are not actual browser
+compatibility proof. Browser behavior and interchange policy are unchanged;
+actual client checks remain with the retained approved browser.
