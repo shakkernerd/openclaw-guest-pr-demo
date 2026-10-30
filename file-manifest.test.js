@@ -328,3 +328,82 @@ test("help and invalid CLI arities have explicit statuses", () => {
     assert.equal(JSON.parse(cli(args, 2).stderr).error.code, "USAGE");
   }
 });
+
+test("output delivery failures are fatal for create, help, both verify outcomes, and stderr", (t) => {
+  const f = fixture(t);
+  put(f.root, "data", "abc");
+  const created = cli(["create", f.root, "data"], 0).stdout;
+  fs.writeFileSync(f.manifest, created);
+  const mismatch = JSON.parse(created);
+  mismatch.files[0].size += 1;
+  const changedManifest = path.join(f.temp, "changed.json");
+  fs.writeFileSync(changedManifest, JSON.stringify(mismatch));
+  const sink = path.join(f.temp, "read-only-output");
+  fs.writeFileSync(sink, "must not be overwritten");
+  const before = snapshot(f.temp);
+  // A real read-only descriptor gives a deterministic write failure without
+  // mocks, sleeps, a platform pipe helper, or a new runtime/test dependency.
+  const fd = fs.openSync(sink, "r");
+  function failed(args, stdout, stderr) {
+    const result = spawnSync(process.execPath, [CLI, ...args], {
+      encoding: "utf8", timeout: 5000, maxBuffer: 1024 * 1024,
+      stdio: ["ignore", stdout, stderr],
+    });
+    assert.ifError(result.error);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, 2, result.stderr || "fatal status must survive diagnostic failure");
+    return result;
+  }
+  try {
+    for (const args of [["create", f.root, "data"], ["--help"],
+      ["verify", f.root, f.manifest], ["verify", f.root, changedManifest]]) {
+      const result = failed(args, fd, "pipe");
+      assert.equal(result.stdout, null);
+      // Parsing the entire stream rejects duplicate documents or an appended stack.
+      const diagnostic = JSON.parse(result.stderr);
+      assert.equal(typeof diagnostic.error.code, "string");
+      assert.equal(typeof diagnostic.error.message, "string");
+      assert.equal(result.stderr.split("\n").length, 2, "one diagnostic line only");
+      assert.equal(failed(args, fd, fd).stderr, null);
+    }
+    for (const args of [[], ["create", f.root, "absent"]]) {
+      const result = failed(args, "pipe", fd);
+      assert.equal(result.stdout, "", "no stdout fallback when stderr fails");
+      assert.equal(result.stderr, null);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  assert.deepEqual(snapshot(f.temp), before);
+});
+
+test("import and synchronous callers leave stdio listeners and exit status untouched", (t) => {
+  const f = fixture(t);
+  put(f.root, "data", "abc");
+  const code = [
+    'const assert = require("node:assert/strict");',
+    'const streams = [process.stdout, process.stderr];',
+    'const listeners = () => streams.map(s => s.eventNames().map(e => [e, s.rawListeners(e)]));',
+    'const before = listeners();',
+    'process.exitCode = 17;',
+    'const { createManifest, verifyManifest } = require(process.argv[1]);',
+    'assert.equal(process.exitCode, 17);',
+    'assert.deepEqual(listeners(), before);',
+    'const root = process.argv[2];',
+    'const manifest = createManifest(root, ["data"]);',
+    'assert.equal(manifest.version, 1);',
+    'assert.equal(verifyManifest(root, manifest).ok, true);',
+    'assert.throws(() => createManifest(root, ["absent"]), { code: "ENOENT" });',
+    'assert.throws(() => verifyManifest(root, {}), { code: "INVALID_MANIFEST" });',
+    'assert.equal(process.exitCode, 17);',
+    'assert.deepEqual(listeners(), before);',
+  ].join("\n");
+  const result = spawnSync(process.execPath, ["-e", code, CLI, f.root], {
+    encoding: "utf8", timeout: 5000, maxBuffer: 1024 * 1024,
+  });
+  assert.ifError(result.error);
+  assert.equal(result.signal, null);
+  assert.equal(result.status, 17, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+});
