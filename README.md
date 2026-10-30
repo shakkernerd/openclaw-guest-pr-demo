@@ -287,17 +287,29 @@ identity.
 
 **All**, **Successes**, **All failures**, and **Read/Decode/Format failures**
 project rows only. The selected filter persists across all loads and failures;
-choose **All** to reset that projection. Full totals, literal file spelling,
-original positions, order, and duplicate occurrences remain unchanged. Visible
-count is labelled separately. No accepted report, an accepted zero-result report,
-and a nonempty report with no filter matches have distinct messages. Status-only
-updates leave the displayed accepted row elements in place.
+choose **All** to reset that projection. **Search recorded file paths** combines
+with that status filter: a case-sensitive literal substring of each
+recorded `file` string, with no trimming, regex interpretation, path normalization,
+or opening of paths. Empty query matches every path. The model owns this query
+alongside acceptance and status filtering; pending, invalid, read-failed, cancelled,
+and stale selections retain it and the current projection. Only a successfully
+accepted report clears it, including a same-content reselection; the status filter
+still persists. Choose **All** and clear the query to see every occurrence.
+
+Single-line search. Matches use the text shown in this field. For a recorded path
+containing line breaks, search a single-line substring.
+
+Full totals, literal file spelling, original positions, order, and duplicate
+occurrences remain unchanged. Displayed-match count is labelled separately. No
+accepted report, an accepted zero-result report, and a nonempty report with no
+matches have distinct messages. Status-only updates leave the displayed accepted
+row elements in place.
 
 ### Export all occurrences as CSV
 
 Choose **Export all occurrences CSV** to request a download named
 `saved-batch-report.csv`. It snapshots **every occurrence in the displayed
-accepted report**, regardless of the selected filter, retaining original order,
+accepted report**, regardless of the status filter or path query, retaining original order,
 positions, duplicate paths, and exact file spelling. It does not reread the
 report, open any named draft, or run the batch command, draft codec, or formatter.
 Without an accepted report export is unavailable; an accepted zero-result report
@@ -359,7 +371,9 @@ a Node VM, rather than its CommonJS export or a fake browser. The two small
 fixtures are retained saved stdout documents, consumed directly with independent
 expected results and byte identities; they do not authorize reading any paths
 inside them. Tests cover literal/empty strings, envelope/count/shape refusals,
-filters and duplicate order, atomic replacement, controlled asynchronous
+literal path queries composed with status filters and duplicate order, query
+retention/reset on acceptance (including same-content reselection), atomic
+replacement, controlled asynchronous
 success/error/empty selection races, and full-report CSV export. CSV assertions
 use independently specified expected strings and native Blob bytes, including
 quoting, mixed line endings, Unicode, empty/error fields, formula-like text,

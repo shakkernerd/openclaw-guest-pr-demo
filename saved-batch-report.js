@@ -97,6 +97,7 @@ const SavedBatchReport = (() => {
     #accepted = null;
     #status = Object.freeze({ kind: "idle", name: null, message: "No file selected." });
     #filter = "all";
+    #query = "";
     #generation = 0;
     #onChange;
 
@@ -107,6 +108,7 @@ const SavedBatchReport = (() => {
     get accepted() { return this.#accepted; }
     get status() { return this.#status; }
     get filter() { return this.#filter; }
+    get query() { return this.#query; }
 
     toCsv() {
       if (!this.#accepted) throw new Error("No accepted report to export.");
@@ -125,7 +127,7 @@ const SavedBatchReport = (() => {
 
     get rows() {
       if (!this.#accepted) return [];
-      const results = this.#accepted.report.results;
+      const results = this.#accepted.report.results.filter((result) => result.file.includes(this.#query));
       switch (this.#filter) {
         case "all": return results;
         case "success": return results.filter((result) => result.ok);
@@ -137,6 +139,12 @@ const SavedBatchReport = (() => {
     setFilter(filter) {
       if (!filters.includes(filter)) throw new TypeError("Unknown report filter");
       this.#filter = filter;
+      this.#onChange(this);
+    }
+
+    setQuery(query) {
+      if (typeof query !== "string") throw new TypeError("Report query must be a string");
+      this.#query = query;
       this.#onChange(this);
     }
 
@@ -170,6 +178,7 @@ const SavedBatchReport = (() => {
         return;
       }
       this.#accepted = Object.freeze({ name, byteLength: bytes.byteLength, report });
+      this.#query = "";
       this.#showStatus("accepted", name, "Report accepted. Structure checked, not authenticity or current validity.");
     }
   };
