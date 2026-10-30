@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
 const { spawnSync } = require("node:child_process");
-const { createManifest, verifyManifest } = require("./file-manifest.js");
+const { createManifest, verifyManifest, compareManifests } = require("./file-manifest.js");
 
 const CLI = path.join(__dirname, "file-manifest.js");
 const EMPTY_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -181,6 +181,9 @@ test("rejects unsafe and ambiguous paths before any root access, on create and i
     const unavailableRoot = path.join(f.temp, "absent-root");
     assert.throws(() => createManifest(unavailableRoot, [file]), { code: "INVALID_PATH" });
     assert.throws(() => verifyManifest(unavailableRoot, manifest([entry(file)])), { code: "INVALID_PATH" });
+    const good = manifest([entry("control")]);
+    assert.throws(() => compareManifests(manifest([entry(file)]), good), { code: "INVALID_PATH" });
+    assert.throws(() => compareManifests(good, manifest([entry(file)])), { code: "INVALID_PATH" });
   }
   put(f.temp, "outside", "must never be imported");
   fs.writeFileSync(f.manifest, JSON.stringify(manifest([entry("../outside")])));
@@ -202,10 +205,14 @@ test("strict schema, duplicate and empty-set validation", (t) => {
   ];
   for (const value of bad) {
     assert.throws(() => verifyManifest(f.root, value), { code: "INVALID_MANIFEST" });
+    assert.throws(() => compareManifests(value, manifest([good])), { code: "INVALID_MANIFEST" });
+    assert.throws(() => compareManifests(manifest([good]), value), { code: "INVALID_MANIFEST" });
   }
   assert.throws(() => createManifest(f.root, []), { code: "INVALID_MANIFEST" });
   assert.throws(() => createManifest(f.root, ["data", "data"]), { code: "DUPLICATE_PATH" });
   assert.throws(() => verifyManifest(f.root, manifest([good, good])), { code: "DUPLICATE_PATH" });
+  assert.throws(() => compareManifests(manifest([good, good]), manifest([good])), { code: "DUPLICATE_PATH" });
+  assert.throws(() => compareManifests(manifest([good]), manifest([good, good])), { code: "DUPLICATE_PATH" });
   fs.writeFileSync(f.manifest, JSON.stringify(manifest([good, good])));
   assert.equal(JSON.parse(cli(["verify", f.root, f.manifest], 2).stderr).error.code, "DUPLICATE_PATH");
 });
@@ -319,12 +326,198 @@ test("real CLI: malformed JSON/UTF-8/BOM, manifest errors and root errors are fa
   }
 });
 
+test("compare: size-only, digest-only and combined differences; inputs stay immutable", () => {
+  const before = manifest([entry("size"), entry("digest"), entry("both"), entry("control")]);
+  const after = manifest([entry("both", 3, ABC_HASH), entry("control"), entry("digest", 0, ABC_HASH), entry("size", 1)]);
+  for (const value of [before, after]) {
+    value.files.forEach(Object.freeze);
+    Object.freeze(value.files);
+    Object.freeze(value);
+  }
+  const original = JSON.stringify([before, after]);
+  const metadata = (size, sha256) => ({ size, sha256 });
+  const expected = { ok: false, files: [
+    { path: "both", status: "changed", before: metadata(0, EMPTY_HASH), after: metadata(3, ABC_HASH) },
+    { path: "control", status: "unchanged", before: metadata(0, EMPTY_HASH), after: metadata(0, EMPTY_HASH) },
+    { path: "digest", status: "changed", before: metadata(0, EMPTY_HASH), after: metadata(0, ABC_HASH) },
+    { path: "size", status: "changed", before: metadata(0, EMPTY_HASH), after: metadata(1, EMPTY_HASH) },
+  ] };
+  const result = compareManifests(before, after);
+  assert.deepEqual(result, expected);
+  result.files[0].before.size = 99;
+  result.files[0].after.sha256 = "not an alias to an input";
+  assert.equal(JSON.stringify([before, after]), original);
+  assert.deepEqual(compareManifests(before, after), expected);
+});
+
+test("real CLI compare: real differences, unchanged control, reversal and input preservation", (t) => {
+  const f = fixture(t);
+  put(f.root, "control", "abc");
+  put(f.root, "digest", "abc");
+  put(f.root, "resized", "");
+  put(f.root, "removed", "");
+  const options = { evidence: true, preserve: f.temp };
+  const before = cli(["create", f.root, "resized", "removed", "digest", "control"], 0, options).stdout;
+  fs.writeFileSync(f.manifest, before);
+  put(f.root, "digest", "abd"); // Same size, different real bytes.
+  put(f.root, "resized", "abc");
+  put(f.root, "added", "");
+  fs.unlinkSync(path.join(f.root, "removed"));
+  const after = cli(["create", f.root, "resized", "digest", "control", "added"], 0, options).stdout;
+  const afterFile = path.join(f.temp, "after.json");
+  fs.writeFileSync(afterFile, after);
+  const compared = cli(["compare", f.manifest, afterFile], 1, options);
+  const report = JSON.parse(compared.stdout);
+  const empty = { size: 0, sha256: EMPTY_HASH };
+  const abc = { size: 3, sha256: ABC_HASH };
+  const abd = { size: 3, sha256: createHash("sha256").update("abd").digest("hex") };
+  assert.deepEqual(report, { ok: false, files: [
+    { path: "added", status: "added", before: null, after: empty },
+    { path: "control", status: "unchanged", before: abc, after: abc },
+    { path: "digest", status: "changed", before: abc, after: abd },
+    { path: "removed", status: "removed", before: empty, after: null },
+    { path: "resized", status: "changed", before: empty, after: abc },
+  ] });
+  assert.equal(compared.stdout, JSON.stringify(report, null, 2) + "\n");
+  const reversed = JSON.parse(cli(["compare", afterFile, f.manifest], 1, options).stdout);
+  assert.deepEqual(reversed, { ok: false, files: report.files.map((file) => ({
+    path: file.path,
+    status: file.status === "added" ? "removed" : file.status === "removed" ? "added" : file.status,
+    before: file.after, after: file.before,
+  })) });
+  const equal = JSON.parse(cli(["compare", afterFile, afterFile], 0, options).stdout);
+  assert.equal(equal.ok, true);
+  assert.ok(equal.files.every((file) => file.status === "unchanged"));
+  assert.equal(fs.readFileSync(f.manifest, "utf8"), before);
+  assert.equal(fs.readFileSync(afterFile, "utf8"), after);
+});
+
+test("real CLI compare: deterministic UTF-16 union order independent of JSON formatting and cwd", (t) => {
+  const f = fixture(t);
+  const names = ["\ue000", "😀", "中", "é", "é", "constructor", "a", "__proto__", "A", "-literal"];
+  const before = manifest(names.slice(0, -1).map((file) => entry(file)));
+  const after = manifest(names.slice(1).map((file) => entry(file)));
+  const afterFile = path.join(f.temp, "-after.json");
+  fs.writeFileSync(f.manifest, JSON.stringify(before));
+  fs.writeFileSync(afterFile, JSON.stringify(after));
+  const options = { evidence: true, preserve: f.temp };
+  const original = cli(["compare", f.manifest, afterFile], 1, options).stdout;
+  assert.deepEqual(JSON.parse(original).files.map((file) => [file.path, file.status]), [
+    ["-literal", "added"], ["A", "unchanged"], ["__proto__", "unchanged"], ["a", "unchanged"],
+    ["constructor", "unchanged"], ["é", "unchanged"], ["é", "unchanged"], ["中", "unchanged"],
+    ["😀", "unchanged"], ["\ue000", "removed"],
+  ]);
+  const reformatted = (value) => JSON.stringify({
+    files: [...value.files].reverse().map(({ path: file, size, sha256 }) => ({ sha256, size, path: file })),
+    algorithm: value.algorithm, version: value.version,
+  }, null, 4).replaceAll("\n", "\r\n") + "\r\n";
+  fs.writeFileSync(f.manifest, reformatted(before));
+  fs.writeFileSync(afterFile, reformatted(after));
+  assert.equal(cli(["compare", "manifest.json", "-after.json"], 1, { ...options, cwd: f.temp }).stdout, original);
+  fs.writeFileSync(afterFile, reformatted(before));
+  const equal = JSON.parse(cli(["compare", f.manifest, afterFile], 0, options).stdout);
+  assert.equal(equal.ok, true);
+  assert.equal(equal.files.length, before.files.length);
+  assert.ok(equal.files.every((file) => file.status === "unchanged"));
+});
+
+test("real CLI compare: validates both complete inputs before emitting any report", (t) => {
+  const f = fixture(t);
+  const good = path.join(f.temp, "good.json");
+  fs.writeFileSync(good, JSON.stringify(manifest([entry("control")])));
+  const invalid = [
+    ["{", "INVALID_MANIFEST"], [Buffer.from([0xff]), "INVALID_MANIFEST"],
+    ["\ufeff{}", "INVALID_MANIFEST"],
+    [JSON.stringify({ ...manifest([entry("control")]), version: 2 }), "INVALID_MANIFEST"],
+    [JSON.stringify(manifest([])), "INVALID_MANIFEST"],
+    [JSON.stringify(manifest([entry("added"), entry("late", -1)])), "INVALID_MANIFEST"],
+    [JSON.stringify(manifest([entry("added"), entry("late", 0, "A".repeat(64))])), "INVALID_MANIFEST"],
+    [JSON.stringify(manifest([entry("added"), entry("../outside")])), "INVALID_PATH"],
+    [JSON.stringify(manifest([entry("added"), entry("added")])), "DUPLICATE_PATH"],
+  ];
+  for (const [bytes, code] of invalid) {
+    fs.writeFileSync(f.manifest, bytes);
+    for (const inputs of [[f.manifest, good], [good, f.manifest]]) {
+      const result = cli(["compare", ...inputs], 2, { evidence: true, preserve: f.temp });
+      assert.equal(JSON.parse(result.stderr).error.code, code);
+    }
+  }
+  for (const [input, code] of [[path.join(f.temp, "missing.json"), "ENOENT"], [f.root, "UNSUPPORTED_TYPE"]]) {
+    for (const inputs of [[input, good], [good, input]]) {
+      assert.equal(JSON.parse(cli(["compare", ...inputs], 2, { preserve: f.temp }).stderr).error.code, code);
+    }
+  }
+  const alias = path.join(f.temp, "alias.json");
+  if (!linkOrSkip(t, good, alias, "file")) return;
+  for (const inputs of [[alias, good], [good, alias]]) {
+    assert.equal(JSON.parse(cli(["compare", ...inputs], 2, { preserve: f.temp }).stderr).error.code, "SYMLINK");
+  }
+});
+
+test("real CLI compare: missing and EACCES declared files are never needed", { skip: process.platform === "win32" }, (t) => {
+  const f = fixture(t);
+  const inputs = path.join(f.temp, "inputs");
+  fs.mkdirSync(inputs, { mode: 0o755 });
+  fs.chmodSync(f.temp, 0o755);
+  fs.chmodSync(f.root, 0o755);
+  put(f.root, "control", "abc");
+  put(f.root, "denied", "abc");
+  fs.chmodSync(path.join(f.root, "control"), 0o644);
+  const beforeFile = path.join(inputs, "before.json");
+  const afterFile = path.join(inputs, "after.json");
+  const before = manifest([entry("missing-parent/file"), entry("denied", 3, ABC_HASH), entry("control", 3, ABC_HASH)]);
+  const after = manifest([entry("denied", 4, ABC_HASH), entry("control", 3, ABC_HASH), entry("missing-parent/file")]);
+  fs.writeFileSync(beforeFile, JSON.stringify(before), { mode: 0o644 });
+  fs.writeFileSync(afterFile, JSON.stringify(after), { mode: 0o644 });
+  const options = { evidence: true, preserve: inputs, cwd: f.root };
+  if (process.getuid() === 0) Object.assign(options, { uid: 65534, gid: 65534 });
+  const original = snapshot(f.temp);
+  fs.chmodSync(path.join(f.root, "denied"), 0o000);
+  try {
+    const verified = JSON.parse(cli(["verify", f.root, beforeFile], 1, options).stdout);
+    assert.deepEqual(verified.files.map((file) => [file.path, file.status, file.code]), [
+      ["control", "ok", undefined], ["denied", "unreadable", "EACCES"],
+      ["missing-parent/file", "missing", "ENOENT"],
+    ]);
+    const result = JSON.parse(cli(["compare", beforeFile, afterFile], 1, options).stdout);
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.files.map((file) => [file.path, file.status]), [
+      ["control", "unchanged"], ["denied", "changed"], ["missing-parent/file", "unchanged"],
+    ]);
+    assert.deepEqual(result.files[1].before, { size: 3, sha256: ABC_HASH });
+    assert.deepEqual(result.files[1].after, { size: 4, sha256: ABC_HASH });
+    assert.equal(JSON.parse(cli(["compare", beforeFile, beforeFile], 0, options).stdout).ok, true);
+    assert.equal(fs.statSync(path.join(f.root, "denied")).mode & 0o777, 0);
+    assert.equal(fs.existsSync(path.join(f.root, "missing-parent")), false);
+    fs.chmodSync(afterFile, 0o000);
+    try {
+      for (const pair of [[beforeFile, afterFile], [afterFile, beforeFile]]) {
+        const failed = cli(["compare", ...pair], 2, { ...options, preserve: undefined });
+        assert.equal(JSON.parse(failed.stderr).error.code, "EACCES");
+      }
+      assert.equal(fs.statSync(afterFile).mode & 0o777, 0);
+    } finally {
+      fs.chmodSync(afterFile, original["inputs/after.json"].mode & 0o777);
+    }
+  } finally {
+    fs.chmodSync(path.join(f.root, "denied"), original["root/denied"].mode & 0o777);
+  }
+  assert.deepEqual(snapshot(f.temp), original, "all bytes, names, modes and mtimes preserved; atime excluded");
+  if (process.env.FILE_MANIFEST_TEST_TRACE === "1") {
+    console.log("comparison boundary: PASS (native verify ENOENT/EACCES; compare succeeds in same cwd/uid)");
+    console.log("boundary input-preservation: PASS (all bytes, modes, mtimes and names; fixture modes restored)");
+  }
+});
+
 test("help and invalid CLI arities have explicit statuses", () => {
   const help = cli(["--help"], 0, { evidence: true }).stdout;
   assert.match(help, /create ROOT FILE/);
+  assert.match(help, /compare BEFORE AFTER/);
+  assert.match(help, /never declared files/);
   assert.match(help, /hostile filesystem race/);
   for (const args of [[], ["unknown"], ["create"], ["create", "."], ["verify", "."],
-    ["verify", ".", "one", "two"], ["--help", "extra"]]) {
+    ["verify", ".", "one", "two"], ["compare"], ["compare", "one"],
+    ["compare", "one", "two", "three"], ["--help", "extra"]]) {
     assert.equal(JSON.parse(cli(args, 2).stderr).error.code, "USAGE");
   }
 });

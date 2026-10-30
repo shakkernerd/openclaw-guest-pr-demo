@@ -7,6 +7,7 @@ const { createHash } = require("node:crypto");
 const HELP = `Usage:
   node file-manifest.js create ROOT FILE [FILE ...]
   node file-manifest.js verify ROOT MANIFEST
+  node file-manifest.js compare BEFORE AFTER
   node file-manifest.js --help
 
 Create writes deterministic JSON to stdout; redirect only to a separate,
@@ -14,9 +15,13 @@ non-input file. FILE paths are canonical, slash-separated paths below ROOT.
 Verify reads a JSON manifest and reports every declared file as ok, missing,
 changed, or unreadable. It never writes files. Exit: 0 success, 1 differences
 or unreadable declared files, 2 invalid input/root or creation failure.
+Compare validates two version-1 manifests and reports added, removed, changed,
+or unchanged entries as JSON with before/after size and SHA-256 (null if absent).
+It reads only the manifests, never declared files; no ROOT is used. Output is
+path-sorted. Exit: 0 equal declarations, 1 differences, 2 invalid input.
 
 Only regular files are supported. Symlinks below the resolved ROOT are
-rejected, as is a symlink at MANIFEST itself. Absolute/traversing/ambiguous
+rejected, as is a symlink at any input manifest itself. Absolute/traversing/ambiguous
 paths, duplicates, and empty file sets are rejected. See README.md for the
 path grammar and schema. ROOT itself may resolve through symlinks.
 
@@ -180,6 +185,29 @@ function verifyManifest(root, manifest) {
   return { ok: files.every((file) => file.status === "ok"), files };
 }
 
+function compareManifests(before, after) {
+  // Reuse the full version-1 validation before building any comparison.
+  // Declared paths are keys only: no root resolution or filesystem access.
+  const beforeEntries = validateManifest(before);
+  const afterEntries = validateManifest(after);
+  const beforeByPath = new Map(beforeEntries.map((entry) => [entry.path, entry]));
+  const afterByPath = new Map(afterEntries.map((entry) => [entry.path, entry]));
+  const paths = [...new Set([...beforeByPath.keys(), ...afterByPath.keys()])].sort();
+  const files = paths.map((file) => {
+    const previous = beforeByPath.get(file);
+    const next = afterByPath.get(file);
+    const status = !previous ? "added" : !next ? "removed" :
+      previous.size === next.size && previous.sha256 === next.sha256 ? "unchanged" : "changed";
+    return {
+      path: file,
+      status,
+      before: previous ? { size: previous.size, sha256: previous.sha256 } : null,
+      after: next ? { size: next.size, sha256: next.sha256 } : null,
+    };
+  });
+  return { ok: files.every((file) => file.status === "unchanged"), files };
+}
+
 function readManifest(filename) {
   const bytes = withRegularFile(filename, (fd) => fs.readFileSync(fd));
   let source;
@@ -201,17 +229,19 @@ function main(args) {
       process.stdout.write(HELP);
       return 0;
     }
-    const [command, root, ...inputs] = args;
+    const [command, first, ...inputs] = args;
     let result;
-    if (command === "create" && root && inputs.length > 0) {
-      result = createManifest(root, inputs);
-    } else if (command === "verify" && root && inputs.length === 1) {
-      result = verifyManifest(root, readManifest(inputs[0]));
+    if (command === "create" && first && inputs.length > 0) {
+      result = createManifest(first, inputs);
+    } else if (command === "verify" && first && inputs.length === 1) {
+      result = verifyManifest(first, readManifest(inputs[0]));
+    } else if (command === "compare" && first && inputs.length === 1) {
+      result = compareManifests(readManifest(first), readManifest(inputs[0]));
     } else {
-      throw fail("USAGE", "Use --help for create ROOT FILE... or verify ROOT MANIFEST");
+      throw fail("USAGE", "Use --help for create ROOT FILE..., verify ROOT MANIFEST, or compare BEFORE AFTER");
     }
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    return command === "verify" && !result.ok ? 1 : 0;
+    return (command === "verify" || command === "compare") && !result.ok ? 1 : 0;
   } catch (error) {
     const detail = { code: error.code || "IO_ERROR", message: error.message };
     if (error.file !== undefined) detail.path = error.file;
@@ -224,4 +254,4 @@ if (require.main === module) {
   process.exitCode = main(process.argv.slice(2));
 }
 
-module.exports = { createManifest, verifyManifest };
+module.exports = { createManifest, verifyManifest, compareManifests };
