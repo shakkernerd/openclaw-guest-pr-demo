@@ -159,8 +159,13 @@ exit status 0 or 1 with your report; the viewer cannot certify how a file was ma
   wrap and scroll without truncation. Focus a value pane to scroll by keyboard.
 - Paths show the complete JSON segment array and individual labeled segments:
   string object keys versus numeric array indices, with `[]` labeled as root.
-  Markup-looking content is inert text. Invisible formatting/directional controls
-  are shown as JSON escapes; parsing the displayed JSON recovers the full value.
+  Markup-looking content is inert text. Unicode `Format` (`Cf`) controls, including
+  U+180E, are shown as lowercase JSON `\uXXXX` escapes. The existing DEL/C1
+  (U+007F–U+009F), line/paragraph separator (U+2028–U+2029) and U+2065 escapes are
+  retained. Supplementary formatting controls use both UTF-16 surrogate escapes;
+  parsing the displayed JSON recovers the complete value and exact code points.
+  This is a bounded formatting-control policy, not Unicode normalization or a
+  blanket rule for whitespace, variation selectors or other invisible characters.
 - Filter by category and case-insensitive literal text in compact JSON paths and
   complete values (including values not currently displayed). Search uses the
   displayed escapes, not a regular expression; spaces are significant. Reset
