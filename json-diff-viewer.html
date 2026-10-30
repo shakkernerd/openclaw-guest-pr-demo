@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Structural JSON report viewer</title>
+<style>
+  :root { color-scheme: light; font: 1rem/1.5 system-ui, sans-serif; color: #192b40; background: #f3f6fa; }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; padding: 1.25rem; max-width: 100rem; }
+  h1 { font-size: 1.8rem; margin: 0 0 .5rem; }
+  h2 { font-size: 1.25rem; }
+  h3 { font-size: 1rem; margin-top: 0; }
+  p { margin: .5rem 0; }
+  header, .panel { background: #fff; border: 1px solid #a3b2c3; border-radius: .5rem; padding: 1rem; margin-bottom: 1rem; min-width: 0; }
+  label, legend { font-weight: 650; }
+  input, select, button { font: inherit; max-width: 100%; }
+  input, select { padding: .5rem; border: 1px solid #62778e; border-radius: .25rem; background: #fff; color: #192b40; }
+  input[type=file] { display: block; width: 100%; margin: .5rem 0; }
+  button, input::file-selector-button { padding: .45rem .75rem; border: 1px solid #526d89; border-radius: .25rem; background: #edf3fa; color: #17324d; cursor: pointer; }
+  button:hover:not(:disabled) { background: #dceafd; }
+  :disabled { opacity: 1; color: #5b6672; background: #edf0f3; cursor: default; }
+  :focus-visible { outline: 3px solid #984b00; outline-offset: 3px; }
+  a { color: #124d88; }
+  code, pre { font: .93rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+  pre, code, #file-name { white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: plaintext; }
+  pre { margin: .5rem 0 0; }
+  .hint { color: #43586e; }
+  #status { border-left: .3rem solid #36618c; padding: .5rem .75rem; background: #eaf2fc; }
+  #status.error { border-color: #a12626; background: #fff0ef; color: #791c1c; }
+  #totals { font-weight: 650; }
+  fieldset { margin: 0; border: 0; padding: 0; min-width: 0; }
+  .filters { display: grid; grid-template-columns: minmax(9rem, 1fr) minmax(12rem, 3fr) auto; gap: .75rem; align-items: end; }
+  .filters label, .filters input, .filters select { display: block; width: 100%; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .75rem 0; }
+  #jump { width: 7rem; }
+  #workspace { display: grid; grid-template-columns: minmax(16rem, 1fr) minmax(0, 2fr); gap: 1rem; align-items: start; }
+  #change-list { padding-left: 2.6rem; margin: .75rem 0; }
+  #change-list li { padding: .2rem 0; }
+  .entry { display: block; text-align: left; width: 100%; background: #fff; }
+  .entry code { display: block; margin-top: .2rem; }
+  .entry[aria-current=true] { border: 2px solid #124d88; background: #e3efff; }
+  .kind { font-weight: 700; }
+  .added { color: #12603b; }
+  .removed { color: #963026; }
+  .changed { color: #634098; }
+  #path { background: #f1f5fa; padding: .75rem; }
+  #segments { padding-left: 1.75rem; }
+  #segments li { margin: .25rem 0; overflow-wrap: anywhere; }
+  .values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+  .value { border: 1px solid #a3b2c3; border-radius: .25rem; padding: .75rem; min-width: 0; }
+  .value pre { max-height: 32rem; overflow: auto; padding: .25rem; }
+  [hidden] { display: none !important; }
+  @media (max-width: 60rem) { #workspace { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 38rem) {
+    body { padding: .5rem; }
+    header, .panel { padding: .75rem; }
+    .filters, .values { grid-template-columns: minmax(0, 1fr); }
+    h1 { font-size: 1.5rem; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Structural JSON report viewer</h1>
+  <p>Open a report from <code>json-diff.js</code>. Read-only, offline, and kept only in this page’s memory.</p>
+  <label for="report-file">Choose a UTF-8 JSON report (up to 262,144 bytes)</label>
+  <input id="report-file" type="file" accept=".json,application/json" aria-describedby="file-name">
+  <p id="file-name">No report selected.</p>
+  <button id="clear" type="button">Clear viewer</button>
+  <p id="status" role="status" aria-live="polite" aria-atomic="true">Choose a local report to begin. No file is uploaded or changed.</p>
+  <p id="totals" hidden></p>
+</header>
+<section class="panel" aria-label="Filter changes">
+  <fieldset id="filters" disabled>
+    <legend>Filter changes</legend>
+    <div class="filters">
+      <div><label for="kind">Category</label><select id="kind"><option value="all">All categories</option><option value="added">Added</option><option value="removed">Removed</option><option value="changed">Changed</option></select></div>
+      <div><label for="query">Find in paths or values</label><input id="query" type="search" placeholder="Literal JSON text" aria-describedby="search-help"></div>
+      <button id="reset-filters" type="button">Reset filters</button>
+    </div>
+  </fieldset>
+  <p id="search-help" class="hint">Case-insensitive literal search in compact JSON paths and complete values; not a regular expression. Spaces are significant.</p>
+  <p class="hint">Order: added, removed, changed; original entry order within each category. No sorting or new comparison.</p>
+</section>
+<p id="empty" class="panel" role="status" aria-live="polite" aria-atomic="true" hidden></p>
+<main id="workspace" hidden>
+  <section class="panel" aria-labelledby="changes-title">
+    <h2 id="changes-title">Changes</h2>
+    <p id="match-count" role="status" aria-live="polite" aria-atomic="true"></p>
+    <p><button id="skip-detail" type="button">Skip to selected change</button></p>
+    <p class="hint">Tab between controls; Enter/Space activates buttons. In the list, ↑/↓ selects adjacent matches; Home/End selects first/last.</p>
+    <nav class="toolbar" aria-label="Change pages"><button id="previous-page" type="button">Previous page</button><button id="next-page" type="button">Next page</button></nav>
+    <p id="page-label"></p>
+    <ol id="change-list" aria-label="Matching changes"></ol>
+  </section>
+  <section id="detail" class="panel" aria-labelledby="detail-title" hidden>
+    <nav class="toolbar" aria-label="Adjacent changes"><button id="previous" type="button">Previous change</button><button id="next" type="button">Next change</button></nav>
+    <form id="jump-form" class="toolbar">
+      <label for="jump">Go to match</label><input id="jump" type="number" min="1" step="1" required><button type="submit">Go</button>
+    </form>
+    <h2 id="detail-title" tabindex="-1" aria-live="polite" aria-atomic="true"></h2>
+    <h3>Path (typed segments)</h3>
+    <pre id="path" dir="ltr"></pre>
+    <p id="root-path" hidden>Root document: no path segments.</p>
+    <ol id="segments"></ol>
+    <p class="hint">Strings are object keys; numbers are array indices. <code>["0"]</code>, <code>[0]</code> and <code>[""]</code> are distinct. JSON escapes preserve invisible directional characters.</p>
+    <div class="values">
+      <section class="value" aria-labelledby="before-title"><h3 id="before-title">Before</h3><pre id="before" dir="ltr" tabindex="0" role="region" aria-labelledby="before-title"></pre></section>
+      <section class="value" aria-labelledby="after-title"><h3 id="after-title">After</h3><pre id="after" dir="ltr" tabindex="0" role="region" aria-labelledby="after-title"></pre></section>
+    </div>
+  </section>
+</main>
+<noscript><p>This local viewer requires JavaScript to read and display the selected report.</p></noscript>
+<script>
+"use strict";
+
+// These inclusive bounds come from json-diff.js, not a second diff policy.
+const MAX_REPORT_BYTES = 256 * 1024;
+const MAX_DEPTH = 64;
+const MAX_VALUES = 10_000;
+const MAX_COMPARISONS = 10_000;
+const PAGE_SIZE = 100; // Rendering window only; never drops report entries.
+const KINDS = ["added", "removed", "changed"];
+const LABELS = { added: "Added", removed: "Removed", changed: "Changed" };
+
+function recordShape(value, keys, where) {
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+      Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))) {
+    throw new Error(`${where}: expected exactly ${keys.join(", ")}.`);
+  }
+}
+
+function parseReport(bytes) {
+  if (bytes.byteLength > MAX_REPORT_BYTES) throw new Error(`Report exceeds ${MAX_REPORT_BYTES} bytes.`);
+  if (bytes.byteLength === 0) throw new Error("File is empty; expected one JSON report.");
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch { throw new Error("File is not valid UTF-8."); }
+  let report;
+  try { report = JSON.parse(text); }
+  catch { throw new Error("Invalid JSON. Use one complete report, without a BOM or trailing text."); }
+  recordShape(report, KINDS, "Report");
+  let entries = 0;
+  for (const kind of KINDS) {
+    if (!Array.isArray(report[kind])) throw new Error(`${kind}: expected an array.`);
+    entries += report[kind].length;
+  }
+  if (entries > MAX_COMPARISONS) throw new Error(`Report exceeds ${MAX_COMPARISONS} entries.`);
+
+  // Reported value subtrees are disjoint on each source side. Count those only:
+  // path segments and report wrappers are not source values or source depth.
+  const counts = { before: 0, after: 0 };
+  function checkValue(value, depth, side, where) {
+    const stack = [[value, depth]];
+    while (stack.length) {
+      const [item, level] = stack.pop();
+      if (level > MAX_DEPTH) throw new Error(`${where}: source depth exceeds ${MAX_DEPTH}.`);
+      if (++counts[side] > MAX_VALUES) throw new Error(`${side}: reported values exceed ${MAX_VALUES}.`);
+      if (typeof item === "number" &&
+          (!Number.isFinite(item) || (Number.isInteger(item) && !Number.isSafeInteger(item)))) {
+        throw new Error(`${where}: numbers must be finite and integers must be safe.`);
+      }
+      if (item !== null && typeof item === "object") {
+        for (const child of Object.values(item)) stack.push([child, level + 1]);
+      }
+    }
+  }
+  for (const kind of KINDS) {
+    report[kind].forEach((entry, index) => {
+      const where = `${kind}[${index}]`;
+      recordShape(entry, kind === "changed" ? ["path", "before", "after"] : ["path", "value"], where);
+      if (!Array.isArray(entry.path) || entry.path.length > MAX_DEPTH ||
+          entry.path.some(segment => typeof segment !== "string" &&
+            !(Number.isSafeInteger(segment) && segment >= 0))) {
+        throw new Error(`${where}: path must have at most ${MAX_DEPTH} string keys or nonnegative safe integer indices.`);
+      }
+      if (kind !== "added") checkValue(kind === "changed" ? entry.before : entry.value, entry.path.length, "before", where);
+      if (kind !== "removed") checkValue(kind === "changed" ? entry.after : entry.value, entry.path.length, "after", where);
+    });
+  }
+  return report;
+}
+
+// Remain valid, round-trippable JSON while making bidi/invisible controls visible.
+function jsonText(value, pretty = false) {
+  return JSON.stringify(value, null, pretty ? 2 : 0).replace(
+    /[\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g,
+    character => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+function valueType(value) {
+  return value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+}
+function makeRows(report) {
+  return KINDS.flatMap(kind => report[kind].map((entry, index) => {
+    const path = jsonText(entry.path);
+    const values = kind === "changed" ? [entry.before, entry.after] : [entry.value];
+    return { kind, ordinal: index + 1, entry, path, search: [path, ...values.map(value => jsonText(value))].join("\n").toLowerCase() };
+  }));
+}
+function filterRows(rows, kind, query) {
+  const needle = query.toLowerCase();
+  return rows.filter(row => (kind === "all" || row.kind === kind) && row.search.includes(needle));
+}
+
+const ui = Object.fromEntries([
+  "report-file", "file-name", "clear", "status", "totals", "filters", "kind", "query",
+  "reset-filters", "empty", "workspace", "match-count", "previous-page", "next-page",
+  "page-label", "change-list", "detail", "previous", "next", "jump-form", "jump",
+  "skip-detail", "detail-title", "path", "root-path", "segments", "before-title", "after-title", "before", "after",
+].map(id => [id, document.getElementById(id)]));
+let rows = [];
+let matches = [];
+let cursor = -1;
+let generation = 0;
+
+function status(message, error = false) {
+  ui.status.textContent = message;
+  ui.status.className = error ? "error" : "";
+  ui["report-file"].setAttribute("aria-invalid", String(error));
+}
+function clearDetail() {
+  ui.detail.hidden = true;
+  for (const id of ["detail-title", "path", "before", "after", "segments"]) ui[id].replaceChildren();
+  ui["before-title"].textContent = "Before";
+  ui["after-title"].textContent = "After";
+  ui["root-path"].hidden = true;
+  ui.jump.value = "";
+}
+function clearAccepted() {
+  rows = []; matches = []; cursor = -1;
+  ui.filters.disabled = true;
+  ui.kind.value = "all"; ui.query.value = "";
+  ui.totals.textContent = ""; ui.totals.hidden = true;
+  ui.workspace.hidden = true; ui.empty.hidden = true; ui.empty.textContent = "";
+  for (const id of ["change-list", "match-count", "page-label"]) ui[id].replaceChildren();
+  for (const id of ["previous", "next", "previous-page", "next-page"]) ui[id].disabled = true;
+  clearDetail();
+}
+function renderSide(side, present, value) {
+  const name = side === "before" ? "Before" : "After";
+  ui[`${side}-title`].textContent = `${name} · ${present ? valueType(value) : "absent"}`;
+  ui[side].textContent = present ? jsonText(value, true) : "Absent — not present in this document (not JSON null).";
+  ui[side].scrollTop = 0;
+  ui[side].scrollLeft = 0;
+}
+function renderDetail() {
+  const row = matches[cursor];
+  ui.detail.hidden = false;
+  ui["detail-title"].textContent = `Match ${cursor + 1} of ${matches.length} — ${LABELS[row.kind]} #${row.ordinal}`;
+  ui.path.textContent = row.path;
+  ui["root-path"].hidden = row.entry.path.length !== 0;
+  ui.segments.replaceChildren();
+  for (const segment of row.entry.path) {
+    const item = document.createElement("li");
+    const label = document.createElement("strong");
+    label.textContent = typeof segment === "string" ? "Object key (string): " : "Array index (number): ";
+    const value = document.createElement("code");
+    value.textContent = jsonText(segment);
+    item.append(label, value);
+    ui.segments.append(item);
+  }
+  renderSide("before", row.kind !== "added", row.kind === "changed" ? row.entry.before : row.entry.value);
+  renderSide("after", row.kind !== "removed", row.kind === "changed" ? row.entry.after : row.entry.value);
+  ui.previous.disabled = cursor === 0;
+  ui.next.disabled = cursor === matches.length - 1;
+  ui.jump.max = String(matches.length);
+  ui.jump.value = String(cursor + 1);
+}
+function selectMatch(index, focus = "none") {
+  if (!Number.isInteger(index) || index < 0 || index >= matches.length) return;
+  cursor = index;
+  renderMatches();
+  if (focus === "detail") ui["detail-title"].focus();
+  if (focus === "list") ui["change-list"].children[cursor % PAGE_SIZE].firstElementChild.focus();
+}
+function renderMatches() {
+  ui["change-list"].replaceChildren();
+  ui["match-count"].textContent = `${matches.length} of ${rows.length} changes match.`;
+  ui.empty.hidden = matches.length !== 0;
+  ui.workspace.hidden = matches.length === 0;
+  if (!matches.length) {
+    clearDetail();
+    ui.empty.textContent = rows.length ? "No changes match these filters. Reset filters or choose another category." : "No differences. This is a valid empty report.";
+    return;
+  }
+  const start = Math.floor(cursor / PAGE_SIZE) * PAGE_SIZE;
+  const end = Math.min(start + PAGE_SIZE, matches.length);
+  ui["change-list"].start = start + 1;
+  ui["page-label"].textContent = `Matches ${start + 1}–${end} of ${matches.length} · page ${Math.floor(start / PAGE_SIZE) + 1} of ${Math.ceil(matches.length / PAGE_SIZE)}`;
+  ui["previous-page"].disabled = start === 0;
+  ui["next-page"].disabled = end === matches.length;
+  for (let index = start; index < end; index++) {
+    const row = matches[index];
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button"; button.className = "entry";
+    if (index === cursor) button.setAttribute("aria-current", "true");
+    const kind = document.createElement("span");
+    kind.className = `kind ${row.kind}`;
+    kind.textContent = `${LABELS[row.kind]} #${row.ordinal}`;
+    const path = document.createElement("code"); path.textContent = row.path;
+    button.append(kind, path);
+    button.addEventListener("click", () => selectMatch(index, "detail"));
+    button.addEventListener("keydown", event => {
+      let target;
+      if (event.key === "ArrowDown") target = Math.min(index + 1, matches.length - 1);
+      if (event.key === "ArrowUp") target = Math.max(index - 1, 0);
+      if (event.key === "Home") target = 0;
+      if (event.key === "End") target = matches.length - 1;
+      if (target !== undefined && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        event.preventDefault(); selectMatch(target, "list");
+      }
+    });
+    item.append(button); ui["change-list"].append(item);
+  }
+  renderDetail();
+}
+function applyFilters() {
+  const selected = matches[cursor];
+  matches = filterRows(rows, ui.kind.value, ui.query.value);
+  cursor = matches.length ? Math.max(0, matches.indexOf(selected)) : -1;
+  renderMatches();
+}
+async function loadFile(file) {
+  const ticket = ++generation;
+  clearAccepted();
+  ui["file-name"].textContent = file ? `Selected file: ${file.name}` : "No report selected.";
+  if (!file) { status("Choose a local report to begin. No file is uploaded or changed."); return; }
+  status("Reading and validating report…");
+  if (file.size > MAX_REPORT_BYTES) { status(`Report exceeds ${MAX_REPORT_BYTES} bytes.`, true); return; }
+  let bytes;
+  try {
+    // Bound the actual read too, rather than trusting only the advertised size.
+    bytes = new Uint8Array(await file.slice(0, MAX_REPORT_BYTES + 1).arrayBuffer());
+  } catch {
+    if (ticket === generation) status("Could not read this file. Choose it again or another local report.", true);
+    return;
+  }
+  if (ticket !== generation) return;
+  let report;
+  try { report = parseReport(bytes); }
+  catch (error) { status(error.message, true); return; }
+  rows = makeRows(report);
+  ui.totals.textContent = `Added ${report.added.length} · Removed ${report.removed.length} · Changed ${report.changed.length} · Total ${rows.length}`;
+  ui.totals.hidden = false; ui.filters.disabled = rows.length === 0;
+  applyFilters();
+  status(rows.length ? `Report loaded. ${rows.length} changes; full values available below.` : "Report loaded. No differences.");
+}
+
+ui["report-file"].addEventListener("change", () => {
+  const file = ui["report-file"].files[0];
+  // Allow retrying the same file after an error; name remains visible above.
+  ui["report-file"].value = "";
+  if (file) loadFile(file);
+});
+ui["skip-detail"].addEventListener("click", () => {
+  ui["detail-title"].focus({ preventScroll: true });
+  ui["detail-title"].scrollIntoView({ block: "start" });
+});
+ui.clear.addEventListener("click", () => { ui["report-file"].value = ""; loadFile(null); });
+ui.kind.addEventListener("change", applyFilters);
+ui.query.addEventListener("input", applyFilters);
+ui["reset-filters"].addEventListener("click", () => { ui.kind.value = "all"; ui.query.value = ""; applyFilters(); });
+ui.previous.addEventListener("click", () => selectMatch(cursor - 1));
+ui.next.addEventListener("click", () => selectMatch(cursor + 1));
+ui["previous-page"].addEventListener("click", () => selectMatch((Math.floor(cursor / PAGE_SIZE) - 1) * PAGE_SIZE));
+ui["next-page"].addEventListener("click", () => selectMatch((Math.floor(cursor / PAGE_SIZE) + 1) * PAGE_SIZE));
+ui["jump-form"].addEventListener("submit", event => { event.preventDefault(); selectMatch(Number(ui.jump.value) - 1, "detail"); });
+</script>
+</body>
+</html>
