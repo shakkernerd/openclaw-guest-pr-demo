@@ -443,3 +443,76 @@ covered without reopening draft paths or rerunning the formatter. The existing
 viewer suite retains comprehensive schema, preservation, filtering, and race
 coverage; it is not duplicated in the command suite. These are Node boundary
 checks, not new native-browser compatibility proof.
+
+## Validate several saved address reports
+
+With Node.js 22 or newer, use the separate multi-report command:
+
+```sh
+node validate-address-reports.js first-report.json second-report.json first-report.json
+```
+
+The existing `validate-address-report.js` single-file command is unchanged.
+Supply one or more literal filenames, resolved from the current working directory
+when relative. Arguments are processed sequentially in their original order,
+including repeated filenames and exact spelling. Each occurrence is read once,
+even if its filename appeared earlier; there is no caching or deduplication.
+There are no options, stdin input, glob expansion, directory discovery, or
+recursive traversal. `-`, `--`, and `--help` are ordinary filenames, not
+special tokens; quote paths to prevent shell expansion.
+
+The command passes each raw file Buffer directly to the shared
+`savedBatchReportCodec.decode(bytes)` in `saved-batch-report.js`.
+It neither invokes the single-file CLI nor defines another schema. Read, UTF-8,
+JSON, and structural failures are recorded without stopping later inputs.
+No draft paths inside reports are opened, and the draft codec, formatter, batch
+formatter command, viewer, and CSV export are not run. It writes no files and
+needs no new dependencies, services, or network access. Each whole report is
+read and decoded in memory, not streamed; only verdicts are retained for output.
+
+Stdout is exactly one compact JSON object followed by one LF, with empty stderr
+for ordinary validation results (including no arguments):
+
+```json
+{"total":3,"valid":2,"invalid":1,"results":[{"position":1,"file":"mixed.json","ok":true,"total":5,"succeeded":3,"failed":2},{"position":2,"file":"bad.json","ok":false,"error":{"stage":"decode","name":"SyntaxError","message":"Report must contain one complete JSON document."}},{"position":3,"file":"mixed.json","ok":true,"total":5,"succeeded":3,"failed":2}]}
+```
+
+- Top-level `total` counts filename arguments, including repeats; `valid` counts
+  structurally accepted reports, and `invalid` counts both unreadable and invalid
+  reports. Their sum equals `total`.
+- Each result has its original 1-based `position`, literal `file`, and boolean
+  `ok`. Accepted results include that report's recorded `total`, `succeeded`,
+  and `failed` address counts, not its occurrence contents. These are distinct
+  from the outer report-validation counts.
+- Rejected results have `error: { stage, name, message }`. Stage is `read` for
+  filesystem errors or `decode` for UTF-8, JSON, and structural errors.
+  Names/messages are retained; native filesystem error wording varies by platform.
+- Exit **0**: at least one filename and every report structurally valid.
+  Recorded failed addresses, even all-failure reports, do not cause validation
+  failure. Zero-result reports and CSV-only lossless-export refusals can be valid.
+- Exit **1**: any report is unreadable or structurally invalid; every argument
+  still gets a verdict.
+- Exit **2**: no filenames. No reports are read; stdout is
+  `{"total":0,"valid":0,"invalid":0,"results":[]}` plus LF, even if stdin has data.
+
+This summary is a validation verdict, not a saved address report for the viewer.
+Acceptance checks structure only, not authenticity, freshness, postal validity,
+or whether saved addresses would format successfully now. Normal Node stream
+and exit handling drains output; unexpected runtime/output-stream failures remain
+native errors. The viewer and its CSV behavior are unchanged by this addition.
+
+Focused batch, single-file, and viewer regression checks:
+
+```sh
+node --test validate-address-reports.test.js validate-address-report.test.js saved-batch-report.test.js
+```
+
+The batch checks use the real subprocess command with test-owned project-local
+files and retained saved reports. They verify compact output and all exit codes,
+mixed read/decode failures with continued processing, ordered duplicates, literal
+filenames, ignored stdin, accepted recorded failures, BOM/literal-string rules,
+CSV-only refusal acceptance, unchanged inputs, and no output files.
+Comprehensive schema and browser-boundary rules remain in the existing suites.
+Reuse the retained reviewed CSV browser proof: this addition does not change its
+viewer, HTML, CSS, or shared decoder. These Node checks do not replace or claim a
+new native-browser run.
