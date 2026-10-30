@@ -1,4 +1,4 @@
-# r96_invoice: JSON invoice totals
+# r96_invoice: JSON-input invoice totals
 
 A small Python 3 standard-library command. No dependencies or installation are
 needed: run it from the repository root. Existing project files are unchanged.
@@ -20,7 +20,7 @@ python -m r96_invoice input.json
 
 Use `python3` instead of `python` if that is your Python 3 executable. Use
 `python -m r96_invoice --help` for command help. A successful run prints only
-the JSON report to standard output:
+the JSON report to standard output by default (or with `--format json`):
 
 ```json
 {
@@ -45,6 +45,36 @@ the JSON report to standard output:
 To save the report: `python -m r96_invoice input.json > report.json`. Use a
 different output path: redirecting to the input file would truncate it.
 
+### CSV report output
+
+Select CSV output with `--format csv`; the input file is still JSON:
+
+```sh
+python -m r96_invoice input.json --format csv
+# Or save it:
+python -m r96_invoice input.json --format csv > report.csv
+```
+
+For the example above, the report is:
+
+```csv
+sku,quantity,unit_price_cents,line_total_cents
+PEN,3,125,375
+BOOK,2,999,1998
+TOTAL,,,2373
+```
+
+The header always has these four columns in this order. Each input item becomes
+one row, followed by a final `TOTAL` row with blank quantity and unit-price cells
+and the invoice total in `line_total_cents`. An empty invoice emits the header
+and `TOTAL,,,0`. A line item whose SKU is `TOTAL` is still an ordinary item; the
+summary is always the final row with the two blank cells.
+
+CSV quoting preserves SKU values, including commas, quotes, and embedded
+newlines. Numeric cells are exact decimal integers, with prices and totals in
+cents, never floating-point values. All input is validated before any output,
+including the header, is written.
+
 ## Input rules and behavior
 
 - The top-level value must be an array of objects. Every object must contain
@@ -58,14 +88,17 @@ different output path: redirecting to the input file would truncate it.
   Arithmetic uses Python integers, never floating-point currency calculations.
 - Input order is retained, including separate lines with the same SKU. Extra
   object fields are ignored and are not copied to the report.
-- An empty array produces `{"lines": [], "invoice_total_cents": 0}`.
+- An empty array produces `{"lines": [], "invoice_total_cents": 0}` in JSON mode
+  or the header and zero-valued `TOTAL` row in CSV mode.
 - Invalid input or file-reading errors produce a diagnostic on standard error,
   exit status **1**, and no report on standard output. Validation errors identify
   the 1-based line-item position and offending field where applicable.
 - Command usage errors exit with status **2**; success and `--help` exit with **0**.
 
-This version accepts **JSON files only** and emits **JSON only**. It has no CSV
-mode, standard-input mode, tax, discount, currency conversion, or decimal prices.
+This version accepts **JSON files only** and emits **JSON by default** or **CSV**
+with `--format csv`. `--format` controls output only; CSV and TSV input are not
+supported. It has no TSV output, standard-input mode, tax, discount, currency
+conversion, or decimal prices. Unsupported output formats are command usage errors.
 
 ## Tests
 
@@ -81,7 +114,9 @@ Or select only this package's tests:
 python -m unittest discover -s r96_invoice/tests -v
 ```
 
-Tests cover exact arithmetic, zero and empty invoices, validation, malformed
-JSON, file/encoding errors, and the real `python -m r96_invoice` command via
-subprocesses. They use temporary files and require no third-party test runner.
+Tests cover exact arithmetic, zero and empty invoices, default and explicit JSON
+output, CSV columns/totals/quoting, large integers, and the real
+`python -m r96_invoice` command via subprocesses. Validation, malformed JSON,
+CSV/TSV input rejection, and file/encoding errors are checked across both output
+formats. Tests use temporary files and require no third-party test runner.
 The existing JavaScript tests remain runnable separately with `node --test`.
