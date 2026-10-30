@@ -4,6 +4,7 @@
 import argparse
 import csv
 import html
+import io
 import json
 import re
 import sys
@@ -11,6 +12,7 @@ from contextlib import nullcontext
 
 
 FIELDS = ("return_id", "sku", "reason", "units", "refund_cents")
+CSV_HEADER = ("sku", "returns", "units", "refund_cents")
 INTEGER = re.compile(r"[0-9]+")
 
 
@@ -119,11 +121,21 @@ def markdown_report(summary):
     return "\n".join(lines) + "\n"
 
 
+def csv_report(summary):
+    # Buffer the complete report so formatting failures cannot emit partial CSV.
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\r\n")
+    writer.writerow(CSV_HEADER)
+    for group in summary["by_sku"]:
+        writer.writerow([group[field] for field in CSV_HEADER])
+    return output.getvalue()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Validate and summarize a returns CSV offline.")
     parser.add_argument("input", help="UTF-8 CSV path, or - for stdin")
-    parser.add_argument("--format", choices=("json", "markdown"), default="json",
+    parser.add_argument("--format", choices=("json", "markdown", "csv"), default="json",
                         help="output format (default: json); written to stdout")
     args = parser.parse_args(argv)
     try:
@@ -135,8 +147,12 @@ def main(argv=None):
         with source as stream:
             summary = summarize(stream)
         try:
-            output = (json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
-                      if args.format == "json" else markdown_report(summary))
+            if args.format == "json":
+                output = json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
+            elif args.format == "markdown":
+                output = markdown_report(summary)
+            else:
+                output = csv_report(summary)
         except ValueError as exc:
             raise InputError("summary exceeds Python's integer formatting limit") from exc
         sys.stdout.reconfigure(encoding="utf-8", errors="strict", newline="\n")
