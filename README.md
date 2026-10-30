@@ -146,9 +146,12 @@ path, and attempts every declared file after validation:
 Exit **0**: create/help succeeded, or all declared files verified.
 Exit **1**: verification found any missing, changed, or unreadable declared file.
 Exit **2**: bad usage, malformed/unsafe manifest, inaccessible manifest, invalid
-or inaccessible root, or any creation failure. Fatal errors are JSON on stderr
-(`error.code`, `error.message`, and a declared `error.path` when available), with
-no stdout manifest/report. OS error messages can vary by platform.
+or inaccessible root, any creation failure, or output-delivery failure (including
+a closed pipe). Fatal errors are JSON on stderr when it is writable (`error.code`,
+`error.message`, and a declared `error.path` when available). Input/usage failures
+produce no stdout manifest/report. A delivery failure may leave partial stdout;
+the CLI does not retry the document. If stderr also fails, exit 2 is retained
+without attempting another diagnostic. OS error messages can vary by platform.
 
 ### Limits of the claim
 
