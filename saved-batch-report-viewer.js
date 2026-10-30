@@ -13,8 +13,21 @@
   const visible = document.getElementById("visible-count");
   const empty = document.getElementById("empty-state");
   const rows = document.getElementById("report-rows");
+  const exportButton = document.getElementById("export-report");
+  const exportStatus = document.getElementById("export-status");
+  const download = document.getElementById("download-report");
+  let downloadUrl = null;
   let renderedReport = null;
   let renderedFilter = null;
+
+  function clearExport() {
+    if (downloadUrl !== null) URL.revokeObjectURL(downloadUrl);
+    downloadUrl = null;
+    download.removeAttribute("href");
+    download.hidden = true;
+    exportStatus.dataset.state = "idle";
+    exportStatus.textContent = "No current export. Choose Export all occurrences CSV to create a snapshot.";
+  }
 
   function literal(element, value) {
     element.textContent = value;
@@ -51,6 +64,10 @@
     // Status-only changes leave selectable accepted content in place. These
     // references are render keys, not another accepted-data or filter owner.
     if (current === renderedReport && viewer.filter === renderedFilter) return;
+    if (current !== renderedReport) {
+      clearExport();
+      exportButton.disabled = current === null;
+    }
     renderedReport = current;
     renderedFilter = viewer.filter;
     filter.value = viewer.filter;
@@ -104,6 +121,34 @@
   });
   input.addEventListener("cancel", () => { void viewer.selectFile(null); });
   filter.addEventListener("change", () => { viewer.setFilter(filter.value); });
-  window.addEventListener("pagehide", () => { void viewer.selectFile(null); });
+  exportButton.addEventListener("click", () => {
+    if (!viewer.accepted) return;
+    clearExport();
+    let csv;
+    try {
+      csv = viewer.toCsv();
+    } catch (error) {
+      exportStatus.dataset.state = "error";
+      exportStatus.textContent = "Could not export: " + error.message + " Accepted report unchanged.";
+      return;
+    }
+    try {
+      // No BOM or newline conversion. Keep the URL alive for a normal retry.
+      downloadUrl = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8", endings: "transparent" }));
+      download.href = downloadUrl;
+      download.hidden = false;
+      download.click();
+      exportStatus.textContent = "CSV snapshot ready: " + viewer.accepted.report.total +
+        " occurrences. Download requested; if it did not save, use Download CSV again.";
+    } catch {
+      clearExport();
+      exportStatus.dataset.state = "error";
+      exportStatus.textContent = "Download unavailable. Try Export all occurrences CSV again. Accepted report unchanged.";
+    }
+  });
+  window.addEventListener("pagehide", () => {
+    clearExport();
+    void viewer.selectFile(null);
+  });
   render(viewer);
 })();

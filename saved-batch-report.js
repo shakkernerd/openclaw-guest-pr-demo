@@ -82,6 +82,16 @@ const savedBatchReportCodec = (() => {
 // The local file boundary owns accepted data, read generations, and row selection.
 const SavedBatchReport = (() => {
   const filters = ["all", "success", "failure", "read", "decode", "format"];
+  const csvColumns = ["position", "file", "status", "formatted", "error_stage", "error_name", "error_message"];
+
+  function csvCell(value) {
+    // Unicode mode treats a valid surrogate pair as one code point: only lone
+    // surrogates match. Blob/TextEncoder would silently replace these with U+FFFD.
+    if (/[\uD800-\uDFFF]/u.test(value)) {
+      throw new TypeError("An exported field contains an unpaired UTF-16 surrogate; UTF-8 cannot preserve it losslessly.");
+    }
+    return '"' + value.replace(/"/g, '""') + '"';
+  }
 
   return class SavedBatchReport {
     #accepted = null;
@@ -97,6 +107,21 @@ const SavedBatchReport = (() => {
     get accepted() { return this.#accepted; }
     get status() { return this.#status; }
     get filter() { return this.#filter; }
+
+    toCsv() {
+      if (!this.#accepted) throw new Error("No accepted report to export.");
+      const records = [csvColumns.map(csvCell).join(",")];
+      // Use the accepted report, never the filtered projection or a file reread.
+      for (const result of this.#accepted.report.results) {
+        const cells = [String(result.position), result.file, result.ok ? "success" : "failure",
+          result.ok ? result.formatted : "",
+          result.ok ? "" : result.error.stage,
+          result.ok ? "" : result.error.name,
+          result.ok ? "" : result.error.message];
+        records.push(cells.map(csvCell).join(","));
+      }
+      return records.join("\r\n") + "\r\n";
+    }
 
     get rows() {
       if (!this.#accepted) return [];

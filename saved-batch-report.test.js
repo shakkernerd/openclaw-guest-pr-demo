@@ -24,6 +24,7 @@ const failure = () => ({
   results: [{ position: 1, file: "", ok: false, error: { stage: "read", name: "", message: "" } }],
 });
 const zero = { total: 0, succeeded: 0, failed: 0, results: [] };
+const csvHeader = '"position","file","status","formatted","error_stage","error_name","error_message"\r\n';
 
 function deferred() {
   let resolve;
@@ -55,8 +56,14 @@ test("retained success document: exact identity, independent values, duplicate s
     ],
   });
   assert.deepEqual(input, original);
+  const expectedCsv = csvHeader +
+    '"1","./bom-valid.json","success","\uFEFFinside\n  Ω  ","","",""\r\n' +
+    '"2","bom-valid.json","success","\uFEFFinside\n  Ω  ","","",""\r\n' +
+    '"3","bom-valid.json","success","\uFEFFinside\n  Ω  ","","",""\r\n';
+  assert.equal(viewer.toCsv(), expectedCsv);
   viewer.setFilter("failure");
   assert.equal(viewer.rows.length, 0);
+  assert.equal(viewer.toCsv(), expectedCsv);
   assert.equal(viewer.accepted.report.total, 3);
   viewer.setFilter("all");
   assert.deepEqual(plain(viewer.rows.map((row) => row.position)), [1, 2, 3]);
@@ -80,6 +87,13 @@ test("retained mixed document: exact outcomes and every filter projection", asyn
       { position: 6, file: "bom-valid.json", ok: true, formatted: "\uFEFFinside\n  Ω  " },
     ],
   });
+  const expectedCsv = csvHeader +
+    '"1","bom-valid.json","success","\uFEFFinside\n  Ω  ","","",""\r\n' +
+    '"2","valid-crlf-layout.json","failure","","format","RangeError","lines[1] must not contain line breaks"\r\n' +
+    '"3","not-present-address-draft.json","failure","","read","Error","ENOENT: no such file or directory, open \'not-present-address-draft.json\'"\r\n' +
+    '"4","cr-value.json","failure","","decode","RangeError","draft[1] contains CR; textareas cannot preserve CR"\r\n' +
+    '"5","empty.json","failure","","format","RangeError","lines must not be empty"\r\n' +
+    '"6","bom-valid.json","success","\uFEFFinside\n  Ω  ","","",""\r\n';
   for (const [filter, positions] of [
     ["all", [1, 2, 3, 4, 5, 6]], ["success", [1, 6]],
     ["failure", [2, 3, 4, 5]], ["read", [3]], ["decode", [4]], ["format", [2, 5]],
@@ -88,6 +102,7 @@ test("retained mixed document: exact outcomes and every filter projection", asyn
     assert.deepEqual(plain(viewer.rows.map((row) => row.position)), positions, filter);
     for (const row of viewer.rows) assert.equal(row, accepted.report.results[row.position - 1]);
     assert.equal(viewer.accepted, accepted);
+    assert.equal(viewer.toCsv(), expectedCsv);
     assert.deepEqual(plain([accepted.report.total, accepted.report.succeeded, accepted.report.failed]), [6, 2, 4]);
   }
 });
@@ -295,11 +310,13 @@ test("controlled stale success, invalid bytes and read error cannot overwrite ne
         }
         const accepted = viewer.accepted;
         const status = viewer.status;
+        const csv = viewer.toCsv();
         if (settlement === "error") old.reject(new Error("obsolete failure"));
         else old.resolve(settlement === "invalid" ? Buffer.from("invalid") : bytes(success("obsolete")));
         await oldWork;
         assert.equal(viewer.accepted, accepted);
         assert.equal(viewer.status, status);
+        assert.equal(viewer.toCsv(), csv);
         assert.equal(viewer.filter, "decode");
         if (next) {
           next.resolve(bytes(zero)); await nextWork;
@@ -319,6 +336,7 @@ test("each current selection reads once; filtering consumes the accepted snapsho
   const first = viewer.accepted;
   for (const filter of ["read", "all", "success", "failure", "decode", "format"]) {
     viewer.setFilter(filter); void viewer.rows;
+    assert.equal(viewer.toCsv(), csvHeader + '"1","","success","1","","",""\r\n');
     assert.equal(viewer.accepted, first);
     assert.equal(reads, 1);
   }
@@ -328,4 +346,105 @@ test("each current selection reads once; filtering consumes the accepted snapsho
   assert.equal(reads, 2);
   assert.equal(viewer.accepted.report.results[0].formatted, "2");
   assert.equal(viewer.filter, "format");
+});
+
+test("CSV requires accepted data; a zero report exports only headers without changing state", async () => {
+  let changes = 0;
+  const viewer = new SavedBatchReport(() => { changes += 1; });
+  assert.throws(() => viewer.toCsv(), /No accepted report/);
+  await viewer.selectFile(file("zero.json", bytes(zero)));
+  const accepted = viewer.accepted;
+  const status = viewer.status;
+  const before = changes;
+  assert.equal(viewer.toCsv(), csvHeader);
+  assert.equal(viewer.accepted, accepted);
+  assert.equal(viewer.status, status);
+  assert.equal(changes, before);
+});
+
+test("CSV bytes preserve quotes, commas, mixed line breaks, Unicode, empty strings and outcome fields", async () => {
+  const report = {
+    total: 3, succeeded: 2, failed: 1, extra: "not exported",
+    results: [
+      { position: 1, file: ' ./a,"quoted".json\r\n ', ok: true,
+        formatted: '\uFEFF  Ω e\u0301 😀\nline two\rline three\r\n"end",\t ', error: "ignored" },
+      { position: 2, file: "", ok: true, formatted: "", extra: "\ud800" },
+      { position: 3, file: "=1+1", ok: false, formatted: "ignored",
+        error: { stage: "decode", name: "+Name", message: "-Message\n@next", extra: "ignored" } },
+    ],
+  };
+  const expected = csvHeader +
+    '"1"," ./a,""quoted"".json\r\n ","success","\uFEFF  Ω e\u0301 😀\nline two\rline three\r\n""end"",\t ","","",""\r\n' +
+    '"2","","success","","","",""\r\n' +
+    '"3","=1+1","failure","","decode","+Name","-Message\n@next"\r\n';
+  const viewer = new SavedBatchReport(() => {});
+  const input = bytes(report);
+  const original = Buffer.from(input);
+  await viewer.selectFile(file("literal.json", input));
+  const accepted = viewer.accepted;
+  const status = viewer.status;
+  const csv = viewer.toCsv();
+  assert.equal(csv, expected);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8", endings: "transparent" });
+  assert.deepEqual(Buffer.from(await blob.arrayBuffer()), Buffer.from(expected, "utf8"));
+  assert.equal(blob.type, "text/csv;charset=utf-8");
+  assert.equal(csv.charCodeAt(0), 0x22); // Quoted header, not an encoding BOM.
+  assert.equal(viewer.accepted, accepted);
+  assert.equal(viewer.status, status);
+  assert.deepEqual(plain(accepted.report), report);
+  assert.deepEqual(input, original);
+});
+
+test("CSV never adds spreadsheet formula guards or changes literal field text", async () => {
+  const viewer = new SavedBatchReport(() => {});
+  for (const value of ["=1+1", "+1", "-1", "@SUM(A1)", "\t=1", "\r=1", " =1", "000123", "2026-10-30", "\u0000", "\u000b\u000c\u0085\u2028\u2029"]) {
+    const report = failure();
+    Object.assign(report.results[0], { file: value });
+    Object.assign(report.results[0].error, { name: value, message: value });
+    await viewer.selectFile(file("formula.json", bytes(report)));
+    assert.equal(viewer.toCsv(), csvHeader + '"1","' + value + '","failure","","read","' + value + '","' + value + '"\r\n');
+    const valid = success(value);
+    valid.results[0].file = value;
+    await viewer.selectFile(file("formula.json", bytes(valid)));
+    assert.equal(viewer.toCsv(), csvHeader + '"1","' + value + '","success","' + value + '","","",""\r\n');
+  }
+});
+
+test("unpaired surrogates refuse the whole CSV, not report acceptance, in every exported string field", async () => {
+  for (const value of ["\ud800", "\udfff", "x\ud800y", "\udfff\ud800"]) {
+    for (const field of ["file", "formatted", "name", "message"]) {
+      const report = ["name", "message"].includes(field) ? failure() : success();
+      const target = ["name", "message"].includes(field) ? report.results[0].error : report.results[0];
+      target[field] = value;
+      const viewer = new SavedBatchReport(() => {});
+      await viewer.selectFile(file("surrogate.json", bytes(report)));
+      assert.equal(viewer.status.kind, "accepted");
+      const accepted = viewer.accepted;
+      const status = viewer.status;
+      assert.throws(() => viewer.toCsv(), /unpaired UTF-16 surrogate; UTF-8 cannot preserve it losslessly/);
+      assert.equal(viewer.accepted, accepted);
+      assert.equal(viewer.status, status);
+      assert.deepEqual(plain(viewer.accepted.report), report);
+    }
+  }
+});
+
+test("CSV retains accepted snapshot through pending, failed and cancelled selections; valid reads replace it", async () => {
+  const viewer = new SavedBatchReport(() => {});
+  await viewer.selectFile(file("keep.json", bytes(success("keep"))));
+  const accepted = viewer.accepted;
+  const expected = csvHeader + '"1","","success","keep","","",""\r\n';
+  const pending = deferred();
+  const work = viewer.selectFile(pending.file);
+  assert.equal(viewer.toCsv(), expected);
+  pending.reject(new Error("read failed"));
+  await work;
+  assert.equal(viewer.toCsv(), expected);
+  await viewer.selectFile(file("invalid.json", Buffer.from("invalid")));
+  assert.equal(viewer.toCsv(), expected);
+  await viewer.selectFile(null);
+  assert.equal(viewer.toCsv(), expected);
+  assert.equal(viewer.accepted, accepted);
+  await viewer.selectFile(file("replacement.json", bytes(zero)));
+  assert.equal(viewer.toCsv(), csvHeader);
 });
