@@ -95,10 +95,21 @@ including the header, is written.
   the 1-based line-item position and offending field where applicable.
 - Command usage errors exit with status **2**; success and `--help` exit with **0**.
 
-This version accepts **JSON files only** and emits **JSON by default** or **CSV**
-with `--format csv`. `--format` controls output only; CSV and TSV input are not
-supported. It has no TSV output, standard-input mode, tax, discount, currency
-conversion, or decimal prices. Unsupported output formats are command usage errors.
+The main command accepts **JSON files only** and emits **JSON by default** or
+**CSV** with `--format csv`. `--format` controls output only; the main command
+does not accept CSV or TSV input. For TSV input, use the separate companion:
+
+```sh
+python3 -m r96_invoice.tsv input.tsv
+```
+
+The companion emits the same JSON report using the shared integer-cent
+calculator. See [TSV.md](TSV.md) for its header, numeric-text validation, and
+error-handling rules. It does not accept an output-format option.
+
+Neither command provides TSV output, standard-input mode, tax, discounts,
+currency conversion, or decimal prices. Unsupported output formats are command
+usage errors.
 
 ## Tests
 
@@ -118,5 +129,8 @@ Tests cover exact arithmetic, zero and empty invoices, default and explicit JSON
 output, CSV columns/totals/quoting, large integers, and the real
 `python -m r96_invoice` command via subprocesses. Validation, malformed JSON,
 CSV/TSV input rejection, and file/encoding errors are checked across both output
-formats. Tests use temporary files and require no third-party test runner.
+formats. Separate TSV command tests and combined-format regression tests verify
+that TSV input, JSON input, and CSV reports agree on totals, including empty
+invoices, special-character SKUs, and large integers.
+Tests use temporary files and require no third-party test runner.
 The existing JavaScript tests remain runnable separately with `node --test`.
