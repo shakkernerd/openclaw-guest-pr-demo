@@ -1,10 +1,8 @@
 "use strict";
 
-// The local file boundary owns accepted data, read generations, and row selection.
-// Used by the classic-script viewer; no codec, formatter, or command is loaded.
-const SavedBatchReport = (() => {
-  const filters = ["all", "success", "failure", "read", "decode", "format"];
-
+// Shared byte decoder for the classic-script viewer and the CommonJS validator.
+// No draft codec, formatter, or batch command is loaded.
+const savedBatchReportCodec = (() => {
   function object(value, label) {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
       throw new TypeError(label + " must be an object");
@@ -78,6 +76,13 @@ const SavedBatchReport = (() => {
     return Object.freeze(report);
   }
 
+  return Object.freeze({ decode });
+})();
+
+// The local file boundary owns accepted data, read generations, and row selection.
+const SavedBatchReport = (() => {
+  const filters = ["all", "success", "failure", "read", "decode", "format"];
+
   return class SavedBatchReport {
     #accepted = null;
     #status = Object.freeze({ kind: "idle", name: null, message: "No file selected." });
@@ -134,7 +139,7 @@ const SavedBatchReport = (() => {
       if (generation !== this.#generation) return;
       let report;
       try {
-        report = decode(bytes);
+        report = savedBatchReportCodec.decode(bytes);
       } catch (error) {
         this.#showStatus("invalid", name, error.message + " No report replaced.");
         return;
@@ -144,3 +149,7 @@ const SavedBatchReport = (() => {
     }
   };
 })();
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { savedBatchReportCodec };
+}
