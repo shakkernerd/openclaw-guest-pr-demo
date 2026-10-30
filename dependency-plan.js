@@ -9,6 +9,7 @@ const MAX_EDGES = 200_000;
 const MAX_ID_LENGTH = 256;
 
 const HELP = `Usage: node dependency-plan.js [--] <graph.json>
+       node dependency-plan.js --targets <targets.json> [--] <graph.json>
        node dependency-plan.js --help
 
 Read-only task planning; never runs tasks or loads task modules.
@@ -17,22 +18,31 @@ Example: [["build", ["source"]], ["source", []]]
 IDs are nonempty literal strings, at most 256 UTF-16 code units; no normalization.
 Rejects malformed data, duplicate IDs/edges, and unknown dependencies.
 Limits: 4194304 input bytes, 20000 tasks, 200000 dependency edges.
-Input must be a regular file, not stdin; use -- for a path starting with -.
+Input must be a regular file, not stdin; use -- for a graph path starting with -.
+--targets reads a second bounded UTF-8 JSON file: an array of exact literal IDs.
+Its next operand is a literal file path, even when starting with -.
+At most 20000 selections, including duplicates; each file is at most 4194304 bytes.
+Duplicate selections collapse in first-selection order; [] selects no tasks.
+Unknown targets are errors. The entire graph is validated in either mode.
 
 Writes one JSON object with status, stages, cycleWitness, cycleTasks, blockedTasks.
+Without --targets, plans the whole graph with unchanged output fields.
+With --targets, prefixes scope: "targets" and targets (unique requested IDs);
+all plan fields describe only those targets and their transitive dependencies.
+Cycles outside this required closure do not affect the selected plan's status.
 Stages are earliest possible, with input task order inside each stage.
 For cycles, stages contain only unblocked tasks. cycleTasks lists all actual
 cycle participants; blockedTasks lists only noncyclic dependents. Both use input
 task order. cycleWitness is one closed task-to-dependency path, selected by
 iterative depth-first traversal in task/dependency input order.
 
-Exit: 0 DAG/help; 1 cyclic graph; 2 usage/invalid input/limit; 3 I/O failure.
+Exit: 0 DAG/help; 1 cyclic plan; 2 usage/invalid input/limit; 3 I/O failure.
 Diagnostics go to stderr; -h also shows this help. See README.md for details.
 `;
 
 class InputError extends Error {}
 
-function readGraph(path) {
+function readJson(path) {
   // Nonblocking open lets us reject FIFOs without waiting for a writer.
   const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
   let bytes;
@@ -107,7 +117,36 @@ function buildGraph(input) {
       dependents[dependency].push(i);
     }
   }
-  return { ids, dependencies, dependents };
+  return { ids, indices, dependencies, dependents };
+}
+
+function selectTargets(input, { ids, indices, dependencies }) {
+  if (!Array.isArray(input)) throw new InputError("targets must be an array");
+  if (input.length > MAX_TASKS) throw new InputError("targets exceeds 20000 selections");
+  const selected = new Set();
+  for (let i = 0; i < input.length; i++) {
+    validateId(input[i], `target ${i}`);
+    const node = indices.get(input[i]);
+    if (node === undefined) {
+      throw new InputError(`target ${i}: unknown target ID ${JSON.stringify(input[i])}`);
+    }
+    selected.add(node);
+  }
+
+  const required = new Uint8Array(ids.length);
+  const stack = [...selected];
+  for (const node of stack) required[node] = 1;
+  // Mark on insertion: shared dependencies enter the stack only once.
+  while (stack.length > 0) {
+    const node = stack.pop();
+    for (const dependency of dependencies[node]) {
+      if (!required[dependency]) {
+        required[dependency] = 1;
+        stack.push(dependency);
+      }
+    }
+  }
+  return { required, targets: Array.from(selected, (node) => ids[node]) };
 }
 
 function classifyCycles(dependencies, dependents, remaining) {
@@ -175,17 +214,23 @@ function classifyCycles(dependencies, dependents, remaining) {
   return { cyclic, witness };
 }
 
-function plan({ ids, dependencies, dependents }) {
-  const remaining = Uint32Array.from(dependencies, (edges) => edges.length);
+function plan({ ids, dependencies, dependents }, required = null) {
+  // Outside nodes stay at zero so the existing residual SCC walk excludes them.
+  const remaining = new Uint32Array(ids.length);
   const ranks = new Uint32Array(ids.length);
   const queue = [];
+  let taskCount = 0;
   for (let i = 0; i < ids.length; i++) {
+    if (required && !required[i]) continue;
+    taskCount++;
+    remaining[i] = dependencies[i].length;
     if (remaining[i] === 0) queue.push(i);
   }
   // Cursor, not shift(): each node/edge is visited only a constant number of times.
   for (let cursor = 0; cursor < queue.length; cursor++) {
     const node = queue[cursor];
     for (const dependent of dependents[node]) {
+      if (required && !required[dependent]) continue;
       ranks[dependent] = Math.max(ranks[dependent], ranks[node] + 1);
       if (--remaining[dependent] === 0) queue.push(dependent);
     }
@@ -194,14 +239,14 @@ function plan({ ids, dependencies, dependents }) {
   const stages = [];
   // One input-order pass gives stable stage ordering without per-stage scans/sorts.
   for (let i = 0; i < ids.length; i++) {
-    if (remaining[i] === 0) {
+    if ((!required || required[i]) && remaining[i] === 0) {
       (stages[ranks[i]] ??= []).push(ids[i]);
     }
   }
   const result = {
     status: "dag", stages, cycleWitness: [], cycleTasks: [], blockedTasks: [],
   };
-  if (queue.length === ids.length) return result;
+  if (queue.length === taskCount) return result;
 
   const { cyclic, witness } = classifyCycles(dependencies, dependents, remaining);
   result.status = "cyclic";
@@ -218,12 +263,22 @@ function main(args) {
     process.stdout.write(HELP);
     return 0;
   }
-  const paths = args[0] === "--" ? args.slice(1) : args;
-  if (paths.length !== 1 || paths[0].length === 0 ||
-      (args[0] !== "--" && paths[0].startsWith("-"))) {
+  const targeted = args[0] === "--targets";
+  const operands = targeted ? args.slice(2) : args;
+  const paths = operands[0] === "--" ? operands.slice(1) : operands;
+  if ((targeted && !args[1]) || paths.length !== 1 || paths[0].length === 0 ||
+      (operands[0] !== "--" && paths[0].startsWith("-"))) {
     throw new InputError("usage: node dependency-plan.js [--] <graph.json>; use --help");
   }
-  const result = plan(buildGraph(readGraph(paths[0])));
+  // Validate globally before reading/selecting targets, even for an empty selection.
+  const graph = buildGraph(readJson(paths[0]));
+  let result;
+  if (targeted) {
+    const { required, targets } = selectTargets(readJson(args[1]), graph);
+    result = { scope: "targets", targets, ...plan(graph, required) };
+  } else {
+    result = plan(graph);
+  }
   process.stdout.write(`${JSON.stringify(result)}\n`);
   return result.status === "dag" ? 0 : 1;
 }
