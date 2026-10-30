@@ -128,3 +128,8 @@ const SavedBatchComparison = (() => {
     }
   };
 })();
+
+// Share only the pure operation; browser loading and mapping state stay above.
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { compare: SavedBatchComparison.compare };
+}

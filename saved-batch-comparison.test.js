@@ -34,6 +34,22 @@ async function loaded() {
   return model;
 }
 
+test("CommonJS exposes the existing pure operation without browser state", () => {
+  const exported = require("./saved-batch-comparison.js");
+  assert.deepEqual(Object.keys(exported), ["compare"]);
+  const a = report([failure("same"), success("duplicate"), success("duplicate")]);
+  const b = report([success("same"), success("duplicate")]);
+  const result = exported.compare(a, b);
+  assert.deepEqual(plain(result), plain(Comparison.compare(a, b)));
+  assert.ok(Object.isFrozen(result));
+  assert.ok(Object.isFrozen(result.rows));
+  assert.ok(Object.isFrozen(result.counts));
+  // The guarded export references the identical function in a classic-script context.
+  const withModule = vm.createContext({ module: { exports: {} } });
+  vm.runInContext(readFileSync(join(__dirname, "saved-batch-comparison.js"), "utf8"), withModule);
+  assert.equal(withModule.module.exports.compare, vm.runInContext("SavedBatchComparison.compare", withModule));
+});
+
 test("supplied reports: no filename inference; explicit failures-only mapping retains every original occurrence", async () => {
   const original = readFileSync(join(__dirname, "saved-batch-report-fixtures/comparison-original.json"));
   const rerun = readFileSync(join(__dirname, "saved-batch-report-fixtures/comparison-rerun.json"));

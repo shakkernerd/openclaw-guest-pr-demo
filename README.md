@@ -382,10 +382,11 @@ spreadsheet application compatibility or screen-reader behavior.
 Open `saved-batch-comparison.html` directly as a local file, keeping
 `saved-batch-report.js`, `saved-batch-report.css`, `saved-batch-comparison.js`,
 `saved-batch-comparison.css`, and `saved-batch-comparison-viewer.js` beside it. The single-report viewer links to this separate page. No server,
-installation, network, storage, or application dependency is needed. Comparison
-has no CLI or CSV export; the existing validator and single-report CSV contract
-are unchanged. It never reads paths recorded in results or runs/imports the batch
-command, draft codec, or formatter.
+installation, network, storage, or application dependency is needed. The browser
+comparison has no CSV export; the read-only comparison CLI is described below.
+The existing validator and single-report CSV contract are unchanged. It never
+reads paths recorded in results or runs/imports the batch command, draft codec,
+or formatter.
 
 Choose **Original** and **Rerun** UTF-8 JSON reports. Both use the existing shared
 report decoder, without a second schema or new report version. Each side has its
@@ -447,6 +448,76 @@ mappings: the result is **two recorded failure→success transitions**, plus **t
 original-only occurrences not reverified** (north twice, south once). Filenames
 do not prove these mappings. The app deliberately does not prefill or generalize
 them; the original reports remain unchanged.
+
+### Read-only comparison command
+
+With Node.js 22 or newer:
+
+```sh
+node compare-address-reports.js ORIGINAL RERUN
+node compare-address-reports.js saved-batch-report-fixtures/comparison-original.json saved-batch-report-fixtures/comparison-rerun.json
+```
+
+Supply exactly two literal filenames (relative paths resolve from the current
+working directory). There are no flags: even `--help`, `--`, and `-` are filenames,
+not options or stdin. Quote paths to prevent shell expansion. The command does
+no glob expansion, directory discovery or recursive traversal, writes no files,
+and never opens paths recorded inside either report. It does not load or run the
+draft codec, formatter, or batch command, or use a network/service.
+
+The command reads and fully decodes **original first, then rerun**, stopping at
+the first input failure; a failed original means rerun is not read. Both use
+`savedBatchReportCodec.decode` unchanged. The guarded CommonJS export
+`{ compare }` in `saved-batch-comparison.js` references the existing pure
+`SavedBatchComparison.compare` operation; it does not expose or instantiate
+browser loading/mapping state. The command supplies **no explicit mappings**.
+Only paths appearing exactly once in each full report pair automatically.
+Duplicates stay ambiguous, and different spellings/restaged paths are never
+inferred to match. Explicit occurrence mappings remain a browser feature.
+
+On success, stdout is the existing comparison result as **one compact JSON
+object plus one LF**, with `rows` and `counts`, and stderr is empty. Rows retain
+original order followed by unpaired rerun order. Counts include paired,
+originalOnly, rerunOnly, ambiguousOccurrences, and all six paired outcome kinds
+listed above. Original-only means **not reverified**, not fixed/deleted;
+rerun-only does not prove a new input. Parsed literal strings and recorded
+outcome distinctions are preserved, including changed errors that remain
+failures. Unknown occurrence fields survive in the result but do not influence
+comparison; original JSON whitespace/escape spelling is not preserved.
+
+- Exit **0**: both reports are structurally valid, including empty reports,
+  recorded failures/regressions, duplicates and unmatched rows.
+- Exit **1**: read or decode failure; stdout is empty. Stderr identifies
+  original/rerun, the quoted supplied filename, stage (`read` or `decode`),
+  and error name/message. Decode includes UTF-8, JSON and structural validation;
+  native read-error wording depends on Node/the OS. No partial result is emitted.
+- Exit **2**: incorrect argument count, before input reads; stdout is empty and
+  stderr is `Usage: node compare-address-reports.js ORIGINAL RERUN` plus LF.
+
+The checked-in example yields 0 pairs, 5 original-only, 2 rerun-only and 2
+ambiguous occurrences (the duplicate north rows), with all paired outcome counts
+zero. The reports record different `media/inbound/openclaw-staged-…/` directories
+(`6a4c983b-…` versus `b37ab9bd-…`), and the rerun uses `.corrected` filenames with
+different UUID suffixes. No exact path is shared, so the browser-only confirmed
+mappings above cannot be assumed by this command. The
+saved successes are merely reported, not reformatted or reverified.
+
+Reports and the full result are held in memory, not streamed; reads are
+sequential, not a cross-file atomic snapshot. Acceptance proves structure, not
+authenticity, freshness, identity, postal validity or current formattability.
+Unexpected runtime/output-stream errors remain native Node errors.
+
+Bounded CLI/module-boundary checks (no formatter or browser run):
+
+```sh
+node --test compare-address-reports.test.js saved-batch-comparison.test.js
+```
+
+New real-subprocess cases cover outcomes, literal values/filenames, duplicate and
+unmatched ordering, read/decode precedence, usage, unchanged inputs and no saved
+output files. Tests remove only their own newly created fixtures in `finally`.
+Decoder/viewer/CSV and actual-browser evidence in
+`saved-batch-comparison-checks.md` is prior evidence, not reverified by this run.
 
 ### Focused comparison verification
 
