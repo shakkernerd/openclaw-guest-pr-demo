@@ -377,6 +377,109 @@ download failure/recovery. Check keyboard operation, live status, narrow layout,
 and the absence of draft-file or network access. Browser checks do not establish
 spreadsheet application compatibility or screen-reader behavior.
 
+## Compare two saved batch reports offline
+
+Open `saved-batch-comparison.html` directly as a local file, keeping
+`saved-batch-report.js`, `saved-batch-report.css`, `saved-batch-comparison.js`,
+`saved-batch-comparison.css`, and `saved-batch-comparison-viewer.js` beside it. The single-report viewer links to this separate page. No server,
+installation, network, storage, or application dependency is needed. Comparison
+has no CLI or CSV export; the existing validator and single-report CSV contract
+are unchanged. It never reads paths recorded in results or runs/imports the batch
+command, draft codec, or formatter.
+
+Choose **Original** and **Rerun** UTF-8 JSON reports. Both use the existing shared
+report decoder, without a second schema or new report version. Each side has its
+own accepted snapshot and asynchronous read generation. Pending, invalid,
+read-failed, cancelled/empty, and obsolete reads do not replace accepted reports
+or clear mappings. A newly accepted report on either side clears all explicit
+mappings, even when it has the same name or contents; automatic matching is
+recomputed from the accepted pair. Closing/reloading does not persist anything.
+Read-status-only updates keep comparison row elements in place.
+
+### Correspondence is separate from outcome
+
+- Auto-pair only an **exact path appearing once in each full report**, labelled
+  **unique exact-path convention, not proof of identity**. Filtering or explicitly
+  mapping other rows never makes a duplicate path unique. No basename, UUID,
+  position, case, slash, whitespace, or Unicode normalization is performed.
+- Renamed/restaged inputs need explicit one-to-one mappings selected by occurrence
+  positions in the accepted reports. This records a user's assertion, not a name
+  inference. Explicit mappings take priority over automatic conventions. Duplicate
+  original or rerun endpoints are refused atomically; remove a conflicting explicit
+  mapping before changing it. Removing one recalculates automatic conventions.
+- Duplicate-path groups remain ambiguous until explicitly mapped, including a
+  lone leftover after another duplicate is mapped. Every occurrence is retained;
+  one rerun occurrence cannot resolve multiple originals.
+- Rows follow original occurrence order, followed by unpaired rerun occurrences
+  in rerun order. Each row shows both report-local positions and exact paths.
+  Original-only means **no established rerun counterpart; not reverified**. It
+  does not mean fixed, deleted, or necessarily never rerun. Rerun-only does not
+  prove a new input. Ambiguity is an additional flag on unpaired occurrences,
+  not another count to add to the original-only/rerun-only totals.
+
+Paired results distinguish recorded failure→success, recorded success→failure
+(regression), success with same/changed output, and **still failed with same/changed
+error**. A changed error remains a failure. Compare exact parsed `formatted`
+strings or the entire `error.stage/name/message` tuple, including all whitespace,
+line endings, empty strings, Unicode, and unpaired UTF-16 surrogates. Unknown fields
+and JSON escape/byte formatting are not compared. Path and position changes are
+separate from outcome/content changes. Literal text nodes retain saved strings.
+Optional escaped-string disclosures show JSON escapes, including tabs, line endings, quotes, and lone surrogates. Other invisible Unicode characters remain literal; changed strings can still look identical in both displays.
+
+Full original and rerun totals are separate. Comparison counts include paired,
+original-only, rerun-only, ambiguous unpaired occurrences, and all six paired
+outcome categories. Each pair uses one display row; every unpaired occurrence
+uses one row. Filters affect only display, never matching or counts. No accepted
+pair, two accepted empty reports, and no filter matches have distinct messages.
+A smaller failure count across different populations is not a fix rate. Saved
+successes and mapped transitions do not establish authenticity or current validity.
+
+### Supplied failures-only example
+
+The retained `saved-batch-report-fixtures/comparison-original.json` has five
+occurrences (three successes, two failures); `comparison-rerun.json` has two
+successes. Their paths do not match. Without explicit mappings, show five
+original-only and two rerun-only occurrences, with no inferred transitions.
+
+For these fixtures, the requester explicitly confirmed original **2 → rerun 1**
+and original **4 → rerun 2**, and that only failures were rerun. Enter those two
+mappings: the result is **two recorded failure→success transitions**, plus **three
+original-only occurrences not reverified** (north twice, south once). Filenames
+do not prove these mappings. The app deliberately does not prefill or generalize
+them; the original reports remain unchanged.
+
+### Focused comparison verification
+
+```sh
+node --test saved-batch-comparison.test.js saved-batch-report.test.js validate-address-report.test.js
+```
+
+These load the actual classic-script comparison model and shared decoder, retain
+fixture byte identities, and cover conservative matching, duplicate leftovers,
+one-to-one conflicts, all outcomes, exact text/error comparison, unknown fields,
+empty inputs, snapshot immutability, and independent/stale read races. Deferred
+reads prove generation behavior, not native filesystem timing.
+
+An optional real-Chromium check is retained in
+`saved-batch-comparison.browser-check.js`. Playwright is test-only; supply an
+existing installation rather than adding any application dependency:
+
+```sh
+PLAYWRIGHT_MODULE=/path/to/playwright-core \
+BROWSER_EXECUTABLE=/path/to/chromium \
+BROWSER_ARTIFACT_DIR=/path/to/local-evidence \
+node saved-batch-comparison.browser-check.js
+```
+
+It opens the standalone pages via `file://` in an offline browser, uses native
+file inputs, enters mappings, checks actual DOM values and narrow layout, and
+compares downloaded single-report CSV bytes (not just a link/status). Controlled
+read faults and cancel events supplement native reads; they are not native picker
+cancellation or filesystem timing proof. It records screenshots, request/error
+logs, and local CSV evidence. No draft paths or external URLs should be requested.
+Keyboard checks and live-status attributes are not screen-reader proof; Chromium
+checks do not establish other-browser or spreadsheet compatibility.
+
 ## Validate one saved address report
 
 With Node.js 22 or newer, run from the repository root:
