@@ -31,14 +31,15 @@ function fixtures(t) {
     typeof value === "string" ? value : JSON.stringify(value), "utf8");
   put("working.json", working);
   put("returned.json", returned);
-  const run = (...args) => {
-    const result = spawnSync(process.execPath, [command, ...args], { cwd: directory, encoding: "utf8", timeout: 10000 });
+  const runInput = (input, ...args) => {
+    const result = spawnSync(process.execPath, [command, ...args], { cwd: directory, input, encoding: "utf8", timeout: 10000 });
     assert.ifError(result.error);
     assert.equal(result.signal, null);
     return result;
   };
+  const run = (...args) => runInput(undefined, ...args);
   const bytes = name => fs.readFileSync(path.join(directory, name));
-  return { directory, working, returned, put, run, bytes };
+  return { directory, working, returned, put, run, runInput, bytes };
 }
 
 function success(result) {
@@ -222,4 +223,246 @@ test("two real invocations competing for one destination cannot overwrite each o
   expected.reviews.__proto__ = f.returned.reviews.__proto__;
   expected.reviews.notes = f.returned.reviews.notes;
   assert.deepEqual(JSON.parse(f.bytes("race.json")), expected);
+});
+
+
+// Independent expected classifications; do not use the preview engine as the
+// only oracle. Keep every before/after value and the returned record order.
+function expectedPlan(f) {
+  const entry = (id, kind, currentIndex, returnedIndex) => ({ id, kind,
+    before: currentIndex === null ? null
+      : { record: f.working.records[currentIndex], review: f.working.reviews[id] },
+    after: { record: f.returned.records[returnedIndex], review: f.returned.reviews[id] },
+  });
+  return { counts: { total: 5, eligible: 2, unchanged: 1, unknown: 1, conflict: 1 }, entries: [
+    entry("notes", "eligible", 3, 0), entry("changed", "conflict", 2, 1),
+    entry("__proto__", "eligible", 0, 2), entry("same", "unchanged", 1, 3),
+    entry("constructor", "unknown", null, 4),
+  ] };
+}
+
+function assertPlan(result, expected) {
+  success(result);
+  assert.deepEqual(JSON.parse(result.stdout), expected);
+  // Also checks complete serialization, property/entry order and final newline.
+  assert.equal(result.stdout, JSON.stringify(expected, null, 2) + "\n");
+}
+
+test("plan emits complete ordered values identically from files or either stdin input without writes", t => {
+  const f = fixtures(t);
+  // BOM, indentation and CRLF in the input layout must not be rewritten.
+  f.put("working.json", "\uFEFF" + JSON.stringify(f.working, null, 2).replaceAll("\n", "\r\n") + "\r\n");
+  f.put("returned.json", JSON.stringify(f.returned, null, 4) + "\n");
+  const before = [f.bytes("working.json"), f.bytes("returned.json")];
+  const names = fs.readdirSync(f.directory);
+  const expected = expectedPlan(f);
+  for (const result of [
+    f.run("working.json", "returned.json", "--plan"),
+    f.run("working.json", "returned.json", "--plan"),
+    f.runInput(before[1], "working.json", "-", "--plan"),
+    f.runInput(before[0], "-", "returned.json", "--plan"),
+    // Unrequested stdin is ignored when both input paths are supplied.
+    f.runInput("not JSON", "working.json", "returned.json", "--plan"),
+  ]) assertPlan(result, expected);
+  for (const result of [f.runInput(before[1], "working.json", "-"),
+    f.runInput(before[0], "-", "returned.json")]) {
+    success(result);
+    assert.equal(result.stdout, summary + "\nRead-only preview. No files written.\n");
+  }
+  assert.deepEqual(fs.readdirSync(f.directory), names);
+  assert.deepEqual([f.bytes("working.json"), f.bytes("returned.json")], before);
+});
+
+test("plan retains owner normalization, exact IDs, type/membership semantics and empty snapshots", t => {
+  const f = fixtures(t);
+  const records = JSON.parse('[{"id":" A ","title":"Typed parcel","value":3},{"id":"a","title":"Missing field"},{"id":"empty","title":"Empty field","value":""},{"id":"same","title":"Own fields","__proto__":{"n":null}}]');
+  const snapshot = (records, notes) => ({ format: "record-review", version: 1, records,
+    reviews: Object.fromEntries(records.map(({ id }) => [id, { decision: "approved", notes, ignored: true }])),
+    ignoredEnvelope: true });
+  const working = snapshot(records, "keep");
+  const returned = snapshot([
+    { ...records[2], value: null }, { id: "A", title: "Exact ID, not trimmed" },
+    { ...records[0], value: "3" }, { ...records[1], value: null },
+    JSON.parse('{"__proto__":{"n":null},"title":"Own fields","id":"same"}'),
+  ], "  \r\n雪 e\u0301 <em>x</em>  ");
+  f.put("typed.json", working); f.put("typed-return.json", returned);
+  const before = [f.bytes("typed.json"), f.bytes("typed-return.json")];
+  const kinds = ["conflict", "unknown", "conflict", "conflict", "eligible"];
+  const expected = { counts: { total: 5, eligible: 1, unchanged: 0, unknown: 1, conflict: 3 },
+    entries: returned.records.map((record, index) => ({ id: record.id, kind: kinds[index],
+      before: index === 1 ? null : { record: records[[2, -1, 0, 1, 3][index]],
+        review: { decision: "approved", notes: "keep" } },
+      after: { record, review: { decision: "approved", notes: returned.reviews[record.id].notes } },
+    })) };
+  assertPlan(f.run("typed.json", "typed-return.json", "--plan"), expected);
+  assert.deepEqual([f.bytes("typed.json"), f.bytes("typed-return.json")], before);
+  const empty = { format: "record-review", version: 1, records: [], reviews: {} };
+  f.put("empty.json", empty);
+  assertPlan(f.runInput(JSON.stringify(empty), "empty.json", "-", "--plan"),
+    { counts: { total: 0, eligible: 0, unchanged: 0, unknown: 0, conflict: 0 }, entries: [] });
+  assertPlan(f.run("working.json", "empty.json", "--plan"),
+    { counts: { total: 0, eligible: 0, unchanged: 0, unknown: 0, conflict: 0 }, entries: [] });
+});
+
+test("plan rejects complete invalid file or stdin inputs with owner diagnostics and no partial stdout", t => {
+  const f = fixtures(t);
+  const duplicate = structuredClone(f.returned);
+  duplicate.records.push(duplicate.records[0]);
+  const invalidUnknown = structuredClone(f.returned);
+  invalidUnknown.reviews.constructor.notes = null;
+  const invalidConflict = structuredClone(f.returned);
+  invalidConflict.reviews.changed.decision = "maybe";
+  const invalids = [
+    ["", "Choose a JSON file or paste JSON first."],
+    ["{", "Invalid JSON. Check commas, quotes, and brackets. Nothing was replaced."],
+    ["null", 'Expected a records array or a version 1 "record-review" export.'],
+    ["[]", 'needs a saved version 1 "record-review" snapshot, not a records array.'],
+    [{ ...f.returned, records: {} }, "Records must be a JSON array."],
+    [{ ...f.returned, reviews: [] }, "Export reviews must be an object keyed by record ID."],
+    [{ ...f.returned, reviews: {} }, "Export must contain exactly one review for every record."],
+    [duplicate, 'Record 6 repeats id "notes".'],
+    [invalidUnknown, 'Invalid decision or notes for id "constructor".'],
+    [invalidConflict, 'Invalid decision or notes for id "changed".'],
+  ];
+  const original = [f.bytes("working.json"), f.bytes("returned.json")];
+  for (const [invalid, diagnostic] of invalids) {
+    f.put("invalid.json", invalid);
+    const bytes = f.bytes("invalid.json");
+    const names = fs.readdirSync(f.directory);
+    for (const [args, input, label] of [
+      [["invalid.json", "returned.json", "--plan"], undefined, 'Working review "invalid.json"'],
+      [["working.json", "invalid.json", "--plan"], undefined, 'Returned review "invalid.json"'],
+      [["-", "returned.json", "--plan"], bytes, "Working review (stdin)"],
+      [["working.json", "-", "--plan"], bytes, "Returned review (stdin)"],
+    ]) {
+      const result = f.runInput(input, ...args);
+      failure(result);
+      assert.equal(result.stdout, "");
+      assert.ok(result.stderr.startsWith("Error: " + label + ": "), result.stderr);
+      assert.ok(result.stderr.split("\n\nUsage:")[0].includes(diagnostic), result.stderr);
+    }
+    assert.deepEqual(fs.readdirSync(f.directory), names);
+    assert.deepEqual(f.bytes("invalid.json"), bytes);
+  }
+  assert.deepEqual([f.bytes("working.json"), f.bytes("returned.json")], original);
+});
+
+test("plan usage rejects ambiguous stdin and apply combinations before reads, and labels missing paths", t => {
+  const f = fixtures(t);
+  const names = fs.readdirSync(f.directory);
+  for (const args of [
+    ["-", "-", "--plan"], ["-", "-"],
+    ["working.json", "-", "--apply", "out.json"], ["-", "returned.json", "--apply", "out.json"],
+    ["working.json", "returned.json", "--plan", "--apply", "out.json"],
+    ["working.json", "returned.json", "--apply", "out.json", "--plan"],
+    ["working.json", "returned.json", "--plan", "out.json"],
+    ["working.json", "returned.json", "--plan", "--plan"],
+    ["working.json", "returned.json", "--output", "out.json"],
+  ]) {
+    const result = f.runInput("{bad", ...args);
+    failure(result);
+    assert.equal(result.stdout, "");
+    assert.doesNotMatch(result.stderr, /Invalid JSON|could not be read/);
+  }
+  for (const [args, label] of [
+    [["missing.json", "returned.json", "--plan"], "Working review"],
+    [["working.json", "missing.json", "--plan"], "Returned review"],
+  ]) {
+    const result = f.run(...args);
+    failure(result);
+    assert.equal(result.stdout, "");
+    assert.ok(result.stderr.startsWith('Error: ' + label + ' "missing.json" could not be read:'));
+  }
+  const help = f.run("--help");
+  success(help);
+  assert.match(help.stdout, /--plan/);
+  assert.match(help.stdout, /stdin through EOF/);
+  assert.deepEqual(fs.readdirSync(f.directory), names);
+});
+
+test("plan accepts absolute paths, spaces, and explicitly prefixed dash filenames", t => {
+  const f = fixtures(t);
+  f.put("-", f.working);
+  f.put("-returned review.json", f.returned);
+  const before = [f.bytes("-"), f.bytes("-returned review.json")];
+  assertPlan(f.run("./-", path.join(f.directory, "-returned review.json"), "--plan"), expectedPlan(f));
+  assertPlan(f.run(path.join(f.directory, "-"), "./-returned review.json", "--plan"), expectedPlan(f));
+  assert.deepEqual([f.bytes("-"), f.bytes("-returned review.json")], before);
+});
+
+test("plan delegates parsing and preview only, with frozen owner states and stdout-only writes", t => {
+  const f = fixtures(t);
+  const review = require("./review-state.js");
+  const freeze = value => {
+    if (value && typeof value === "object") {
+      Object.values(value).forEach(freeze);
+      Object.freeze(value);
+    }
+    return value;
+  };
+  const calls = [], states = [], output = [];
+  const owner = {
+    parseSnapshotJSON(text, purpose) {
+      calls.push(purpose);
+      const state = freeze(review.parseSnapshotJSON(text, purpose));
+      states.push(state);
+      return state;
+    },
+    previewReviewUpdates(current, incoming) {
+      calls.push("preview");
+      assert.equal(current, states[0]); assert.equal(incoming, states[1]);
+      return freeze(review.previewReviewUpdates(current, incoming));
+    },
+  };
+  const only = api => new Proxy(api, { get(target, key) {
+    assert.ok(Object.hasOwn(target, key), "Forbidden API: " + String(key));
+    return target[key];
+  } });
+  const processStub = { argv: ["node", command, "working.json", "returned.json", "--plan"] };
+  require("node:vm").runInNewContext(fs.readFileSync(command, "utf8"), {
+    require(name) {
+      if (name === "./review-state.js") return only(owner);
+      assert.equal(name, "node:fs");
+      return only({ readFileSync(file, encoding) {
+        assert.equal(encoding, "utf8");
+        return f.bytes(file).toString(encoding);
+      }, writeFileSync(fd, text, encoding) {
+        assert.equal(fd, 1); // Never a path, input descriptor, or state write.
+        assert.equal(encoding, "utf8");
+        output.push(text);
+      } });
+    },
+    process: processStub,
+    console: { log: assert.fail, error: assert.fail },
+  });
+  assert.deepEqual(calls, ["Working review", "Returned review", "preview"]);
+  assert.equal(processStub.exitCode, undefined);
+  assert.deepEqual(output, [JSON.stringify(expectedPlan(f), null, 2) + "\n"]);
+  assert.deepEqual(states, [f.working, f.returned]);
+});
+
+
+test("plan reports unwritable stdout without changing inputs", t => {
+  const f = fixtures(t);
+  const before = [f.bytes("working.json"), f.bytes("returned.json")];
+  const names = fs.readdirSync(f.directory);
+  // Same complete mixed plan and stdin intake for the valid and failed sinks.
+  assertPlan(f.runInput(before[1], "working.json", "-", "--plan"), expectedPlan(f));
+  const fd = fs.openSync(path.join(f.directory, "working.json"), "r");
+  let result;
+  try {
+    assert.throws(() => fs.writeSync(fd, "x"), { code: "EBADF" });
+    result = spawnSync(process.execPath, [command, "working.json", "-", "--plan"], {
+      cwd: f.directory, input: before[1], encoding: "utf8", timeout: 10000,
+      stdio: ["pipe", fd, "pipe"],
+    });
+  } finally { fs.closeSync(fd); }
+  assert.ifError(result.error);
+  assert.equal(result.signal, null);
+  assert.deepEqual([f.bytes("working.json"), f.bytes("returned.json")], before);
+  assert.deepEqual(fs.readdirSync(f.directory), names);
+  assert.equal(result.status, 1, "a failed plan delivery must not report success");
+  assert.equal(result.stdout, null); // The inherited descriptor is not captured.
+  assert.match(result.stderr, /Error: Could not write plan to stdout:.*EBADF/);
+  assert.match(result.stderr, /Usage:/);
 });

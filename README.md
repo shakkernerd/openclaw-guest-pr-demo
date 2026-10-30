@@ -202,17 +202,76 @@ script, browser, or service required):
 
 ```sh
 node review-return.js working.json returned.json
+node review-return.js working.json returned.json --plan
+cat returned.json | node review-return.js working.json - --plan
+cat working.json | node review-return.js - returned.json --plan
 node review-return.js working.json returned.json --apply result.json
 node review-return.js --help
 ```
 
-Both files must be complete version-1 `record-review` snapshots, including one
-valid review for each record in that file. A returned snapshot may contain only
-selected records; raw record arrays and CSV are not accepted. Quote paths with
-spaces; prefix a filename beginning with `-` with `./`. Relative paths resolve
+Both inputs must be complete version-1 `record-review` snapshots, including one
+valid review for each record in that input. A returned snapshot may contain only
+selected records; empty snapshots are valid, but raw record arrays and CSV are
+not accepted. Quote paths with spaces; prefix a filename beginning with `-` with
+`./` (including `./-` for a file literally named `-`). Relative paths resolve
 from the current directory, and absolute paths work too.
 
-- The default is a **read-only preview**: it prints eligible, unchanged,
+#### Read-only intake and proposed-application plan
+
+Use `--plan` after the two inputs for a complete machine-readable report, rather
+than the existing counts-only default. This extends the existing CLI; it is not
+a second policy engine or the separate multi-return analysis report below.
+
+- For `--plan` or default counts, **one** input may be `-`: read UTF-8 standard
+  input through EOF. Either the working or returned input can be piped/redirected.
+  Two `-` inputs are rejected before reading; concatenate neither snapshots nor
+  JSON Lines. Without `-`, stdin is ignored. Interactive stdin waits for EOF.
+  There is no streaming/partial plan: complete inputs are held in memory.
+- `--plan` writes only the existing `previewReviewUpdates` result to stdout:
+  two-space-indented JSON followed by one LF, with no summary, filenames,
+  timestamps, replacement snapshot or additional envelope. Top-level fields
+  are `counts` and `entries`. Counts are `total`, `eligible`, `unchanged`,
+  `unknown`, `conflict`; entries are `{ id, kind, before, after }` in **returned
+  record order**, including every returned record. Each side contains the full
+  `record` and normalized `review: { decision, notes }`; `before` is `null`
+  for unknown IDs. Working-only records are not proposals and are not listed.
+- `eligible` proposes the returned decision/notes pair; `unchanged` needs no
+  update. `unknown` IDs and changed-record `conflict` entries remain visible
+  with their complete values, never silently applied or discarded. A mismatch
+  **does not establish which input is older**. There is no age, winner, merge
+  or stale-input inference. The command never calls apply, makes a candidate
+  state, writes a file, or modifies either input in plan mode.
+- The shared owner alone parses, normalizes and classifies. It accepts a leading
+  BOM, preserves record fields/values, exact untrimmed case-sensitive IDs,
+  decision/notes text, nested array order and types, and ignores object member
+  order for equality. Missing, null and empty are distinct. Extra snapshot/review
+  metadata is normalized away by the existing owner, not emitted by a new schema.
+  JSON/JavaScript numeric-precision and serialization limits still apply.
+  Output is deterministic for the same input bytes; it is not key-sorted or
+  a byte-preserving copy of input formatting.
+- Both complete snapshots must pass validation, even reviews on unknown or
+  conflicting records. Malformed/empty JSON, invalid shape/version/reviews and
+  duplicate record IDs reject the **entire** plan. Owner diagnostics are retained,
+  prefixed with the working/returned role and filename or `(stdin)`. A duplicate
+  record reports its one-based position and exact ID; it is not deduplicated.
+- Success (including conflicts, unknown IDs or no entries) exits **0**, with only
+  the JSON report on stdout and empty stderr. Help exits 0 with usage on stdout.
+  Usage, read or validation failure exits **1**, with a diagnostic and usage on
+  stderr and **empty stdout**, never a partial validation report. A detected
+  `--plan` stdout write failure exits **1** with a `Could not write plan to stdout`
+  diagnostic and usage on stderr. Output may be partial on a write failure; check
+  the exit status and complete captured output. No output file option is added. If redirecting
+  stdout, use a separate report path: the **shell** can truncate an input before
+  Node starts, and can leave an empty report when validation fails.
+- `--plan` and `--apply` are mutually exclusive; all combinations are rejected.
+  `--apply` still requires two file paths and does not accept stdin. The plan is
+  not a saved approval token or apply input; every invocation rereads its inputs.
+  There is no file locking or concurrent-edit detection. Keep real input/report
+  data private and outside Git.
+
+#### Existing counts and explicit fresh-file apply
+
+- The default remains a **read-only preview**: it prints eligible, unchanged,
   changed-record-conflict and unknown-ID counts, without writing a file.
 - `--apply result.json` explicitly creates **one fresh full snapshot**, even
   when there are zero eligible updates. It applies only eligible decisions and
@@ -483,8 +542,9 @@ Exports remain JSON so all record fields and separately owned reviews round-trip
   transitions, snapshot comparison, returned-review eligibility/batch apply,
   filtering, export, and guarded storage;
   also usable in Node tests.
-- `review-return.js`: thin Node terminal/file adapter for returned-review preview
-  and exclusive fresh-output apply; `review-return.test.js` executes the real command.
+- `review-return.js`: thin Node terminal/file/stdin adapter for returned-review
+  counts, read-only JSON plans and exclusive fresh-output apply;
+  `review-return.test.js` executes the real command.
 - `review-return-analysis.js`: read-only multi-return report adapter;
   `review-return-analysis.test.js` exercises the real command and complete reports.
 - `review-app.js`: DOM events, independent async import/comparison/returned-read
@@ -518,7 +578,14 @@ git diff --check
 Terminal tests use real Node subprocesses and temporary synthetic files to check
 preview, full-output preservation, complete invalid-input rejection, help/errors,
 zero-update output, rereading between invocations and exclusive-output protection
-(including aliases, links and competing writers). No production test seam is used.
+(including aliases, links and competing writers). Plan tests assert complete ordered
+output values/bytes from files and either stdin input, BOM/whitespace and input-byte
+preservation, normalization, malformed/duplicate rejection with empty stdout, and
+mutually exclusive modes. A real-CLI regression pairs complete successful output
+with a verified read-only stdout descriptor, requiring nonzero exit and a diagnostic
+on failed delivery while input bytes remain unchanged. A source harness forbids
+apply/export/file-path writes, permitting only stdout with frozen owner states.
+No production test seam is used.
 Multi-return command tests also cover unchanged proposals, exact decision/notes
 pairs, identical/disagreeing overlaps, source/record order, excluded issues,
 duplicate basenames/repeated inputs, and rejection of any invalid complete input
