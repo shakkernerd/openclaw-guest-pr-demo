@@ -245,9 +245,10 @@ Open `saved-batch-report.html` directly as a local file, keeping
 `saved-batch-report-viewer.js` beside it. No server, installation, dependency, or
 network connection is needed. Choose one **saved report (UTF-8 JSON)**: the entire
 stdout JSON document previously saved from the batch command, not an address
-draft. The viewer never runs or imports the command, codec, or formatter and
-never opens paths named by report occurrences. It has no export, clipboard,
-printing, storage, automatic persistence, network, or dispatch behavior.
+draft. The viewer never runs or imports the batch command, draft codec, or
+formatter and never opens paths named by report occurrences. CSV export is an
+explicit local download; there is no clipboard, printing, storage, automatic
+persistence, network, or dispatch behavior. The saved JSON is never changed.
 
 The input boundary decodes UTF-8 fatally, parses once, and validates the envelope,
 counts, and result shapes once per current completed read. A leading UTF-8
@@ -292,6 +293,61 @@ count is labelled separately. No accepted report, an accepted zero-result report
 and a nonempty report with no filter matches have distinct messages. Status-only
 updates leave the displayed accepted row elements in place.
 
+### Export all occurrences as CSV
+
+Choose **Export all occurrences CSV** to request a download named
+`saved-batch-report.csv`. It snapshots **every occurrence in the displayed
+accepted report**, regardless of the selected filter, retaining original order,
+positions, duplicate paths, and exact file spelling. It does not reread the
+report, open any named draft, or run the batch command, draft codec, or formatter.
+Without an accepted report export is unavailable; an accepted zero-result report
+exports headers only. The saved JSON remains authoritative: CSV is a projection, not a
+replacement or a report-import format.
+
+Columns, in order:
+
+| Column | Value |
+| --- | --- |
+| `position` | Original 1-based occurrence position |
+| `file` | Exact recorded file path, including for failures |
+| `status` | `success` or `failure`, derived from `ok` |
+| `formatted` | Exact saved success text in one cell; empty for failures |
+| `error_stage` | Recorded `read`, `decode`, or `format`; empty for successes |
+| `error_name` | Exact recorded error name; empty for successes |
+| `error_message` | Exact recorded error message; empty for successes |
+
+Totals, viewer annotations, and unknown fields are not exported. Empty recorded
+strings stay empty; status distinguishes an empty success from a failure.
+The CSV is UTF-8 without an added encoding BOM, with comma delimiters and every
+cell (including headers) double-quoted. Embedded quotes are doubled. Records end
+with CRLF, including the final record. Inside cells, LF, CR, CRLF, whitespace,
+FEFF, and Unicode remain unchanged: no flattening, trimming, normalization, or
+address reformatting. This preserves parsed string values, not JSON escape
+spelling or original JSON bytes. An exported field containing an unpaired
+UTF-16 surrogate refuses the whole export with a clear error, because UTF-8
+cannot encode it losslessly; report acceptance and viewing remain unchanged.
+
+**Spreadsheet caution:** CSV quoting protects field boundaries, not cell types
+or formula safety. Spreadsheet applications may interpret values beginning with
+`=`, `+`, `-`, `@`, or certain whitespace/control characters as formulas, and may
+coerce dates or leading-zero identifiers. Export does not silently add apostrophes,
+tabs, or other protective prefixes. Prefer explicit import as UTF-8,
+comma-separated, double-quote-delimited data with **all columns set to Text**, not
+double-click opening. Import settings vary; CSV cannot enforce text types,
+prevent formula interpretation, or guarantee exact values after spreadsheet
+import and re-saving. Retain the authoritative JSON.
+
+**Download CSV again** retries the same snapshot without changing the view.
+The link and export survive filter changes, pending reads, invalid files, read
+failures, and cancelled/empty selections. A new accepted report, another export,
+or leaving the page releases the previous object URL and clears stale export
+state; already downloaded files are unaffected. Download creation failures have
+a separate status and can be retried with the export button. A download request
+does not prove that the browser saved a file. No report or filter state is
+changed by export or retry.
+
+### Viewer verification
+
 Run only the viewer's focused native Node checks with:
 
 ```sh
@@ -302,14 +358,24 @@ These load the actual production boundary through its classic-script surface in
 a Node VM, rather than its CommonJS export or a fake browser. The two small
 fixtures are retained saved stdout documents, consumed directly with independent
 expected results and byte identities; they do not authorize reading any paths
-inside them. Tests
-cover literal/empty strings, envelope/count/shape refusals, filters and duplicate
-order, atomic replacement, and controlled asynchronous success/error/empty
-selection races. The deferred reads prove the new boundary's generation logic,
-**not native filesystem timing**. They never execute the batch command, draft
-codec, formatter, or old tests. Native Files, standalone loading, actual UI
-rendering, filter controls, narrow layout, and keyboard/accessibility behavior remain for
-the retained approved browser; these Node checks are not that proof.
+inside them. Tests cover literal/empty strings, envelope/count/shape refusals,
+filters and duplicate order, atomic replacement, controlled asynchronous
+success/error/empty selection races, and full-report CSV export. CSV assertions
+use independently specified expected strings and native Blob bytes, including
+quoting, mixed line endings, Unicode, empty/error fields, formula-like text,
+and lossless export refusal. They also check that export does not reread inputs
+or mutate accepted state. The deferred reads prove the boundary's generation
+logic, **not native filesystem timing**. They never execute the batch command,
+draft codec, formatter, or old tests. Native Files, standalone loading, actual UI
+rendering, filter controls, narrow layout, and keyboard/accessibility behavior
+remain for the retained approved browser; these Node checks are not that proof.
+For browser verification, load a known saved report from the standalone page;
+check the actual downloaded CSV bytes and parsed cells, not just its link or
+status. Exercise export under a filter, retry after a later invalid/read-failed
+selection, replacement and URL cleanup, zero results, lossless refusal, and
+download failure/recovery. Check keyboard operation, live status, narrow layout,
+and the absence of draft-file or network access. Browser checks do not establish
+spreadsheet application compatibility or screen-reader behavior.
 
 ## Validate one saved address report
 
@@ -329,9 +395,11 @@ needed.
 
 The viewer and command share `savedBatchReportCodec.decode(bytes)` in
 `saved-batch-report.js`, exported for CommonJS as `{ savedBatchReportCodec }`.
-The existing report validation rules, browser behavior, and report format above
-are unchanged; there is no second schema or new report version. Raw bytes go
-directly to that decoder. The complete report is held in memory, not streamed.
+Both entry points use the report validation rules above; there is no second
+schema or new report version. CSV serialization belongs to the viewer boundary,
+not this decoder or the CLI. CSV-only lossless-export refusals do not change
+structural report acceptance. Raw bytes go directly to that decoder. The complete
+report is held in memory, not streamed.
 
 For one argument, stdout is one compact JSON verdict followed by exactly one LF;
 `file` retains the supplied spelling. A structurally valid report produces:
@@ -361,7 +429,7 @@ Acceptance checks structure only, not authenticity, freshness, postal validity,
 or whether a recorded success would format successfully now. It never repairs
 or rewrites the saved report.
 
-Focused command and unchanged viewer checks:
+Focused command and viewer checks:
 
 ```sh
 node --test validate-address-report.test.js saved-batch-report.test.js

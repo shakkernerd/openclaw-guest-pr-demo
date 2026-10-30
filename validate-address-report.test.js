@@ -87,6 +87,15 @@ test("BOM, literal strings and unknown fields use report rules, not draft/format
   assertVerdict(run([file], { [file]: input }), { file, ok: true, total: 2, succeeded: 2, failed: 0 }, 0);
 });
 
+test("CSV-only lossless-export refusal does not change CLI structural acceptance", () => {
+  const file = "surrogate-report.json";
+  const report = success();
+  report.results[0].formatted = "saved \ud800 text";
+  assertVerdict(run([file], { [file]: bytes(report) }), {
+    file, ok: true, total: 1, succeeded: 1, failed: 0,
+  }, 0);
+});
+
 test("representative decoder refusals produce compact errors and exit 1", async (t) => {
   const badCount = { ...success(), succeeded: 0, failed: 1 };
   const badRow = success();

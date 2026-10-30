@@ -13,8 +13,9 @@
     <h1>Saved batch-report viewer</h1>
     <p>Read one saved JSON report offline. This page only checks its structure:
       it does not run the command, verify authenticity or current validity,
-      or open any file named in the report. Nothing is sent or saved.</p>
-    <noscript>JavaScript is needed to read and filter a saved report.</noscript>
+      or open any file named in the report. Nothing is sent or saved automatically;
+      CSV export is an explicit download and never changes the saved JSON.</p>
+    <noscript>JavaScript is needed to read, filter, and export a saved report.</noscript>
     <label for="report-file">Choose a saved report (UTF-8 JSON)</label>
     <input id="report-file" type="file" accept=".json,application/json"
       aria-describedby="read-help">
@@ -34,6 +35,15 @@
       <span class="empty-value" hidden>Empty string</span>
       <p id="accepted-size"></p>
       <p id="report-totals"></p>
+      <button id="export-report" type="button" disabled aria-describedby="export-help csv-caution">Export all occurrences CSV</button>
+      <a id="download-report" download="saved-batch-report.csv" hidden>Download CSV again</a>
+      <p id="export-help">Exports every occurrence in this accepted report, regardless
+        of the filter. The saved JSON remains authoritative.</p>
+      <p id="csv-caution">Spreadsheet caution: quoting does not prevent formula
+        interpretation. Import as UTF-8, comma-separated, with all columns set to
+        Text instead of double-clicking. Values are not modified for spreadsheet
+        safety; CSV cannot enforce cell types or lossless spreadsheet re-saving.</p>
+      <p id="export-status" role="status" aria-live="polite" aria-atomic="true">No current export. Choose Export all occurrences CSV to create a snapshot.</p>
     </section>
     <h2 id="occurrences-heading">Original ordered occurrences</h2>
     <label for="report-filter">Show occurrences</label>
