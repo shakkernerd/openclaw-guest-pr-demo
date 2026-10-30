@@ -455,25 +455,62 @@ With Node.js 22 or newer:
 
 ```sh
 node compare-address-reports.js ORIGINAL RERUN
+node compare-address-reports.js ORIGINAL RERUN --mappings MAPPING_FILE
 node compare-address-reports.js saved-batch-report-fixtures/comparison-original.json saved-batch-report-fixtures/comparison-rerun.json
 ```
 
-Supply exactly two literal filenames (relative paths resolve from the current
-working directory). There are no flags: even `--help`, `--`, and `-` are filenames,
-not options or stdin. Quote paths to prevent shell expansion. The command does
-no glob expansion, directory discovery or recursive traversal, writes no files,
-and never opens paths recorded inside either report. It does not load or run the
-draft codec, formatter, or batch command, or use a network/service.
+Supply either exactly two literal filenames, or exactly four arguments with
+`--mappings` in the third position. Every filename position remains literal,
+including `--mappings`, `--help`, `--`, `-`, spaces and glob characters. In the
+two-argument form there are still no options. Relative paths resolve from the
+current working directory; quote paths to prevent shell expansion. Other forms
+(including a missing mapping filename, prefix options, `--mappings=FILE` and extra
+arguments) are refused before any input read. There is no stdin input, application
+glob expansion, directory discovery or recursive traversal. The command writes
+no files and never opens paths recorded inside either report or a mapping. It
+does not load or run the draft codec, formatter or batch command, or use a
+network/service.
 
-The command reads and fully decodes **original first, then rerun**, stopping at
-the first input failure; a failed original means rerun is not read. Both use
+The command reads and fully decodes **original first, rerun second, and the
+optional mapping file last**, stopping at the first failure. A failed original
+prevents both later reads; a failed rerun prevents the mapping read. Reports use
 `savedBatchReportCodec.decode` unchanged. The guarded CommonJS export
 `{ compare }` in `saved-batch-comparison.js` references the existing pure
 `SavedBatchComparison.compare` operation; it does not expose or instantiate
-browser loading/mapping state. The command supplies **no explicit mappings**.
-Only paths appearing exactly once in each full report pair automatically.
-Duplicates stay ambiguous, and different spellings/restaged paths are never
-inferred to match. Explicit occurrence mappings remain a browser feature.
+browser loading/mapping state. The CLI calls it once after all inputs are
+accepted and emits only the completed result. The browser workflow is unchanged.
+
+The mapping file is one UTF-8 JSON array of non-null, non-array objects, for
+example (positions must be reviewed for the particular chosen report pair):
+
+```json
+[{"originalPosition":2,"rerunPosition":1},{"originalPosition":4,"rerunPosition":2}]
+```
+
+UTF-8 is decoded fatally, consuming one leading encoding BOM consistently with
+the report decoder. Malformed UTF-8/JSON and invalid array/entry shapes refuse the
+whole request. Unknown fields are ignored, not read as paths or provenance. No
+coercion, sorting, deduplication, repair, report fingerprint binding or automatic
+mapping-file generation is performed. `[]` is equivalent to no option; an empty
+or whitespace-only file is invalid JSON. There is no wrapper or new report version.
+
+The existing pure comparison owner alone validates positions: both must be safe
+integers identifying 1-based occurrences in their respective full accepted
+reports, not comparison-row indices. Missing, wrong-type and out-of-range
+positions are refused. Reusing either endpoint, even repeating an identical
+pair, refuses the whole request rather than choosing a winner or emitting a
+partial result. Explicit mappings take priority over automatic conventions and
+may connect different paths or outcomes. They are **reviewer assertions for the
+chosen reports**, not proof of identity, authenticity, freshness, current
+formattability, postal validity or permission to dispatch. Selecting the intended
+report pair remains the reviewer’s responsibility.
+
+Without mappings the automatic comparison is unchanged. Only paths appearing
+exactly once in each **full report** pair automatically; explicit mappings never
+make leftover duplicate paths unique. Unmapped duplicates remain ambiguous,
+including a lone leftover on each side. Different spellings/restaged paths are
+never inferred to match. An explicit row has `basis: "explicit"`; its
+`ambiguous: false` records the selected counterpart, not verified identity.
 
 On success, stdout is the existing comparison result as **one compact JSON
 object plus one LF**, with `rows` and `counts`, and stderr is empty. Rows retain
@@ -485,27 +522,66 @@ outcome distinctions are preserved, including changed errors that remain
 failures. Unknown occurrence fields survive in the result but do not influence
 comparison; original JSON whitespace/escape spelling is not preserved.
 
-- Exit **0**: both reports are structurally valid, including empty reports,
-  recorded failures/regressions, duplicates and unmatched rows.
-- Exit **1**: read or decode failure; stdout is empty. Stderr identifies
-  original/rerun, the quoted supplied filename, stage (`read` or `decode`),
-  and error name/message. Decode includes UTF-8, JSON and structural validation;
-  native read-error wording depends on Node/the OS. No partial result is emitted.
-- Exit **2**: incorrect argument count, before input reads; stdout is empty and
-  stderr is `Usage: node compare-address-reports.js ORIGINAL RERUN` plus LF.
+- Exit **0**: comparison completed with accepted reports and optional mappings,
+  including empty reports, recorded failures/regressions, duplicates and unmatched
+  rows. Success has empty stderr and no added output fields or warnings.
+- Exit **1**: read/decode failure or refused mapping; stdout is empty. Existing
+  report diagnostics retain original/rerun, the quoted supplied filename, stage
+  (`read` or `decode`) and error name/message. Mapping diagnostics are
+  `mapping file "FILENAME" (STAGE): ErrorName: message` plus LF; the supplied
+  filename is JSON-quoted and stage is `read`, `decode` or `compare`. The comparison
+  owner’s position/conflict messages are preserved. Decode includes UTF-8, JSON
+  and structural validation; native read wording depends on Node/the OS. No
+  partial result or fallback automatic comparison is emitted on refusal.
+- Exit **2**: invalid argument form, before input reads; stdout is empty and
+  stderr is `Usage: node compare-address-reports.js ORIGINAL RERUN [--mappings MAPPING_FILE]` plus LF.
 
-The checked-in example yields 0 pairs, 5 original-only, 2 rerun-only and 2
+The checked-in example without a mapping file yields 0 pairs, 5 original-only, 2 rerun-only and 2
 ambiguous occurrences (the duplicate north rows), with all paired outcome counts
 zero. The reports record different `media/inbound/openclaw-staged-…/` directories
 (`6a4c983b-…` versus `b37ab9bd-…`), and the rerun uses `.corrected` filenames with
-different UUID suffixes. No exact path is shared, so the browser-only confirmed
-mappings above cannot be assumed by this command. The
+different UUID suffixes. No exact path is shared, so the confirmed mappings
+above cannot be assumed by this command: they must be supplied explicitly for
+that particular pair. They must not be transferred to other saved batches. The
 saved successes are merely reported, not reformatted or reverified.
 
 Reports and the full result are held in memory, not streamed; reads are
 sequential, not a cross-file atomic snapshot. Acceptance proves structure, not
 authenticity, freshness, identity, postal validity or current formattability.
 Unexpected runtime/output-stream errors remain native Node errors.
+
+#### Mapping-file CLI checks
+
+```sh
+node --test compare-address-reports.test.js
+```
+
+The focused CLI suite retains the automatic-only cases and adds real-subprocess
+checks for the exact grammar, literal filenames, empty/BOM mappings, boundary
+refusals, owner error messages, explicit priority and conservative duplicate
+leftovers. Expectations are independent rows/counts, not generated by calling the
+comparison owner. A bounded test-only preload observes actual child reads for
+ordering and no-later-read assertions; it does not replace their results or add
+a production seam. The BOM/metadata case checks accepted input, ignored metadata
+without opening its paths, and ambiguous duplicate leftovers; it does not prove
+byte preservation through the comparison owner, which receives parsed objects.
+Linux `/dev/full` exercises the observed output-sink failure only, not the
+comparison classifier’s unrecognized-error rethrow branch. That branch is
+source-reviewed. The narrow classifier recognizes the two current owner mapping
+messages; a future owner-message change requires reviewing this adapter.
+
+Each helper invocation creates its own test-owned temporary case root. It
+captures child return values and read observations in memory for assertions,
+checks unchanged input bytes and no CLI-created files, and removes that exact
+root (including observer/log files) in `finally`, on success or failure. It does
+not retain ordinary-run evidence or delete earlier campaign artifacts.
+Decoder/comparison/browser rules and prior evidence are reused, not a claim of
+a new browser run.
+
+#### Prior automatic-only CLI verification (historical)
+
+The following verification description is retained from before the mapping-file
+addition; its cleanup description applies to that earlier test helper.
 
 Bounded CLI/module-boundary checks (no formatter or browser run):
 
