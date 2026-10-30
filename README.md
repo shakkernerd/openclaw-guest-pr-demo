@@ -298,14 +298,80 @@ Run only the viewer's focused native Node checks with:
 node --test saved-batch-report.test.js
 ```
 
-These load the actual production classic-script boundary in a Node VM, without
-CommonJS/test exports or a fake browser. The two small fixtures are retained
-saved stdout documents, consumed directly with independent expected results and
-byte identities; they do not authorize reading any paths inside them. Tests
+These load the actual production boundary through its classic-script surface in
+a Node VM, rather than its CommonJS export or a fake browser. The two small
+fixtures are retained saved stdout documents, consumed directly with independent
+expected results and byte identities; they do not authorize reading any paths
+inside them. Tests
 cover literal/empty strings, envelope/count/shape refusals, filters and duplicate
 order, atomic replacement, and controlled asynchronous success/error/empty
 selection races. The deferred reads prove the new boundary's generation logic,
-**not native filesystem timing**. They never execute the command, codec,
-formatter, or old tests. Native Files, standalone loading, actual UI rendering,
-filter controls, narrow layout, and keyboard/accessibility behavior remain for
+**not native filesystem timing**. They never execute the batch command, draft
+codec, formatter, or old tests. Native Files, standalone loading, actual UI
+rendering, filter controls, narrow layout, and keyboard/accessibility behavior remain for
 the retained approved browser; these Node checks are not that proof.
+
+## Validate one saved address report
+
+With Node.js 22 or newer, run from the repository root:
+
+```sh
+node validate-address-report.js path/to/report.json
+```
+
+Supply exactly one literal file path, relative to the current working directory
+when relative. There are no options: `--help`, `--`, and `-` are filenames. There
+is no stdin input, glob expansion, directory discovery, or recursive traversal;
+quote paths to prevent shell expansion. The command reads the named report once
+and writes no files. It never opens occurrence paths or imports/runs the draft
+codec, formatter, or batch command. No dependencies, services, or network are
+needed.
+
+The viewer and command share `savedBatchReportCodec.decode(bytes)` in
+`saved-batch-report.js`, exported for CommonJS as `{ savedBatchReportCodec }`.
+The existing report validation rules, browser behavior, and report format above
+are unchanged; there is no second schema or new report version. Raw bytes go
+directly to that decoder. The complete report is held in memory, not streamed.
+
+For one argument, stdout is one compact JSON verdict followed by exactly one LF;
+`file` retains the supplied spelling. A structurally valid report produces:
+
+```json
+{"file":"report.json","ok":true,"total":6,"succeeded":2,"failed":4}
+```
+
+Exit **0** means the report is valid, even if some or all recorded occurrences
+failed. A zero-result report is also valid. Totals are from the validated report;
+occurrence contents are not repeated in the verdict. An unreadable or invalid
+report exits **1**, for example:
+
+```json
+{"file":"report.json","ok":false,"error":{"stage":"decode","name":"TypeError","message":"total must be a safe nonnegative integer"}}
+```
+
+`stage` is `read` for filesystem errors or `decode` for UTF-8, JSON, and structural
+validation errors. Error names/messages are retained; native read-error wording
+depends on Node/the operating system. Ordinary failures are in stdout JSON, with
+empty stderr. Zero or multiple arguments exit **2** before any report read, with
+empty stdout and `Usage: node validate-address-report.js FILE` plus LF on stderr.
+Normal Node stream/exit handling lets output drain; unexpected runtime or
+output-stream failures remain native errors.
+
+Acceptance checks structure only, not authenticity, freshness, postal validity,
+or whether a recorded success would format successfully now. It never repairs
+or rewrites the saved report.
+
+Focused command and unchanged viewer checks:
+
+```sh
+node --test validate-address-report.test.js saved-batch-report.test.js
+```
+
+The new tests use the real subprocess entry, retained saved-report fixtures, and
+test-owned temporary files. They check verdicts, exit codes, literal paths, ignored
+stdin, unchanged input bytes, no output files, and representative decoder errors.
+Valid empty, mixed, all-failure, and formatter-incompatible saved contents are
+covered without reopening draft paths or rerunning the formatter. The existing
+viewer suite retains comprehensive schema, preservation, filtering, and race
+coverage; it is not duplicated in the command suite. These are Node boundary
+checks, not new native-browser compatibility proof.
