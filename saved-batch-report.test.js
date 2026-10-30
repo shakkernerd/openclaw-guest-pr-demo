@@ -107,6 +107,148 @@ test("retained mixed document: exact outcomes and every filter projection", asyn
   }
 });
 
+test("path query is a case-sensitive literal substring composed with every status filter", async () => {
+  const path = " ./North[1].json ";
+  const report = { total: 6, succeeded: 3, failed: 3, results: [
+    { position: 1, file: path, ok: true, formatted: "output-only" },
+    { position: 2, file: path, ok: false, error: { stage: "read", name: "Error", message: "error-only" } },
+    { position: 3, file: "dir\\..\\North[1].json", ok: false, error: { stage: "decode", name: "Error", message: "" } },
+    { position: 4, file: path, ok: false, error: { stage: "format", name: "Error", message: "" } },
+    { position: 5, file: path, ok: true, formatted: "" },
+    { position: 6, file: "", ok: true, formatted: "" },
+  ] };
+  let changes = 0;
+  const viewer = new SavedBatchReport(() => { changes += 1; });
+  assert.equal(viewer.query, "");
+  await viewer.selectFile(file("name-only.json", bytes(report)));
+  const accepted = viewer.accepted;
+  const csv = viewer.toCsv();
+  for (const [query, positions] of [
+    ["", [1, 2, 3, 4, 5, 6]], ["North", [1, 2, 3, 4, 5]], ["north", []],
+    ["[1]", [1, 2, 3, 4, 5]], [".*", []], ["^", []],
+    [" ", [1, 2, 4, 5]], ["  ", []], [path, [1, 2, 4, 5]],
+    ["./", [1, 2, 4, 5]], ["../", []], ["..\\", [3]],
+    ["dir/../North[1].json", []], ["output-only", []], ["error-only", []], ["name-only", []],
+  ]) {
+    const before = changes;
+    viewer.setQuery(query);
+    assert.equal(changes, before + 1);
+    assert.equal(viewer.query, query);
+    assert.deepEqual(plain(viewer.rows.map((row) => row.position)), positions, JSON.stringify(query));
+    assert.equal(viewer.accepted, accepted);
+    assert.equal(viewer.toCsv(), csv);
+  }
+  viewer.setQuery("[1]");
+  for (const [filter, positions] of [
+    ["all", [1, 2, 3, 4, 5]], ["success", [1, 5]], ["failure", [2, 3, 4]],
+    ["read", [2]], ["decode", [3]], ["format", [4]],
+  ]) {
+    viewer.setFilter(filter);
+    assert.deepEqual(plain(viewer.rows.map((row) => row.position)), positions, filter);
+    for (const row of viewer.rows) assert.equal(row, accepted.report.results[row.position - 1]);
+    assert.equal(viewer.toCsv(), csv);
+  }
+  viewer.setQuery("");
+  assert.equal(viewer.filter, "format");
+  assert.deepEqual(plain(viewer.rows.map((row) => row.position)), [4]);
+  assert.deepEqual(plain(accepted.report), report);
+  assert.throws(() => viewer.setQuery(null), /query must be a string/);
+  assert.equal(viewer.query, "");
+});
+
+test("query and projection survive nonacceptance; only successful acceptance resets the query", async () => {
+  const observed = [];
+  const viewer = new SavedBatchReport((state) => {
+    observed.push({ accepted: state.accepted, query: state.query, filter: state.filter });
+  });
+  const input = fixture("mixed-report.json");
+  await viewer.selectFile(file("keep.json", input));
+  viewer.setFilter("success");
+  viewer.setQuery("bom-valid");
+  const accepted = viewer.accepted;
+  const csv = viewer.toCsv();
+  const retained = () => {
+    assert.equal(viewer.accepted, accepted);
+    assert.equal(viewer.query, "bom-valid");
+    assert.equal(viewer.filter, "success");
+    assert.deepEqual(plain(viewer.rows.map((row) => row.position)), [1, 6]);
+    assert.equal(viewer.toCsv(), csv);
+  };
+  const pending = deferred();
+  const work = viewer.selectFile(pending.file);
+  assert.equal(viewer.status.kind, "reading");
+  retained();
+  pending.reject(new Error("unreadable"));
+  await work;
+  assert.equal(viewer.status.kind, "read-error");
+  retained();
+  await viewer.selectFile(file("invalid.json", Buffer.from("invalid")));
+  assert.equal(viewer.status.kind, "invalid");
+  retained();
+  const stale = deferred();
+  const staleWork = viewer.selectFile(stale.file);
+  await viewer.selectFile(null);
+  const cancelled = viewer.status;
+  retained();
+  stale.resolve(bytes(zero));
+  await staleWork;
+  assert.equal(viewer.status, cancelled);
+  retained();
+
+  // Same bytes and name still constitute a fresh successful acceptance.
+  await viewer.selectFile(file("keep.json", input));
+  assert.notEqual(viewer.accepted, accepted);
+  assert.equal(viewer.query, "");
+  assert.equal(viewer.filter, "success");
+  assert.deepEqual(plain(viewer.rows.map((row) => row.position)), [1, 6]);
+  assert.equal(observed.at(-1).accepted, viewer.accepted);
+  assert.equal(observed.at(-1).query, "");
+
+  viewer.setQuery("no match");
+  assert.equal(viewer.rows.length, 0);
+  const replacement = deferred();
+  const replaceWork = viewer.selectFile(replacement.file);
+  assert.equal(viewer.query, "no match");
+  assert.equal(viewer.rows.length, 0);
+  // Input remains live during pending reads; acceptance clears the latest query.
+  viewer.setQuery("typed while pending");
+  replacement.resolve(bytes(success("replacement")));
+  await replaceWork;
+  assert.equal(viewer.query, "");
+  assert.equal(viewer.filter, "success");
+  assert.equal(viewer.rows[0].formatted, "replacement");
+  assert.equal(observed.at(-1).query, "");
+  viewer.setQuery("anything");
+  await viewer.selectFile(file("zero.json", bytes(zero)));
+  assert.equal(viewer.query, "");
+  assert.equal(viewer.filter, "success");
+  assert.equal(viewer.rows.length, 0);
+});
+
+test("stale settlements cannot clear a query typed after a newer acceptance", async () => {
+  for (const settlement of ["success", "invalid", "error"]) {
+    const viewer = new SavedBatchReport(() => {});
+    await viewer.selectFile(file("first.json", fixture("mixed-report.json")));
+    const stale = deferred();
+    const work = viewer.selectFile(stale.file);
+    viewer.setQuery("old query");
+    await viewer.selectFile(file("new.json", fixture("success-report.json")));
+    assert.equal(viewer.query, "");
+    viewer.setFilter("success");
+    viewer.setQuery("./");
+    const accepted = viewer.accepted;
+    const status = viewer.status;
+    if (settlement === "error") stale.reject(new Error("stale"));
+    else stale.resolve(settlement === "invalid" ? Buffer.from("invalid") : bytes(zero));
+    await work;
+    assert.equal(viewer.accepted, accepted);
+    assert.equal(viewer.status, status);
+    assert.equal(viewer.query, "./");
+    assert.equal(viewer.filter, "success");
+    assert.deepEqual(plain(viewer.rows.map((row) => row.position)), [1]);
+  }
+});
+
 test("literal and empty fields, CR/CRLF, FEFF, markup and unknown fields are not repaired", async () => {
   const literal = "\uFEFF \tΩ e\u0301\r\n\n<svg onload='not code'> & ../path\r";
   const report = {

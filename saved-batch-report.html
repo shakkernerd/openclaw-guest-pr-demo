@@ -38,7 +38,7 @@
       <button id="export-report" type="button" disabled aria-describedby="export-help csv-caution">Export all occurrences CSV</button>
       <a id="download-report" download="saved-batch-report.csv" hidden>Download CSV again</a>
       <p id="export-help">Exports every occurrence in this accepted report, regardless
-        of the filter. The saved JSON remains authoritative.</p>
+        of the status filter or path query. The saved JSON remains authoritative.</p>
       <p id="csv-caution">Spreadsheet caution: quoting does not prevent formula
         interpretation. Import as UTF-8, comma-separated, with all columns set to
         Text instead of double-clicking. Values are not modified for spreadsheet
@@ -57,9 +57,16 @@
     </select>
     <p id="filter-help">The filter stays selected across loads, including failed
       or cancelled selections. It changes only visible rows, never full-report
-      totals, original positions, file spelling, or duplicates. Choose All to
-      see every occurrence again.</p>
-    <p id="visible-count" role="status" aria-live="polite" aria-atomic="true">Visible occurrences: 0.</p>
+      totals, original positions, file spelling, or duplicates. Choose All and
+      clear the path query to see every occurrence again.</p>
+    <label for="report-query">Search recorded file paths</label>
+    <input id="report-query" type="search" aria-describedby="query-help" autocomplete="off" spellcheck="false">
+    <p id="query-help">Single-line search. Matches use the text shown in this field.
+      For a recorded path containing line breaks, search a single-line substring.
+      Case-sensitive literal substring: spaces and punctuation count.
+      Empty matches every path. Combined with the status filter.
+      Cleared only when a report is successfully accepted, including a reselection.</p>
+    <p id="visible-count" role="status" aria-live="polite" aria-atomic="true">Displayed matches: 0.</p>
     <p id="empty-state">No accepted report. Choose a saved report file to begin.</p>
     <p>Report strings are literal selectable text, not links or editable inputs.
       Empty strings have a separate “Empty string” annotation. Whitespace and

@@ -15,7 +15,8 @@ label, dt { display: block; font-weight: 600; }
 dd { margin: 0 0 1rem; }
 dl { margin-block-end: 0; }
 input, select, button { font: inherit; color: inherit; max-width: 100%; min-height: 2.75rem; }
-select, button { background: #fff; padding: 0.4rem; border: 1px solid #596572; border-radius: 0.25rem; }
+input[type="search"], select, button { background: #fff; padding: 0.4rem; border: 1px solid #596572; border-radius: 0.25rem; }
+#report-query { width: 100%; }
 button:disabled { opacity: 0.6; }
 #download-report:not([hidden]) { display: inline-block; padding: 0.5rem; }
 [hidden] { display: none; }
