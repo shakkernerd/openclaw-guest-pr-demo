@@ -493,6 +493,48 @@
     return { counts, entries };
   }
 
+  // Read-only three-way plan, not a replacement snapshot or an apply token.
+  // Validate/normalize every side before classifying the union of exact IDs.
+  function planReviewReconciliation(baseline, current, returned) {
+    const snapshots = [baseline, current, returned].map(validateSnapshot);
+    const [baseById, currentById, returnedById] = snapshots.map(snapshot =>
+      new Map(snapshot.records.map(record => [record.id, { record, review: snapshot.reviews[record.id] }])));
+    // Returned order first; absent returns follow current, then baseline order.
+    const ids = new Set([...returnedById.keys(), ...currentById.keys(), ...baseById.keys()]);
+    const counts = { total: ids.size, proposed: 0, preserved: 0, unchanged: 0,
+      converged: 0, conflict: 0, unknown: 0, missing: 0 };
+    const entries = [...ids].map(id => {
+      const baseline = baseById.get(id) || null;
+      const current = currentById.get(id) || null;
+      const returned = returnedById.get(id) || null;
+      const issues = [];
+      if (!baseline) issues.push("unknown-baseline");
+      if (!current) issues.push("missing-current");
+      if (!returned) issues.push("missing-returned");
+      const currentSourceChanged = baseline && current && !equalJSON(baseline.record, current.record);
+      const returnedSourceChanged = baseline && returned && !equalJSON(baseline.record, returned.record);
+      if (currentSourceChanged) issues.push("current-source-changed");
+      if (returnedSourceChanged) issues.push("returned-source-changed");
+      let kind;
+      if (currentSourceChanged || returnedSourceChanged) kind = "conflict";
+      else if (!baseline) kind = "unknown";
+      else if (!current || !returned) kind = "missing";
+      else {
+        const currentChanged = !equalJSON(baseline.review, current.review);
+        const returnedChanged = !equalJSON(baseline.review, returned.review);
+        if (!currentChanged && !returnedChanged) kind = "unchanged";
+        else if (!returnedChanged) kind = "preserved";
+        else if (!currentChanged) kind = "proposed";
+        else if (equalJSON(current.review, returned.review)) kind = "converged";
+        else { kind = "conflict"; issues.push("review-diverged"); }
+      }
+      counts[kind]++;
+      return { id, kind, issues, baseline, current, returned,
+        proposed: kind === "proposed" ? { ...returned.review } : null };
+    });
+    return { kind: "record-review-reconciliation", counts, entries };
+  }
+
   // All working-state transitions are immutable. A preview retains its state
   // identity as a freshness guard, not a candidate state to overwrite from.
   // Revalidate and rederive first, then make one complete review-map copy.
@@ -561,7 +603,7 @@
 
   return Object.freeze({
     FORMAT, VERSION, STORAGE_KEY, DECISIONS, emptyState, importJSON, importCSV,
-    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, previewReviewUpdates, applyReviewUpdates, undoReviewUpdates, visibleRecords, counts, exportJSON, exportSelectedJSON, restore, persist,
+    updateReview, bulkDecision, undoBulkDecision, parseSnapshotJSON, compareSnapshots, previewReviewUpdates, planReviewReconciliation, applyReviewUpdates, undoReviewUpdates, visibleRecords, counts, exportJSON, exportSelectedJSON, restore, persist,
   });
 });
 
