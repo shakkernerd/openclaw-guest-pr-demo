@@ -1,0 +1,14 @@
+.comparison-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.comparison-columns > * { min-width: 0; }
+#comparison-rows { list-style: none; padding: 0; }
+#comparison-rows > li { margin-block: 1rem; padding: 1rem; border: 1px solid #596572; border-radius: 0.25rem; background: #fff; }
+#comparison-rows h4 { margin-block: 0.5rem; }
+#mapping-controls { min-width: 0; border: 1px solid #596572; }
+#mapping-controls select { display: block; width: 100%; margin-block-end: 0.75rem; }
+#mapping-list li { margin-block: 0.5rem; }
+#mapping-list button { margin-inline-start: 0.75rem; }
+.selection-status[data-state="invalid"], .selection-status[data-state="read-error"],
+#mapping-status[data-state="error"] { color: #a31515; }
+#comparison-summary, #comparison-visible { font-weight: 600; }
+summary { cursor: pointer; padding-block: 0.5rem; }
+@media (max-width: 42rem) { .comparison-columns { grid-template-columns: 1fr; } }

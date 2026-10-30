@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Saved batch-report comparison</title>
+  <link rel="stylesheet" href="saved-batch-report.css">
+  <link rel="stylesheet" href="saved-batch-comparison.css">
+  <script src="saved-batch-report.js" defer></script>
+  <script src="saved-batch-comparison.js" defer></script>
+  <script src="saved-batch-comparison-viewer.js" defer></script>
+</head>
+<body>
+<main>
+  <h1>Compare two saved batch reports</h1>
+  <p>Offline comparison of recorded results, not proof of authenticity, current validity,
+    or a complete rerun. No draft paths are opened, no commands are run, and nothing is
+    sent or saved. There is no comparison export.</p>
+  <p><a href="saved-batch-report.html">Single-report viewer and CSV export</a></p>
+  <noscript>JavaScript is needed to read and compare saved reports.</noscript>
+  <p id="selection-help">Each side accepts one UTF-8 JSON report. Pending, invalid,
+    failed, or cancelled selections retain that side’s accepted report and all mappings.
+    A newly accepted report on either side clears explicit mappings, even when reselecting
+    the same file. Compare uses the accepted reports named below, not pending selections.</p>
+  <div class="comparison-columns">
+    <section aria-labelledby="original-heading">
+      <h2 id="original-heading">Original report</h2>
+      <label for="original-file">Choose original report</label>
+      <input id="original-file" type="file" accept=".json,application/json" aria-describedby="selection-help">
+      <p id="original-status" class="selection-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <div id="original-accepted"></div>
+    </section>
+    <section aria-labelledby="rerun-heading">
+      <h2 id="rerun-heading">Rerun report</h2>
+      <label for="rerun-file">Choose rerun report</label>
+      <input id="rerun-file" type="file" accept=".json,application/json" aria-describedby="selection-help">
+      <p id="rerun-status" class="selection-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <div id="rerun-accepted"></div>
+    </section>
+  </div>
+  <section aria-labelledby="mapping-heading">
+    <h2 id="mapping-heading">Correspondence</h2>
+    <p>Unique exact-path matches are a <strong>convention, not proof of identity</strong>:
+      the path must appear once in each full report. Paths are never normalized.
+      Duplicate groups remain ambiguous until explicitly mapped; one leftover duplicate
+      is not automatically matched. Renamed or restaged inputs require explicit mappings.</p>
+    <form id="mapping-form">
+      <fieldset id="mapping-controls" disabled>
+        <legend>Add an explicit one-to-one mapping</legend>
+        <label for="map-original">Original occurrence</label>
+        <select id="map-original" required></select>
+        <label for="map-rerun">Rerun occurrence</label>
+        <select id="map-rerun" required></select>
+        <p id="mapping-help">Choose positions from the accepted reports. This is your assertion
+          of correspondence, not a filename inference. Explicit mappings take priority over
+          the exact-path convention; remove a conflicting explicit mapping before changing it.</p>
+        <button type="submit" aria-describedby="mapping-help">Add explicit mapping</button>
+      </fieldset>
+    </form>
+    <p id="mapping-status" role="status" aria-live="polite" aria-atomic="true">No explicit mappings.</p>
+    <ul id="mapping-list"></ul>
+  </section>
+  <section aria-labelledby="results-heading">
+    <h2 id="results-heading">Comparison</h2>
+    <p>Original-only means no established rerun counterpart: <strong>not reverified</strong>,
+      not fixed or deleted. Rerun-only does not prove a newly added input. Duplicates remain
+      separate occurrences. A smaller failure count is not a fix rate.</p>
+    <p>Only exact parsed formatted text or the complete error stage/name/message tuple is
+      compared. Whitespace matters; unknown fields do not. Path and position changes are
+      shown separately. Expand escaped strings to see JSON escapes for tabs, line endings, and quotes. Some invisible Unicode characters remain literal even when the comparison reports a change.</p>
+    <p id="comparison-summary" role="status" aria-live="polite" aria-atomic="true"></p>
+    <ul id="outcome-counts"></ul>
+    <label for="comparison-filter">Show comparison rows</label>
+    <select id="comparison-filter">
+      <option value="all">All</option>
+      <option value="failure-to-success">Recorded failure → success</option>
+      <option value="success-to-failure">Recorded success → failure</option>
+      <option value="success-same">Success — same output</option>
+      <option value="success-changed">Success — changed output</option>
+      <option value="still-failed">Still failed — same or changed error</option>
+      <option value="changed">Changed output or error (same outcome)</option>
+      <option value="original-only">Original-only — not reverified</option>
+      <option value="rerun-only">Rerun-only</option>
+      <option value="ambiguous">Ambiguous duplicate occurrences</option>
+    </select>
+    <p id="comparison-visible" role="status" aria-live="polite" aria-atomic="true"></p>
+    <p id="comparison-empty"></p>
+    <ol id="comparison-rows" aria-labelledby="results-heading"></ol>
+  </section>
+</main>
+</body>
+</html>
