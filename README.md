@@ -302,6 +302,120 @@ The terminal adapter reuses the exported `parseSnapshotJSON`,
 behind those owners. There is no second merge policy or change to the UI, scalar
 APIs, format, persistence or schema.
 
+### Reconcile a baseline, working review and return (read-only)
+
+With the existing Node.js 22+ tooling:
+
+~~~sh
+node review-reconcile.js baseline.json current.json returned.json
+node review-reconcile.js baseline.json current.json -
+node review-reconcile.js --help
+~~~
+
+This **separate** command emits a UTF-8 JSON plan to stdout. There is **no apply
+mode, output-file option, input overwrite or source-data merge**. The existing
+two-way command and browser preview/apply behavior are unchanged. Use this
+planner when you have explicitly selected a baseline, current working snapshot
+and returned snapshot; their roles do not prove chronology, real reviewer
+identity, independence or actual human approval. Even an `approved` decision is
+only stored review metadata, not an attestation.
+
+All inputs must be complete version-1 `record-review` snapshots. Selected subsets
+and empty snapshots are valid; raw arrays and CSV are not. Every record and
+review is validated, including excluded/conflicting entries. At most one input
+may be `-` (UTF-8 stdin through EOF); otherwise stdin is ignored. Quote paths with
+spaces and prefix filenames beginning with `-` with `./`. Success/help exit 0;
+usage, read, validation, serialization and stdout delivery errors exit 1 with
+diagnostics on stderr. Invalid input or a non-finite number retained in the plan
+produces no stdout. A delivery failure may leave partial stdout, so check both
+status and complete captured output. The command
+only opens input paths for reading. **Do not redirect stdout onto an input**:
+the shell can truncate it before Node starts. Reports contain source data and
+notes; keep them private and outside Git. There is no file locking or detection
+of concurrent edits during reads; each invocation rereads its inputs.
+
+The real owner API is
+`require("./review-state.js").planReviewReconciliation(baseline, current, returned)`.
+It accepts snapshot objects, validates/normalizes all three with the existing
+private `validateSnapshot`, and compares with the existing private `equalJSON`.
+It returns a pure projection without modifying inputs, storage or working state;
+record values are retained by reference, as in existing comparison APIs. Treat
+those values as read-only. The CLI uses `parseSnapshotJSON` and this API, with no
+second reconciliation policy or exported validation/comparison seam.
+
+The JSON result has `kind: "record-review-reconciliation"`, `counts` and `entries`.
+It is **not an importable snapshot, approval token or apply input**:
+
+- Each entry is `{ id, kind, issues, baseline, current, returned, proposed }`.
+  Each snapshot side is the complete `{ record, review }` or `null` when absent.
+  Reviews normalize to exactly `{ decision, notes }`, as in existing exports;
+  extra envelope/review metadata is ignored, while all source fields remain.
+  `proposed` contains **only** the returned decision/notes pair for a `proposed`
+  entry, otherwise `null`. No source record is ever proposed for application.
+- For IDs present in all three snapshots, **any** source record change from the
+  baseline on current or returned produces `conflict`, even when both changed
+  sources match, reviews match, or reviews have not changed. Issues identify
+  `current-source-changed` and/or `returned-source-changed`.
+- With unchanged source records: neither review changed → `unchanged`;
+  returned only changed → `proposed`; current only changed → `preserved`;
+  both changed identically → `converged`; both changed differently → `conflict`
+  with `review-diverged`. Decision and notes are an indivisible pair: disjoint
+  decision/note edits on different sides are not combined. Preservation and
+  convergence require no proposed update and never write anything.
+- The union of all exact IDs is reported once. IDs absent from baseline are
+  `unknown`, even if current and returned match. Baseline IDs absent from current
+  and/or returned are `missing`; absence is not deletion intent. Issues retain
+  `unknown-baseline`, `missing-current` and `missing-returned` as applicable.
+  A source change on an available baseline/side pair takes precedence as
+  `conflict` even if the other side is missing; absence issues remain visible.
+  Otherwise unknown takes precedence over missing. These entries never propose
+  changes. A missing/blank/non-string ID **inside a record**, duplicate ID or
+  missing/unknown review-map key instead fails existing whole-snapshot validation.
+- Entry order is returned record order, then IDs without a returned occurrence
+  in current record order, then remaining baseline-only IDs in baseline order.
+  No ID sorting, renaming, trimming or numeric conversion occurs. Issues are
+  ordered unknown-baseline, missing-current, missing-returned, current-source-
+  changed, returned-source-changed, review-diverged, omitting inapplicable items.
+  `counts.total` is the union size; each other count (`proposed`, `preserved`,
+  `unchanged`, `converged`, `conflict`, `unknown`, `missing`) counts entry kinds,
+  not issue occurrences.
+
+Object member order is irrelevant to comparison; array order, field membership
+and exact types/strings matter. Zero, empty string, null and missing fields are
+distinct. Notes retain whitespace, CRLF/LF and Unicode without normalization.
+Prototype-like IDs/fields are literal own keys; large ID **strings** remain exact.
+The CLI uses native JSON serialization (two-space indentation plus a trailing
+newline), retaining negative zero with `JSON.rawJSON`. If a number retained in
+the plan is non-finite after JSON parsing (for example, `1e400` becomes
+`Infinity`), serialization is refused with exit 1 and empty stdout, rather than
+emitting `null`. This is a serialization boundary, not a change to snapshot
+validation/normalization or the owner API. Finite numbers, negative zero and
+literal strings are preserved as parsed values. Existing JavaScript parsing
+may already round numbers or underflow them to zero; original number spelling
+and arbitrary precision are not preserved. This is not a lossless number parser
+or a byte-layout copy of inputs. Input bytes stay intact.
+
+Focused checks (no browser process, installs or unrelated suites):
+
+~~~sh
+node --test --test-timeout=15000 review-reconcile.test.js
+node --test --test-timeout=15000 --test-name-pattern='returned|comparison' review-state.test.js
+node --test --test-timeout=15000 --test-name-pattern='returned|accepted replacements reclassify' review-app.test.js
+node build-review.js --check
+~~~
+
+The new tests exercise the real owner and bounded, joined CLI children using
+fresh synthetic committed fixtures in `test-fixtures/review-reconcile/`. They cover
+the three-way matrix, source changes on both sides, missing/unknown identities,
+exact values, complete validation, normalization, deterministic order, stdin,
+read-only input bytes, non-finite serialization refusal with finite/negative-zero
+controls, failed stdout and existing two-way CLI controls. Each test
+registers teardown immediately for its own newly created temporary directory,
+so cleanup runs on success or failure. Existing adapter tests check browser logic in
+Node, not native browser/file-picker/layout behavior. Because the shared owner is
+inlined into both offline pages, regenerate them with `node build-review.js` when
+changing it; no browser adapter/template or two-way policy change is required.
+
 ### Analyze multiple returned snapshots (read-only)
 
 With Node.js 22 or newer, use the separate analysis command:
@@ -542,6 +656,9 @@ Exports remain JSON so all record fields and separately owned reviews round-trip
   transitions, snapshot comparison, returned-review eligibility/batch apply,
   filtering, export, and guarded storage;
   also usable in Node tests.
+- `review-reconcile.js`: separate read-only three-way stdout planner, backed by
+  `planReviewReconciliation` in the shared owner; `review-reconcile.test.js` tests
+  the real owner/CLI with fresh synthetic fixtures.
 - `review-return.js`: thin Node terminal/file/stdin adapter for returned-review
   counts, read-only JSON plans and exclusive fresh-output apply;
   `review-return.test.js` executes the real command.

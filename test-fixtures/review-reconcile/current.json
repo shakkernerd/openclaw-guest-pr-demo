@@ -1,0 +1,18 @@
+{
+  "format": "record-review",
+  "version": 1,
+  "records": [
+    {"id":"constructor","title":"Local note"},
+    {"id":"0","title":"Zero","zero":0,"negativeZero":-0,"empty":"","nil":null,"flag":false,"list":[0,"0","",null,false]},
+    {"id":"__proto__","title":"Reset","__proto__":{"constructor":"literal"}},
+    {"id":"9007199254740993","title":"Convergence","quantity":"0000"},
+    {"id":"split","title":"Disagreement"}
+  ],
+  "reviews": {
+    "constructor": {"decision":"unreviewed","notes":"local only"},
+    "0": {"decision":"unreviewed","notes":""},
+    "__proto__": {"decision":"approved","notes":"reset me"},
+    "9007199254740993": {"decision":"follow-up","notes":"  \r\n雪 é <b>literal</b>\t"},
+    "split": {"decision":"rejected","notes":""}
+  }
+}
