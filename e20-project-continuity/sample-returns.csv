@@ -1,0 +1,10 @@
+return_id,sku,reason,units,refund_cents
+RET-1001,TSHIRT-NAVY-M,wrong_size,1,2499
+RET-1002,MUG-CERAMIC-WHT,damaged,2,3600
+RET-1003,TSHIRT-NAVY-M,changed_mind,1,2499
+RET-1004,BAG-CANVAS-NAT,not_as_described,1,4500
+RET-1005,MUG-CERAMIC-WHT,damaged,1,1800
+RET-1006,TSHIRT-NAVY-M,wrong_size,2,4998
+RET-1007,BAG-CANVAS-NAT,changed_mind,1,4500
+RET-1008,STICKER-PACK,goodwill_exchange,1,0
+RET-1002,MUG-CERAMIC-WHT,damaged,2,3600

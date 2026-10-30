@@ -1,0 +1,65 @@
+{
+  "totals": {
+    "returns": 8,
+    "units": 10,
+    "refund_cents": 24396
+  },
+  "by_sku": [
+    {
+      "sku": "BAG-CANVAS-NAT",
+      "returns": 2,
+      "units": 2,
+      "refund_cents": 9000
+    },
+    {
+      "sku": "MUG-CERAMIC-WHT",
+      "returns": 2,
+      "units": 3,
+      "refund_cents": 5400
+    },
+    {
+      "sku": "STICKER-PACK",
+      "returns": 1,
+      "units": 1,
+      "refund_cents": 0
+    },
+    {
+      "sku": "TSHIRT-NAVY-M",
+      "returns": 3,
+      "units": 4,
+      "refund_cents": 9996
+    }
+  ],
+  "by_reason": [
+    {
+      "reason": "changed_mind",
+      "returns": 2,
+      "units": 2,
+      "refund_cents": 6999
+    },
+    {
+      "reason": "damaged",
+      "returns": 2,
+      "units": 3,
+      "refund_cents": 5400
+    },
+    {
+      "reason": "goodwill_exchange",
+      "returns": 1,
+      "units": 1,
+      "refund_cents": 0
+    },
+    {
+      "reason": "not_as_described",
+      "returns": 1,
+      "units": 1,
+      "refund_cents": 4500
+    },
+    {
+      "reason": "wrong_size",
+      "returns": 2,
+      "units": 3,
+      "refund_cents": 7497
+    }
+  ]
+}
