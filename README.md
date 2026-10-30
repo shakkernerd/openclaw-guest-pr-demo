@@ -443,3 +443,99 @@ covered without reopening draft paths or rerunning the formatter. The existing
 viewer suite retains comprehensive schema, preservation, filtering, and race
 coverage; it is not duplicated in the command suite. These are Node boundary
 checks, not new native-browser compatibility proof.
+
+## Summarize one saved address report in the terminal
+
+With the existing Node.js 22 or newer runtime, run from the repository root:
+
+```sh
+node summarize-address-report.js saved-batch-report-fixtures/success-report.json
+```
+
+This read-only command prints recorded saved-report data, not newly checked
+addresses. For that retained fixture, stdout is:
+
+```text
+Recorded saved-report data (textual projection)
+Report: "saved-batch-report-fixtures/success-report.json"
+Total: 3; succeeded: 3; failed: 0
+1. status=success file="./bom-valid.json"
+   formatted="\ufeffinside\n  \u03a9  "
+2. status=success file="bom-valid.json"
+   formatted="\ufeffinside\n  \u03a9  "
+3. status=success file="bom-valid.json"
+   formatted="\ufeffinside\n  \u03a9  "
+```
+
+Every occurrence is printed in original order, including duplicate paths, with
+its original 1-based position, recorded `success`/`failure` status, literal file
+path, and either the complete formatted value or all three recorded error fields.
+For example, a failure row's detail line can be:
+
+```text
+   error: stage="format" name="RangeError" message="lines[1] must not be blank"
+```
+
+All user-supplied strings, including the input filename and diagnostic strings,
+are ASCII-only JSON string literals. JSON serialization handles quotes,
+backslashes and controls; a small local escaping step emits remaining non-ASCII
+UTF-16 code units (and DEL) as `\uXXXX`. Non-BMP characters use a surrogate pair;
+lone surrogates remain inspectable escapes rather than replacement characters.
+`JSON.parse` of an individual literal recovers the exact string, including empty
+strings, whitespace, CR/LF/CRLF, FEFF and combining characters. Nothing is trimmed,
+normalized or reformatted. This preserves parsed values, not the original JSON
+escape spelling or layout. Unknown fields are not displayed, but the original
+file, including all unknown fields and bytes, is never changed. The summary is a
+textual projection, not a report-import format or a replacement for the JSON.
+
+Supply **exactly one literal filename**; relative paths resolve from the current
+working directory. Quote paths against shell expansion. There is no option
+parsing: `-`, `--` and `--help` are filenames, not stdin or flags. For example,
+`node summarize-address-report.js '--help'` reads a file literally named
+`--help`. There is no stdin fallback, glob expansion, traversal or discovery.
+The named report is read once as bytes using the unchanged shared
+`savedBatchReportCodec.decode(bytes)` from `saved-batch-report.js`. No new schema,
+parser, dependency or preparation is needed. The complete report and summary are
+held in memory. Paths inside the report are never opened; the command does not
+import or run the draft codec, formatter or batch command, or write any files.
+Both existing validation entry points and CSV behavior are unchanged, including
+the CSV-only refusal of unpaired surrogates.
+
+- Exit **0**: structurally accepted report, even for mixed, all-failure or empty
+  reports. Output goes only to stdout and ends with exactly one LF; stderr is
+  empty. For example,
+  `node summarize-address-report.js saved-batch-report-fixtures/mixed-report.json`
+  prints all six recorded occurrences (two succeeded, four failed) and exits 0.
+- Exit **1**: unreadable or invalid input. Stdout is empty; stderr has one
+  diagnostic line with the literal filename and a complete `stage`/`name`/`message`
+  tuple. Stage is `read` for filesystem errors or `decode` for UTF-8, JSON or
+  structural errors. Native read-error wording depends on Node/the OS.
+- Exit **2**: wrong argument count, before reading a report. Stdout is empty;
+  stderr is `Usage: node summarize-address-report.js FILE` followed by one LF.
+  For example, `node summarize-address-report.js` prints usage and exits 2.
+
+Normal Node stream/exit handling drains output; unexpected runtime or output-stream
+failures remain native errors. Structural acceptance does not establish current
+validity, authenticity, freshness, postal validity, or a fix rate. No addresses
+are rerun or repaired.
+
+Focused verification (no browser or unrelated suites):
+
+```sh
+node --test summarize-address-report.test.js
+node --test --test-name-pattern='literal and empty fields|encoding BOM|invalid encoding, envelope' saved-batch-report.test.js
+node --check summarize-address-report.js
+node --check summarize-address-report.test.js
+git diff --check
+```
+
+The new tests use real Node subprocesses for exact output/exit/stderr contracts,
+every recorded outcome, duplicate ordering, literal filenames, ignored stdin,
+ASCII literal round-trips (including lone surrogates), byte-preserved inputs and
+no output files. Representative decoding failures include a late invalid row to
+check that no partial summary escapes. Comprehensive structural and preservation
+proof is reused from the unchanged shared-decoder tests, not duplicated here.
+Each test-helper invocation removes only its own temporary directory in a
+`finally` block after success or failure. These are Node boundary checks and
+source inspection, not syscall tracing, new browser/CSV compatibility proof, or
+checks of any recorded address.
