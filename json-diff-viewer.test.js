@@ -372,11 +372,57 @@ test("per-side value budgets and maximum producer visits do not lose valid entri
   assert.match(v.ui["detail-title"].textContent, /9999 of 9999/);
 });
 
+test("sigma search finds visible root substrings without changing displayed values", async () => {
+  const v = viewer();
+  await v.loadFile(reportFile(encode(changed(null, "ΟΣ"))));
+  // Whole text was already found; its visible final letter must be found too.
+  for (const query of ["ΟΣ", "Σ", "σ", "ς", "οσ", "ος"]) {
+    v.ui.query.value = query; v.ui.query.fire("input");
+    assert.equal(v.ui["change-list"].children.length, 1, query);
+    assert.equal(v.ui.path.textContent, "[]");
+    assert.equal(v.ui["before-title"].textContent, "Before · null");
+    assert.equal(v.ui["after-title"].textContent, "After · string");
+    assert.equal(v.ui.before.textContent, "null");
+    assert.equal(v.ui.after.textContent, '"ΟΣ"');
+  }
+});
+
+test("sigma search shares keys across paths and complete values with bounded equivalence", () => {
+  const v = viewer();
+  for (const form of ["Σ", "σ", "ς"]) {
+    const report = {
+      added: [{ path: ["Ο" + form, 0], value: null }, { path: ["added"], value: { nested: ["far".repeat(2000) + "Ο" + form] } }],
+      removed: [{ path: ["removed"], value: form }],
+      changed: [{ path: ["before"], before: { [form]: [false, 0] }, after: null }, { path: ["after"], before: null, after: form }],
+    };
+    const rows = v.makeRows(v.parseReport(encode(report)));
+    for (const query of ["Σ", "σ", "ς"]) {
+      assert.equal(v.filterRows(rows, "all", query).map(row => row.kind + ":" + row.ordinal).join(","),
+        "added:1,added:2,removed:1,changed:1,changed:2", form + " / " + query);
+      assert.deepEqual(v.filterRows(rows, "removed", query), rows.filter(row => row.kind === "removed"));
+    }
+    rows.forEach(row => {
+      assert.deepEqual(JSON.parse(row.path), plain(row.entry.path));
+      assert.deepEqual(JSON.parse(v.jsonText(row.entry)), plain(report[row.kind][row.ordinal - 1]));
+    });
+  }
+  // No full multi-character folding or normalization is introduced.
+  for (const [value, query] of [["ß", "SS"], ["é", "e\u0301"]]) {
+    const rows = v.makeRows(v.parseReport(encode(changed(null, value))));
+    assert.equal(v.filterRows(rows, "all", query).length, 0);
+    assert.equal(v.filterRows(rows, "all", value).length, 1);
+  }
+});
+
 test("filters search full values literally without sorting, and clear unmatched details", async () => {
   const v = viewer();
-  const report = { added: [{ path: ["z"], value: "BEGIN" }, { path: ["a"], value: "far".repeat(2000) + "[Needle].*" }], removed: [{ path: ["x"], value: "needle" }], changed: [{ path: ["Needle"], before: 0, after: 1 }] };
+  const report = { added: [{ path: ["z"], value: "BEGIN" }, { path: ["a"], value: "far".repeat(2000) + "[Needle].*  \\" }], removed: [{ path: ["x"], value: "needle" }], changed: [{ path: ["Needle"], before: 0, after: 1 }] };
   await v.loadFile(reportFile(encode(report)));
   assert.deepEqual(plain(v.makeRows(v.parseReport(encode(report))).map(row => row.entry.path)), [["z"], ["a"], ["x"], ["Needle"]]);
+  const rows = v.makeRows(v.parseReport(encode(report)));
+  for (const [query, count] of [["", 4], ["  ", 1], ["   ", 0], ["\\\\", 1]]) {
+    assert.equal(v.filterRows(rows, "all", query).length, count, JSON.stringify(query));
+  }
   v.ui.query.value = "NEEDLE"; v.ui.query.fire("input");
   assert.equal(v.ui["change-list"].children.length, 3);
   assert.equal(v.ui.path.textContent, '["a"]');

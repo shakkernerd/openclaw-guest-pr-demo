@@ -195,15 +195,19 @@ function jsonText(value, pretty = false) {
 function valueType(value) {
   return value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
 }
+// Keep contextual final sigma from breaking literal substring search.
+function searchKey(text) {
+  return text.toLowerCase().replace(/\u03c2/g, "\u03c3");
+}
 function makeRows(report) {
   return KINDS.flatMap(kind => report[kind].map((entry, index) => {
     const path = jsonText(entry.path);
     const values = kind === "changed" ? [entry.before, entry.after] : [entry.value];
-    return { kind, ordinal: index + 1, entry, path, search: [path, ...values.map(value => jsonText(value))].join("\n").toLowerCase() };
+    return { kind, ordinal: index + 1, entry, path, search: searchKey([path, ...values.map(value => jsonText(value))].join("\n")) };
   }));
 }
 function filterRows(rows, kind, query) {
-  const needle = query.toLowerCase();
+  const needle = searchKey(query);
   return rows.filter(row => (kind === "all" || row.kind === kind) && row.search.includes(needle));
 }
 

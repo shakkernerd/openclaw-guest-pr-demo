@@ -514,8 +514,12 @@ two CLIs remain independent; their contracts are documented in their own section
   blanket rule for whitespace, variation selectors or other invisible characters.
 - Filter by category and case-insensitive literal text in compact JSON paths and
   complete values (including values not currently displayed). Search uses the
-  displayed escapes, not a regular expression; spaces are significant. Reset
-  filters to return to all entries.
+  displayed escapes, not a regular expression; spaces are significant. Search
+  lowercases both indexed text and the query, then folds final sigma `ς` to `σ`,
+  so a query for `Σ` also finds `ΟΣ`. Only search keys change; displayed JSON and
+  original values do not. This adds no locale, Unicode normalization, accent
+  removal or full multi-character case folding. Reset filters to return to all
+  entries.
 - Use Tab/Shift+Tab, Enter/Space, Previous/Next change, or Go to match. In a change
   list button, Up/Down selects adjacent matches and Home/End selects first/last.
   Modified keys and ordinary Tab behavior are left to the browser. There are
