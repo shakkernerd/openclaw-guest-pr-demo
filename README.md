@@ -299,12 +299,6 @@ a spaces-only query is not empty. Browsers may change line breaks entered into
 this single-line field before matching. No escape sequences are interpreted.
 Search does not rerun formatting or alter stored report text or input files.
 
-**Wording correction:** Earlier unqualified literal-whitespace wording was too
-broad. Literal matching applies to the value present in the single-line field,
-not necessarily the original entered text. Recorded browser text-entry evidence
-describes the observed field value in that check, not operating-system clipboard
-behavior.
-
 An empty query shows everything allowed by the outcome filter. Both the exact
 query and selected filter persist across all loads, including valid replacements,
 invalid/read-failed files, and cancelled/empty selections (not page reloads).

@@ -81,8 +81,9 @@ function loadPage(t) {
   return { html, document, window, get, urls,
     select(file) {
       get("report-file").files = file ? [file] : [];
+      get("report-file").value = "mock-selected-file";
       get("report-file").emit("change");
-      assert.equal(get("report-file").value, "", "same file can be selected again");
+      assert.equal(get("report-file").value, "", "clear the mock selection value");
       return settle();
     },
     query(value) { get("report-query").value = value; get("report-query").emit("input"); },
