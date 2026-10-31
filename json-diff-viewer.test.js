@@ -241,6 +241,62 @@ test("invisible, Unicode, markup and prototype-like strings remain complete iner
   assert.equal(v.valueType([]), "array");
 });
 
+test("format controls distinguish U+180E from empty text and support displayed-escape search", async () => {
+  const v = viewer();
+  await v.loadFile(reportFile(encode(changed("", "\u180e"))));
+  assert.equal(v.ui.before.textContent, '""');
+  assert.equal(v.ui.after.textContent, '"\\u180e"');
+  assert.equal(v.ui["before-title"].textContent, "Before · string");
+  assert.equal(v.ui["after-title"].textContent, "After · string");
+  assert.equal(JSON.parse(v.ui.after.textContent), "\u180e");
+  v.ui.query.value = "\\u180e"; v.ui.query.fire("input");
+  assert.equal(v.ui["change-list"].children.length, 1);
+  assert.equal(v.ui.path.textContent, "[]");
+  assert.equal(v.ui.after.textContent, '"\\u180e"');
+  v.ui.query.value = "\u180e"; v.ui.query.fire("input");
+  assert.match(v.ui.empty.textContent, /No changes match/);
+  v.ui["reset-filters"].fire("click");
+  assert.equal(v.ui.after.textContent, '"\\u180e"');
+});
+
+test("format controls preserve UTF-16 round trips, legacy escapes and ordinary text", () => {
+  const v = viewer();
+  const cases = [
+    ["\u00ad", "\\u00ad"], ["\u0600", "\\u0600"], ["\u061c", "\\u061c"],
+    ["\u070f", "\\u070f"], ["\u180e", "\\u180e"], ["\u200d", "\\u200d"],
+    ["\u202e", "\\u202e"], ["\u2067", "\\u2067"], ["\ufeff", "\\ufeff"],
+    ["\u{110bd}", "\\ud804\\udcbd"], ["\u{1bca0}", "\\ud82f\\udca0"],
+    ["\u{1d173}", "\\ud834\\udd73"], ["\u{e0001}", "\\udb40\\udc01"],
+    ["\u{e007f}", "\\udb40\\udc7f"],
+  ];
+  for (const [character, escape] of cases) {
+    assert.match(character, /^\p{Cf}$/u);
+    assert.equal(v.jsonText(character), '"' + escape + '"');
+    const value = { [character]: [character, "", null, false, {}, []] };
+    for (const pretty of [false, true]) {
+      assert.deepEqual(JSON.parse(v.jsonText(value, pretty)), value);
+    }
+    const rows = v.makeRows(v.parseReport(encode(changed("", value, [character, 0]))));
+    assert.equal(rows[0].path, '["' + escape + '",0]');
+    assert.equal(v.filterRows(rows, "all", escape).length, 1);
+    assert.equal(v.filterRows(rows, "all", character).length, 0);
+  }
+  // Preserve the old matcher's entire range, including non-Cf U+2065.
+  for (const [first, last] of [[0x7f, 0x9f], [0xad, 0xad], [0x61c, 0x61c], [0x200b, 0x200f], [0x2028, 0x202e], [0x2060, 0x206f], [0xfeff, 0xfeff]]) {
+    for (let code = first; code <= last; code++) {
+      assert.equal(v.jsonText(String.fromCharCode(code)), '"\\u' + code.toString(16).padStart(4, "0") + '"');
+    }
+  }
+  // This is not normalization or a blanket default-ignorable/whitespace policy.
+  const ordinary = 'Plain é e\u0301 漢字 😀 \u00a0\u2007\u2800\u3164\ufe0f\u{e0100}';
+  const existingEscapes = '"\\\n\r\t\b\f\u0000\ud800x\udc00\\u180e';
+  for (const text of [ordinary, existingEscapes]) {
+    assert.equal(v.jsonText(text), JSON.stringify(text));
+    assert.equal(JSON.parse(v.jsonText(text)), text);
+  }
+  assert.notEqual(v.jsonText("\u180e"), v.jsonText("\\u180e"));
+});
+
 test("malformed bytes, shape, fields, paths and numbers fail with bounded data-free errors", () => {
   const v = viewer();
   for (const bytes of [Buffer.alloc(0), Buffer.from([0xc3, 0x28]), Buffer.from("\ufeff{}"), Buffer.from("  "), Buffer.from("{} trailing"), Buffer.from("{}{}")]) assert.throws(() => v.parseReport(bytes));

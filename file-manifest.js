@@ -13,7 +13,7 @@ Create writes deterministic JSON to stdout; redirect only to a separate,
 non-input file. FILE paths are canonical, slash-separated paths below ROOT.
 Verify reads a JSON manifest and reports every declared file as ok, missing,
 changed, or unreadable. It never writes files. Exit: 0 success, 1 differences
-or unreadable declared files, 2 invalid input/root or creation failure.
+or unreadable declared files, 2 invalid input/root, creation or output failure.
 
 Only regular files are supported. Symlinks below the resolved ROOT are
 rejected, as is a symlink at MANIFEST itself. Absolute/traversing/ambiguous
@@ -196,10 +196,28 @@ function readManifest(filename) {
 }
 
 function main(args) {
+  let reported = false;
+  function fatal(error) {
+    process.exitCode = 2;
+    if (reported) return;
+    reported = true;
+    const detail = { code: error.code || "IO_ERROR", message: error.message };
+    if (error.file !== undefined) detail.path = error.file;
+    try {
+      process.stderr.write(`${JSON.stringify({ error: detail })}\n`);
+    } catch {
+      // A failed diagnostic cannot be reported through the same failed stream.
+    }
+  }
+
+  // Installed only by the CLI: importing the synchronous functions stays inert.
+  process.stdout.on("error", fatal);
+  process.stderr.on("error", () => { process.exitCode = 2; });
   try {
     if (args.length === 1 && args[0] === "--help") {
+      process.exitCode = 0;
       process.stdout.write(HELP);
-      return 0;
+      return;
     }
     const [command, root, ...inputs] = args;
     let result;
@@ -210,18 +228,16 @@ function main(args) {
     } else {
       throw fail("USAGE", "Use --help for create ROOT FILE... or verify ROOT MANIFEST");
     }
+    // Set the normal status before writing; synchronous/asynchronous errors win.
+    process.exitCode = command === "verify" && !result.ok ? 1 : 0;
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    return command === "verify" && !result.ok ? 1 : 0;
   } catch (error) {
-    const detail = { code: error.code || "IO_ERROR", message: error.message };
-    if (error.file !== undefined) detail.path = error.file;
-    process.stderr.write(`${JSON.stringify({ error: detail })}\n`);
-    return 2;
+    fatal(error);
   }
 }
 
 if (require.main === module) {
-  process.exitCode = main(process.argv.slice(2));
+  main(process.argv.slice(2));
 }
 
 module.exports = { createManifest, verifyManifest };

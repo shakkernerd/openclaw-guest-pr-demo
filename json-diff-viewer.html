@@ -184,11 +184,13 @@ function parseReport(bytes) {
   return report;
 }
 
-// Remain valid, round-trippable JSON while making bidi/invisible controls visible.
+// Unicode Format (Cf), plus legacy DEL/C1, separators and reserved U+2065.
+// Escape UTF-16 units so supplementary controls remain valid, round-trippable JSON.
 function jsonText(value, pretty = false) {
   return JSON.stringify(value, null, pretty ? 2 : 0).replace(
-    /[\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g,
-    character => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+    /[\p{Cf}\u007f-\u009f\u2028\u2029\u2065]/gu,
+    character => character.split("").map(unit =>
+      `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`).join(""));
 }
 function valueType(value) {
   return value === null ? "null" : Array.isArray(value) ? "array" : typeof value;

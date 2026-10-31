@@ -152,9 +152,12 @@ path, and attempts every declared file after validation:
 Exit **0**: create/help succeeded, or all declared files verified.
 Exit **1**: verification found any missing, changed, or unreadable declared file.
 Exit **2**: bad usage, malformed/unsafe manifest, inaccessible manifest, invalid
-or inaccessible root, or any creation failure. Fatal errors are JSON on stderr
-(`error.code`, `error.message`, and a declared `error.path` when available), with
-no stdout manifest/report. OS error messages can vary by platform.
+or inaccessible root, any creation failure, or output-delivery failure (including
+a closed pipe). Fatal errors are JSON on stderr when it is writable (`error.code`,
+`error.message`, and a declared `error.path` when available). Input/usage failures
+produce no stdout manifest/report. A delivery failure may leave partial stdout;
+the CLI does not retry the document. If stderr also fails, exit 2 is retained
+without attempting another diagnostic. OS error messages can vary by platform.
 
 ### Limits of the claim
 
@@ -489,7 +492,7 @@ browser, choose **Choose a UTF-8 JSON report**, and select the printed absolute
 directory for this manual step; temporary storage is not a durable archive.
 The viewer accepts only the JSON comparison report contract, not either input
 document, a file manifest/verification result, or a dependency plan. The other
-two CLIs remain independent and their output contracts are unchanged.
+two CLIs remain independent; their contracts are documented in their own sections.
 
 ### Viewing a report
 
@@ -502,8 +505,13 @@ two CLIs remain independent and their output contracts are unchanged.
   wrap and scroll without truncation. Focus a value pane to scroll by keyboard.
 - Paths show the complete JSON segment array and individual labeled segments:
   string object keys versus numeric array indices, with `[]` labeled as root.
-  Markup-looking content is inert text. Invisible formatting/directional controls
-  are shown as JSON escapes; parsing the displayed JSON recovers the full value.
+  Markup-looking content is inert text. Unicode `Format` (`Cf`) controls, including
+  U+180E, are shown as lowercase JSON `\uXXXX` escapes. The existing DEL/C1
+  (U+007F–U+009F), line/paragraph separator (U+2028–U+2029) and U+2065 escapes are
+  retained. Supplementary formatting controls use both UTF-16 surrogate escapes;
+  parsing the displayed JSON recovers the complete value and exact code points.
+  This is a bounded formatting-control policy, not Unicode normalization or a
+  blanket rule for whitespace, variation selectors or other invisible characters.
 - Filter by category and case-insensitive literal text in compact JSON paths and
   complete values (including values not currently displayed). Search uses the
   displayed escapes, not a regular expression; spaces are significant. Reset
