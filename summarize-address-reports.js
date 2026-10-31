@@ -11,7 +11,7 @@ const help = usage + "\n" +
   "No stdin input, glob expansion, directory discovery, or recursion.\n" +
   "A lone --help shows help; use ./--help for that file. Other arguments\n" +
   "are literal paths, including -, --, and --help among multiple files.\n" +
-  "Print one JSON result per file inside a batch document, plus totals over\n" +
+  "Print per-file entries under reports in a batch JSON document, plus totals over\n" +
   "valid reports only; recorded failures do not make a report invalid.\n" +
   "Never open recorded draft paths, rerun formatting, or write files.\n" +
   "Exit 0: all reports valid; 1: any unreadable/invalid input (continue);\n" +
@@ -42,14 +42,14 @@ if (files.length === 1 && files[0] === "--help") {
   process.exitCode = 2;
 } else {
   // Sequential fresh reads: do not sort, deduplicate, discover, or use stdin.
-  const results = files.map(summarizeFile);
-  const valid = results.filter((result) => result.ok);
+  const reports = files.map(summarizeFile);
+  const valid = reports.filter((result) => result.ok);
   const failed = files.length - valid.length;
   const summary = combineSummaries(valid.map((result) => result.summary));
   // Match the existing batch/validator JSON convention. Input errors are in
   // stdout results; serialization and output-stream failures remain native.
   process.stdout.write(JSON.stringify({
-    total: files.length, succeeded: valid.length, failed, results, summary,
+    total: files.length, succeeded: valid.length, failed, reports, summary,
   }) + "\n");
   process.exitCode = failed === 0 ? 0 : 1;
 }

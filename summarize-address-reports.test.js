@@ -90,7 +90,7 @@ test("success, mixed and repeated report filenames retain order and count every 
   });
   assert.deepEqual(document(actual, 0), {
     total: 3, succeeded: 3, failed: 0,
-    results: [valid(1, "mixed.json", mixed), valid(2, "success.json", success), valid(3, "mixed.json", mixed)],
+    reports: [valid(1, "mixed.json", mixed), valid(2, "success.json", success), valid(3, "mixed.json", mixed)],
     summary: { total: 15, succeeded: 7, failed: 8, failureStages: { read: 2, decode: 2, format: 4 } },
   });
 });
@@ -101,12 +101,12 @@ test("invalid and missing inputs do not stop later valid reports or count as rec
     guard: readGuard([["read", "invalid.json"], ["decode"], ["read", "missing.json"], ["read", "success.json"], ["decode"]]),
   });
   const output = document(actual, 1);
-  const missing = output.results[1].error;
+  const missing = output.reports[1].error;
   assert.equal(missing.name, "Error");
   assert.match(missing.message, /ENOENT/);
   assert.ok(missing.message.includes("missing.json"));
   assert.deepEqual(output, {
-    total: 3, succeeded: 1, failed: 2, results: [
+    total: 3, succeeded: 1, failed: 2, reports: [
       { position: 1, file: "invalid.json", ok: false, error: {
         stage: "decode", name: "SyntaxError", message: "Report must contain one complete JSON document.",
       } },
@@ -120,10 +120,30 @@ test("no valid reports still produces an all-zero summary and repeated failure r
   const output = document(run(["invalid.json", "invalid.json"], { files: { "invalid.json": "[]" } }), 1);
   assert.deepEqual(output, {
     total: 2, succeeded: 0, failed: 2,
-    results: [1, 2].map((position) => ({ position, file: "invalid.json", ok: false, error: {
+    reports: [1, 2].map((position) => ({ position, file: "invalid.json", ok: false, error: {
       stage: "decode", name: "TypeError", message: "Report must be an object",
     } })), summary: empty,
   });
+});
+
+test("batch summary documents are rejected by the singular CLI", async (t) => {
+  for (const [label, input, status] of [
+    ["all-invalid batch", "not JSON", 1],
+    ["valid-report batch control", fixture("success-report.json"), 0],
+  ]) {
+    await t.test(label, () => {
+      const batch = run(["report.json"], { files: { "report.json": input } });
+      document(batch, status);
+      const consumer = spawnSync(process.execPath, [join(__dirname, "summarize-address-report.js")], {
+        input: batch.stdout, encoding: "utf8", timeout: 10000,
+      });
+      assert.ifError(consumer.error);
+      assert.equal(consumer.signal, null);
+      assert.equal(consumer.status, 1);
+      assert.equal(consumer.stdout, "");
+      assert.match(consumer.stderr, /^stdin \(decode\): TypeError: .+\n$/);
+    });
+  }
 });
 
 test("valid empty and all-failure reports exit zero; saved strings and extra fields are not interpreted", () => {
@@ -144,7 +164,7 @@ test("valid empty and all-failure reports exit zero; saved strings and extra fie
     "DO-NOT-OPEN.json": "not a draft",
   }, guard: readGuard(args.flatMap((file) => [["read", file], ["decode"]])) }), 0), {
     total: 3, succeeded: 3, failed: 0,
-    results: [valid(1, "empty.json", empty), valid(2, "failures.json", allFailed), valid(3, "literal.json", one)],
+    reports: [valid(1, "empty.json", empty), valid(2, "failures.json", allFailed), valid(3, "literal.json", one)],
     summary: { total: 4, succeeded: 1, failed: 3, failureStages: { read: 1, decode: 1, format: 1 } },
   });
 });
@@ -155,7 +175,7 @@ test("representative UTF-8 and structure errors use the shared decoder and conti
     "count.json": bytes({ ...zero, succeeded: 1 }), "empty.json": bytes(zero),
   } }), 1);
   assert.deepEqual(output, {
-    total: 3, succeeded: 1, failed: 2, results: [
+    total: 3, succeeded: 1, failed: 2, reports: [
       { position: 1, file: "utf8.json", ok: false, error: {
         stage: "decode", name: "TypeError", message: "Report must contain valid UTF-8.",
       } },
@@ -168,25 +188,25 @@ test("representative UTF-8 and structure errors use the shared decoder and conti
 
 test("one report works; path spelling is retained, with no stdin fallback or option parsing", () => {
   assert.deepEqual(document(run(["./empty.json"], { files: { "empty.json": bytes(zero) } }), 0), {
-    total: 1, succeeded: 1, failed: 0, results: [valid(1, "./empty.json", empty)], summary: empty,
+    total: 1, succeeded: 1, failed: 0, reports: [valid(1, "./empty.json", empty)], summary: empty,
   });
   const args = ["-", "--", "--unknown", "--help", "./--help", "literal*.json", "empty.json"];
   const output = document(run(args, { files: { "empty.json": bytes(zero) },
     guard: readGuard([...args.slice(0, -1).map((file) => ["read", file]), ["read", "empty.json"], ["decode"]]),
   }), 1);
   assert.equal(output.failed, 6);
-  assert.deepEqual(output.results.map((result) => result.file), args);
-  assert.ok(output.results.slice(0, -1).every((result) => !result.ok && result.error.stage === "read"));
-  assert.deepEqual(output.results[6], valid(7, "empty.json", empty));
+  assert.deepEqual(output.reports.map((result) => result.file), args);
+  assert.ok(output.reports.slice(0, -1).every((result) => !result.ok && result.error.stage === "read"));
+  assert.deepEqual(output.reports[6], valid(7, "empty.json", empty));
   assert.deepEqual(output.summary, empty);
 });
 
 test("an explicitly named directory is not discovered, and a later file is still read", () => {
   const output = document(run([".", "empty.json"], { files: { "empty.json": bytes(zero) } }), 1);
-  assert.equal(output.results[0].ok, false);
+  assert.equal(output.reports[0].ok, false);
   // Directory read behavior is OS-dependent; either read or decode must refuse.
-  assert.ok(["read", "decode"].includes(output.results[0].error.stage));
-  assert.deepEqual(output.results[1], valid(2, "empty.json", empty));
+  assert.ok(["read", "decode"].includes(output.reports[0].error.stage));
+  assert.deepEqual(output.reports[1], valid(2, "empty.json", empty));
   assert.deepEqual(output.summary, empty);
 });
 
@@ -196,7 +216,7 @@ test("help and no-argument usage do not read input", () => {
   assert.equal(help.status, 0, help.stderr);
   assert.equal(help.stderr, "");
   assert.ok(help.stdout.startsWith(usage));
-  for (const phrase of ["No stdin", "argument order", "repeated filenames", "./--help", "valid reports only", "Exit 0:", "1:", "2:", "memory"]) {
+  for (const phrase of ["No stdin", "argument order", "repeated filenames", "./--help", "valid reports only", "entries under reports", "Exit 0:", "1:", "2:", "memory"]) {
     assert.ok(help.stdout.includes(phrase), phrase);
   }
   const actual = run([], { guard });

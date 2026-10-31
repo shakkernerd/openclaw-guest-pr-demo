@@ -761,7 +761,7 @@ stdin support, diagnostics and exit behavior.
 
 - Top-level `total`, `succeeded` and `failed` count **report arguments**:
   attempted, valid, and unreadable/invalid, respectively.
-- `results` contains one entry per argument, with one-based `position`,
+- `reports` contains one entry per argument, with one-based `position`,
   `file` exactly as supplied, and `ok`. A valid entry has a `summary`;
   an invalid/unreadable entry instead has `error: { stage, name, message }`.
   Input stages are `read` (filesystem) or `decode` (UTF-8/JSON/structure).
@@ -811,8 +811,11 @@ commands use `saved-batch-summary.js` for the original occurrence/stage counting
 policy. No draft paths are opened, no draft codec or formatter is imported or
 run, no saved strings are reproduced, and no files are written by the command.
 The viewer, decoder, saved input files and their literal data are unchanged.
-Batch summary output is a summary document, not a saved address report accepted
-by the viewer/validator. No dependencies, services, or network are required.
+Batch summary output uses `reports`, not the saved-report `results` field. It is
+a summary document, not a saved address report: the shared decoder rejects it
+even when every input is invalid, so it cannot be consumed as saved occurrences
+by the singular summary, viewer or validator. No dependencies, services, or
+network are required.
 
 Limits: each file must contain one complete UTF-8 JSON report, not JSON Lines or
 concatenated documents. Each full input is read/decoded in memory; only its
@@ -836,6 +839,8 @@ report/occurrence count separation, valid/empty/all-failure reports,
 continuation after decode/read errors, repeats, literal arguments, ignored stdin,
 help/usage, and unchanged inputs. Guarded real subprocesses verify sequential raw
 reads/decodes and no occurrence reads, discovery or draft/formatter imports.
+A real-CLI regression passes all-invalid and valid-report batch output to the
+singular summary and checks that both are rejected without occurrence counts.
 Shared-decoder validation matrices remain in the existing report suite; they are
 not duplicated here. These checks do not establish other-platform compatibility.
 
