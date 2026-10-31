@@ -1,0 +1,2 @@
+Packing note: SAMPLE-1030
+Verified: yes
