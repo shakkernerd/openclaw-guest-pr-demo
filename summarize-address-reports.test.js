@@ -54,11 +54,13 @@ function valid(position, file, summary) { return { position, file, ok: true, sum
 
 // Real subprocesses: observe reads, including repeats, and raw-byte decoding in
 // order. Any stdin, discovery, occurrence read, or formatter import fails.
+// Match module leaf names, not incidental substrings in checkout directories.
 function readGuard(events) {
   return `
     const assert = require("node:assert/strict");
     const fs = require("node:fs");
     const Module = require("node:module");
+    const { basename } = require("node:path");
     const owner = require(${JSON.stringify(codec)});
     const decode = owner.savedBatchReportCodec.decode;
     const events = [];
@@ -69,7 +71,7 @@ function readGuard(events) {
     } };
     const load = Module._load;
     Module._load = function(id, ...args) {
-      assert.ok(!/delivery-address|format-address-drafts/.test(id), "draft/formatter import: " + id);
+      assert.ok(!/delivery-address|format-address-drafts/.test(basename(id)), "draft/formatter import: " + id);
       return load.call(this, id, ...args);
     };
     fs.readdirSync = () => assert.fail("directory discovery");
@@ -208,6 +210,18 @@ test("an explicitly named directory is not discovered, and a later file is still
   assert.ok(["read", "decode"].includes(output.reports[0].error.stage));
   assert.deepEqual(output.reports[1], valid(2, "empty.json", empty));
   assert.deepEqual(output.summary, empty);
+});
+
+test("preload guard rejects real draft and formatter modules", () => {
+  for (const file of ["delivery-address.js", "delivery-address-draft.js", "format-address-drafts.js"]) {
+    // Resolve actual files without executing them; the child must reject the load.
+    const modulePath = require.resolve("./" + file);
+    const guard = readGuard([]) + "require(" + JSON.stringify(modulePath) + ");";
+    const actual = run(["--help"], { guard });
+    assert.equal(actual.status, 1);
+    assert.equal(actual.stdout, "");
+    assert.ok(actual.stderr.includes("AssertionError [ERR_ASSERTION]: draft/formatter import: " + modulePath), actual.stderr);
+  }
 });
 
 test("help and no-argument usage do not read input", () => {
