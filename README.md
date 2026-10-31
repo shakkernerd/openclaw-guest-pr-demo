@@ -286,19 +286,43 @@ file; the picker resets after capturing each choice, independently of accepted
 identity.
 
 **All**, **Successes**, **All failures**, and **Read/Decode/Format failures**
-project rows only. The selected filter persists across all loads and failures;
-choose **All** to reset that projection. Full totals, literal file spelling,
-original positions, order, and duplicate occurrences remain unchanged. Visible
-count is labelled separately. No accepted report, an accepted zero-result report,
-and a nonempty report with no filter matches have distinct messages. Status-only
-updates leave the displayed accepted row elements in place.
+combine with **Search occurrences** to project rows only. Search matches a
+case-insensitive literal substring in each occurrence’s recorded filename, saved
+successful output, or saved failure name/message. A match in any one of those
+fields is enough, but the occurrence must also pass the outcome filter. Error
+stages, positions, the selected report’s filename, and unknown fields are not
+searched; matches never span fields. Matching uses JavaScript `toLowerCase()`
+and `includes()`, not regex, tokenization, trimming, accent folding, or Unicode
+normalization. This is a native **single-line search** field. Matching uses the
+field’s actual displayed value, including supported spaces, tabs and punctuation;
+a spaces-only query is not empty. Browsers may change line breaks entered into
+this single-line field before matching. No escape sequences are interpreted.
+Search does not rerun formatting or alter stored report text or input files.
+
+**Wording correction:** Earlier unqualified literal-whitespace wording was too
+broad. Literal matching applies to the value present in the single-line field,
+not necessarily the original entered text. Recorded browser text-entry evidence
+describes the observed field value in that check, not operating-system clipboard
+behavior.
+
+An empty query shows everything allowed by the outcome filter. Both the exact
+query and selected filter persist across all loads, including valid replacements,
+invalid/read-failed files, and cancelled/empty selections (not page reloads).
+**Clear search** clears only the query and returns focus to the labelled search
+input; the native button is keyboard-usable. Choose **All** and clear the search
+to see every occurrence again. Full totals, literal file spelling, original
+positions, order, and duplicates remain unchanged. The live visible count shows
+matching occurrences out of the full total, with the active outcome filter and
+query. No accepted report, an accepted zero-result report, and no matches have
+distinct messages; no-match guidance suggests clearing search or changing the
+filter. Status-only updates leave the displayed accepted row elements in place.
 
 ### Export all occurrences as CSV
 
 Choose **Export all occurrences CSV** to request a download named
 `saved-batch-report.csv`. It snapshots **every occurrence in the displayed
-accepted report**, regardless of the selected filter, retaining original order,
-positions, duplicate paths, and exact file spelling. It does not reread the
+accepted report**, regardless of the selected outcome filter or search, retaining
+original order, positions, duplicate paths, and exact file spelling. It does not reread the
 report, open any named draft, or run the batch command, draft codec, or formatter.
 Without an accepted report export is unavailable; an accepted zero-result report
 exports headers only. The saved JSON remains authoritative: CSV is a projection, not a
@@ -338,43 +362,59 @@ prevent formula interpretation, or guarantee exact values after spreadsheet
 import and re-saving. Retain the authoritative JSON.
 
 **Download CSV again** retries the same snapshot without changing the view.
-The link and export survive filter changes, pending reads, invalid files, read
-failures, and cancelled/empty selections. A new accepted report, another export,
+The link and export survive search/filter changes, pending reads, invalid files,
+read failures, and cancelled/empty selections. A new accepted report, another export,
 or leaving the page releases the previous object URL and clears stale export
 state; already downloaded files are unaffected. Download creation failures have
 a separate status and can be retried with the export button. A download request
-does not prove that the browser saved a file. No report or filter state is
-changed by export or retry.
+does not prove that the browser saved a file. No report, query, or filter state
+is changed by export or retry.
 
 ### Viewer verification
 
-Run only the viewer's focused native Node checks with:
+Run the viewer’s focused native Node checks with:
 
 ```sh
-node --test saved-batch-report.test.js
+node --test saved-batch-report.test.js saved-batch-report-viewer.test.js
 ```
 
-These load the actual production boundary through its classic-script surface in
-a Node VM, rather than its CommonJS export or a fake browser. The two small
-fixtures are retained saved stdout documents, consumed directly with independent
+The boundary tests load the actual production boundary through its classic-script
+surface in a Node VM, rather than its CommonJS export or a fake browser. The two
+small fixtures are retained saved stdout documents, consumed directly with independent
 expected results and byte identities; they do not authorize reading any paths
 inside them. Tests cover literal/empty strings, envelope/count/shape refusals,
-filters and duplicate order, atomic replacement, controlled asynchronous
-success/error/empty selection races, and full-report CSV export. CSV assertions
-use independently specified expected strings and native Blob bytes, including
+search/filter intersection and duplicate order, literal spaces/punctuation and
+case matching across the defined fields, atomic replacement, controlled
+asynchronous success/error/empty selection races, and full-report CSV export. CSV
+assertions use independently specified expected strings and native Blob bytes, including
 quoting, mixed line endings, Unicode, empty/error fields, formula-like text,
 and lossless export refusal. They also check that export does not reread inputs
 or mutate accepted state. The deferred reads prove the boundary's generation
 logic, **not native filesystem timing**. They never execute the batch command,
 draft codec, formatter, or old tests. Native Files, standalone loading, actual UI
 rendering, filter controls, narrow layout, and keyboard/accessibility behavior
-remain for the retained approved browser; these Node checks are not that proof.
+require an available approved browser; these Node checks are not that proof.
+
+`saved-batch-report-viewer.test.js` loads the actual HTML entry’s two production
+scripts with a bounded DOM double, following the existing editor-test approach.
+It exercises input/change/clear handlers, labels/live-count wiring, focus requests,
+rendered text and empty states, query/filter persistence, accepted row identity
+during read-status changes, and full CSV Blob bytes/object-URL lifetime through
+search changes, retry, failed reads, replacement, re-export, and pagehide. These
+are executable UI lifecycle checks, **not** browser rendering, native keyboard,
+file-picker cancellation, actual download, accessibility, or screen-reader proof.
+
 For browser verification, load a known saved report from the standalone page;
 check the actual downloaded CSV bytes and parsed cells, not just its link or
-status. Exercise export under a filter, retry after a later invalid/read-failed
-selection, replacement and URL cleanup, zero results, lossless refusal, and
-download failure/recovery. Check keyboard operation, live status, narrow layout,
-and the absence of draft-file or network access. Browser checks do not establish
+status. Exercise filename/output/error searches with mixed case, literal spaces
+and punctuation such as `[1]` and `.*`, in combination with outcome filters.
+Check no matches, Clear search using Tab then Enter/Space, focus return, and
+query/filter persistence across valid/invalid/cancelled/read-failed selections.
+Exercise export with both search and an outcome filter active (including no
+visible rows), retry after a later invalid/read-failed selection, replacement
+and URL cleanup, zero results, lossless refusal, and download failure/recovery.
+Check keyboard operation, live status, narrow layout, and the absence of
+draft-file or network access. Browser checks do not establish
 spreadsheet application compatibility or screen-reader behavior.
 
 ## Compare two saved batch reports offline

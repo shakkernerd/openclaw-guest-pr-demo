@@ -104,7 +104,58 @@ test("retained mixed document: exact outcomes and every filter projection", asyn
     assert.equal(viewer.accepted, accepted);
     assert.equal(viewer.toCsv(), expectedCsv);
     assert.deepEqual(plain([accepted.report.total, accepted.report.succeeded, accepted.report.failed]), [6, 2, 4]);
+    viewer.setQuery("rAnGeErRoR");
+    assert.deepEqual(plain(viewer.rows.map((row) => row.position)),
+      positions.filter((position) => [2, 4, 5].includes(position)));
+    assert.equal(viewer.toCsv(), expectedCsv);
+    viewer.setQuery("");
+    assert.deepEqual(plain(viewer.rows.map((row) => row.position)), positions);
   }
+});
+
+test("search is case-insensitive literal substring matching within only the defined fields", async () => {
+  const report = {
+    total: 5, succeeded: 3, failed: 2, extra: "metadata-only",
+    results: [
+      { position: 1, file: " ./Parcel[1].JSON ", ok: true, formatted: "  Zoë Ω\nA+B.*(x)?^$|\\end  " },
+      { position: 2, file: "same.json", ok: false,
+        error: { stage: "read", name: "AccessError", message: "Denied: [A+B]  now", extra: "metadata-only" } },
+      { position: 3, file: "same.json", ok: false, formatted: "ignored-output",
+        error: { stage: "decode", name: "SyntaxError", message: "bad <TAG>" } },
+      { position: 4, file: "", ok: true, formatted: "", error: { name: "ignored-error" } },
+      { position: 5, file: " ./Parcel[1].JSON ", ok: true, formatted: "  Zoë Ω\nA+B.*(x)?^$|\\end  " },
+    ],
+  };
+  let changes = 0;
+  const viewer = new SavedBatchReport(() => { changes += 1; });
+  assert.equal(viewer.query, "");
+  viewer.setQuery("before loading");
+  assert.equal(viewer.rows.length, 0);
+  await viewer.selectFile(file("selected-report-only.json", bytes(report)));
+  const accepted = viewer.accepted;
+  const status = viewer.status;
+  for (const [query, positions] of [
+    ["", [1, 2, 3, 4, 5]], ["pArCeL[1].json", [1, 5]], ["ZOË ω", [1, 5]],
+    ["accessERROR", [2]], ["DENIED: [a+b]", [2]], ["<tag>", [3]],
+    ["same.json", [2, 3]], ["  ", [1, 2, 5]], [" [A+B]  ", [2]],
+    ["   ", []], ["A+B.*(x)?^$|\\end", [1, 5]], ["[", [1, 2, 5]],
+    [".*", [1, 5]], ["A.B", []], ["[a+b] now", []],
+    ["json AccessError", []], ["read", []], ["decode", []],
+    ["metadata-only", []], ["ignored-output", []], ["ignored-error", []],
+    ["selected-report-only", []], ["success", []], ["5", []],
+  ]) {
+    const before = changes;
+    viewer.setQuery(query);
+    assert.equal(changes, before + 1, "notify the renderer");
+    assert.equal(viewer.query, query, "retain the exact query");
+    assert.deepEqual(plain(viewer.rows.map((row) => row.position)), positions, JSON.stringify(query));
+    for (const row of viewer.rows) assert.equal(row, accepted.report.results[row.position - 1]);
+    assert.equal(viewer.accepted, accepted);
+    assert.equal(viewer.status, status);
+  }
+  assert.deepEqual(plain(accepted.report), report);
+  assert.throws(() => viewer.setQuery(null), /query must be a string/);
+  assert.equal(viewer.query, "5");
 });
 
 test("literal and empty fields, CR/CRLF, FEFF, markup and unknown fields are not repaired", async () => {
@@ -219,6 +270,7 @@ test("invalid encoding, envelope, counts, positions and payload shapes are refus
   await viewer.selectFile(file("keep.json", bytes(success("keep"))));
   const accepted = viewer.accepted;
   viewer.setFilter("read");
+  viewer.setQuery(" KeEp.[ ");
   for (const [label, input] of invalid) {
     await t.test(label, async () => {
       await viewer.selectFile(file(label, input));
@@ -227,6 +279,7 @@ test("invalid encoding, envelope, counts, positions and payload shapes are refus
       assert.equal(viewer.accepted, accepted);
       assert.equal(viewer.accepted.report.results[0].formatted, "keep");
       assert.equal(viewer.filter, "read");
+      assert.equal(viewer.query, " KeEp.[ ");
     });
   }
 });
@@ -292,6 +345,7 @@ test("controlled stale success, invalid bytes and read error cannot overwrite ne
         const viewer = new SavedBatchReport(() => {});
         await viewer.selectFile(file("keep.json", bytes(success("keep"))));
         viewer.setFilter("decode");
+        viewer.setQuery(" KeEp.[ ");
         const old = deferred();
         const oldWork = viewer.selectFile(old.file);
         let next;
@@ -318,6 +372,7 @@ test("controlled stale success, invalid bytes and read error cannot overwrite ne
         assert.equal(viewer.status, status);
         assert.equal(viewer.toCsv(), csv);
         assert.equal(viewer.filter, "decode");
+        assert.equal(viewer.query, " KeEp.[ ");
         if (next) {
           next.resolve(bytes(zero)); await nextWork;
           assert.equal(viewer.accepted.name, "newest-pending.json");
@@ -335,7 +390,8 @@ test("each current selection reads once; filtering consumes the accepted snapsho
   await viewer.selectFile(selected);
   const first = viewer.accepted;
   for (const filter of ["read", "all", "success", "failure", "decode", "format"]) {
-    viewer.setFilter(filter); void viewer.rows;
+    viewer.setFilter(filter);
+    viewer.setQuery("no match"); void viewer.rows;
     assert.equal(viewer.toCsv(), csvHeader + '"1","","success","1","","",""\r\n');
     assert.equal(viewer.accepted, first);
     assert.equal(reads, 1);
@@ -346,6 +402,7 @@ test("each current selection reads once; filtering consumes the accepted snapsho
   assert.equal(reads, 2);
   assert.equal(viewer.accepted.report.results[0].formatted, "2");
   assert.equal(viewer.filter, "format");
+  assert.equal(viewer.query, "no match");
 });
 
 test("CSV requires accepted data; a zero report exports only headers without changing state", async () => {
