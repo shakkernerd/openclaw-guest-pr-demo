@@ -1,0 +1,6 @@
+﻿response_id,contact_email,session,score,comment
+FIC-EX-1,first@example.invalid," Z, café ", +05 ,"A comma, a ""quote"", and a line break:
+次の行。"
+FIC-EX-2,second@example.invalid,A,02,Contact fictional Jo at jo@example.invalid.
+FIC-EX-3,third@example.invalid," Z, café ",1,  Keep both outer spaces.  
+FIC-EX-4,,,+3,

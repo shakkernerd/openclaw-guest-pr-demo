@@ -1,0 +1,6 @@
+session,score,comment
+" Z, café ", +05 ,"A comma, a ""quote"", and a line break:
+次の行。"
+A,02,Contact fictional Jo at jo@example.invalid.
+" Z, café ",1,  Keep both outer spaces.  
+,+3,

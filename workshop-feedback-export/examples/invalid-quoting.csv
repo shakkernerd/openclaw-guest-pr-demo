@@ -1,0 +1,3 @@
+response_id,contact_email,session,score,comment
+FIC-EX-1,first@example.invalid,Later alphabetically,4,Valid first response.
+FIC-EX-2,second@example.invalid,Session,3,"Unclosed comment
