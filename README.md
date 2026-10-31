@@ -13,6 +13,11 @@ Run commands from the repository root. Each CLI retains its own input, path,
 symlink, error and exit-status contract, documented below; they do not invoke
 one another. No installation, package scripts or configuration are required.
 
+The [offline report viewer](#offline-structural-report-viewer) is a separate,
+self-contained HTML consumer of JSON comparison reports, not a fourth CLI.
+See the [manual CLI report handoff](#manual-cli-report-handoff) for saving a
+complete report safely and selecting it through native Files.
+
 ## Tests
 
 With Node.js 22 or newer, run this command from the repository root:
@@ -46,6 +51,7 @@ node --check dependency-plan.js
 node --check dependency-plan.test.js
 node --check json-diff.js
 node --check json-diff.test.js
+node --check json-diff-viewer.test.js
 node --check parcel-label.js
 node --check parcel-label.test.js
 ```
@@ -435,3 +441,148 @@ alias suppression on validation/early-read failures, with independent-sink contr
 checks use ordinary `mkfifo`; write failure uses `/dev/full` when available
 (and explicitly reports when that check cannot run). Synthetic test inputs are
 created and retained under the OS temporary directory, never the source tree.
+
+## Offline structural report viewer
+
+Open [`json-diff-viewer.html`](json-diff-viewer.html) directly in a modern browser
+with JavaScript enabled, then use **Choose a UTF-8 JSON report** to select retained
+stdout from `json-diff.js`. The HTML contains all its CSS and JavaScript: no server,
+installation, build step, dependency or external asset is required. Keep producer
+exit status 0 or 1 with your report; the viewer cannot certify how a file was made.
+
+### Manual CLI report handoff
+
+From the repository root, with stable `before.json` and `after.json` inputs, run
+this POSIX-shell snippet manually. It creates a fresh private directory under
+`/tmp`, outside the source tree, and writes only to a new report file there:
+
+```sh
+(
+  report_dir=$(mktemp -d /tmp/json-diff-report.XXXXXX) || exit 2
+  report="$report_dir/report.json"
+  if node json-diff.js before.json after.json > "$report"; then
+    comparison_status=0
+  else
+    comparison_status=$?
+  fi
+  case "$comparison_status" in
+    0|1)
+      printf 'Complete report (producer exit %s): %s\n' "$comparison_status" "$report"
+      ;;
+    *)
+      printf 'No certified report (producer exit %s); do not load %s\n' "$comparison_status" "$report" >&2
+      exit "$comparison_status"
+      ;;
+  esac
+)
+```
+
+Exit **1 means a successful comparison with differences**, not a failed handoff;
+exit **0 means equal**, producing a valid empty report. Any other status means
+the output must not be treated as a complete report, even if a file exists.
+The conditional captures status 1 even in a shell using `set -e`. Keep the
+printed producer status with the retained report; do not rely on the viewer to
+certify successful production. Do not redirect stdout or stderr onto either
+input, an alias of an input, or another file you need to keep: shell redirection
+can truncate a file before the CLI runs. Leave stderr on the terminal.
+
+Open [`json-diff-viewer.html`](json-diff-viewer.html) locally in your approved
+browser, choose **Choose a UTF-8 JSON report**, and select the printed absolute
+`report.json` path through native Files. The file stays in the temporary
+directory for this manual step; temporary storage is not a durable archive.
+The viewer accepts only the JSON comparison report contract, not either input
+document, a file manifest/verification result, or a dependency plan. The other
+two CLIs remain independent; their contracts are documented in their own sections.
+
+### Viewing a report
+
+- Added, removed and changed entries retain their original order within each
+  category. The viewer groups categories in that order; it never sorts entries or
+  performs another diff. Counts show both the whole report and filtered matches.
+- Select any change for its complete before/after JSON. Top-level types are
+  labeled; **absent** is explicitly different from JSON `null`. Empty strings,
+  false, empty containers and literal prototype-like keys remain intact. Values
+  wrap and scroll without truncation. Focus a value pane to scroll by keyboard.
+- Paths show the complete JSON segment array and individual labeled segments:
+  string object keys versus numeric array indices, with `[]` labeled as root.
+  Markup-looking content is inert text. Unicode `Format` (`Cf`) controls, including
+  U+180E, are shown as lowercase JSON `\uXXXX` escapes. The existing DEL/C1
+  (U+007F–U+009F), line/paragraph separator (U+2028–U+2029) and U+2065 escapes are
+  retained. Supplementary formatting controls use both UTF-16 surrogate escapes;
+  parsing the displayed JSON recovers the complete value and exact code points.
+  This is a bounded formatting-control policy, not Unicode normalization or a
+  blanket rule for whitespace, variation selectors or other invisible characters.
+- Filter by category and case-insensitive literal text in compact JSON paths and
+  complete values (including values not currently displayed). Search uses the
+  displayed escapes, not a regular expression; spaces are significant. Search
+  lowercases both indexed text and the query, then folds final sigma `ς` to `σ`,
+  so a query for `Σ` also finds `ΟΣ`. Only search keys change; displayed JSON and
+  original values do not. This adds no locale, Unicode normalization, accent
+  removal or full multi-character case folding. Reset filters to return to all
+  entries.
+- Use Tab/Shift+Tab, Enter/Space, Previous/Next change, or Go to match. In a change
+  list button, Up/Down selects adjacent matches and Home/End selects first/last.
+  Modified keys and ordinary Tab behavior are left to the browser. There are
+  100 matches per page, not a 100-entry report limit. Previous/Next page selects
+  the first match on that page. **Skip to selected change** is a native button:
+  Enter/Space focuses and scrolls to the selected detail in the current document,
+  without URI navigation or changing the report, filters or selection. This also
+  avoids fragment-link navigation in hosted `srcdoc` previews whose base URL may
+  belong to the host. At narrow widths the panels stack.
+- Loading a new file immediately clears the old accepted data. Malformed,
+  unreadable, zero-byte, valid empty, and no-filter-match states are distinct.
+  A later file selection or Clear viewer wins over pending reads. The picker
+  resets to allow selecting the same file again; its name is shown separately.
+
+The viewer only reads the selected file. It has no persistence, network calls,
+export, download, clipboard, editing, patch application or comparison behavior.
+Clear viewer clears page memory, not files. Reloading/closing the page discards
+the report. A restrictive inline Content Security Policy also disallows external
+resources, connections and form submission.
+
+### Viewer validation and checks
+
+Validation is deliberately a bounded format check, not proof of provenance or
+semantic consistency. It uses native `JSON.parse` (including last-key-wins), strict
+UTF-8 decoding and the producer's finite/safe-integer number policy. A BOM, missing
+fields, extra wrapper/entry fields and incorrectly typed paths are rejected.
+Payload object keys are unrestricted, including `__proto__` and `constructor`.
+
+The inclusive **262,144-byte complete-report** budget is checked before reading
+and against the actual bytes read (at most the budget plus one). It includes
+whitespace and the producer's final newline; the viewer also accepts a missing
+final newline. It does not mistakenly apply the **131,072-byte input** limit to
+reports. Paths have at most **64** string/nonnegative safe-integer segments. Each
+reported value is checked at its absolute source depth (path length plus nested
+depth, maximum **64**), excluding report wrappers. Reported subtrees are disjoint
+on each side, so their value counts are bounded separately at **10,000 before**
+and **10,000 after**. Entry count is bounded by the producer's **10,000 visits**.
+These are conservative necessary bounds: equal/unreported values, original input
+bytes, ancestor visits, path consistency and whether values really differ cannot
+be certified from a report alone. No source documents are reconstructed.
+
+Run just the viewer checks with Node.js 22 or newer:
+
+```sh
+node --check json-diff-viewer.test.js
+node --test json-diff-viewer.test.js
+```
+
+They compile and execute the maintained inline script in a small DOM double,
+check asset/sink restrictions and labels, and exercise parsing, whole-value
+rendering, typed paths, filtering, navigation handlers, invalid-state clearing,
+read errors and out-of-order reads. The skip regression checks native button
+markup and local focus/scroll calls with report/filter/selection preservation
+under simulated file and HTTP-based `srcdoc` contexts; native activation and
+scrolling still need browser-owner revalidation. Fresh synthetic reports from the unchanged
+producer cover exact report bytes, depth, per-side value budgets and maximum
+visits. Fixtures are in memory; there are no generated contribution files. These
+checks do not run the existing producer/parcel suites.
+
+The Node DOM double is **not native browser/Files, visual, accessibility-tree or
+physical keyboard proof**. Consumer assessment still needs opening this exact
+HTML offline in an approved browser, selecting real reports through native Files,
+checking Tab/Shift+Tab, Enter/Space, list keys, jump/page controls, scrolling and
+focus, and inspecting ordinary/narrow layouts (for example 1280px and 320px, plus
+zoom). Include empty/invalid files, no matches, markup-looking values and rapid
+file reselection. Independent source/UI review is a separate release gate.
