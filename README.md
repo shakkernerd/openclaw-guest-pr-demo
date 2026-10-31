@@ -661,6 +661,184 @@ logs, and local CSV evidence. No draft paths or external URLs should be requeste
 Keyboard checks and live-status attributes are not screen-reader proof; Chromium
 checks do not establish other-browser or spreadsheet compatibility.
 
+## Summarize one saved address report
+
+With Node.js 22 or newer, run from the repository root:
+
+```sh
+node summarize-address-report.js saved-batch-report-fixtures/mixed-report.json
+node summarize-address-report.js < saved-batch-report-fixtures/mixed-report.json
+cat saved-batch-report-fixtures/mixed-report.json | node summarize-address-report.js
+node summarize-address-report.js --help
+```
+
+No arguments reads stdin until EOF; exactly one argument reads only that literal
+file path (relative to the current working directory when relative), ignoring
+stdin. Unlike the older literal-path commands, this new command reserves a lone
+`--help` for help on stdout, with exit 0 and no input read. Use
+`./--help` to read a file with that name. All other names, including
+`-`, `--`, and `--unknown`, remain literal paths, not options or stdin
+aliases. Quote paths to prevent shell expansion; there is no command-side glob
+expansion, directory discovery, or recursion. Existing commands are unchanged.
+
+All three mixed-report examples print the same human-readable stdout, ending in LF:
+
+```text
+Total: 6
+Successes: 2
+Failures: 4
+Failure stages:
+  read: 1
+  decode: 1
+  format: 2
+```
+
+Counts describe recorded occurrences, not unique paths; duplicates count
+separately. All three stage counts are printed, including zeros. Only failed
+occurrences contribute to stage counts. No saved paths, formatted strings, or
+error messages are included in the summary.
+
+Raw input bytes go directly to the existing `savedBatchReportCodec.decode(bytes)`
+in `saved-batch-report.js`. It alone owns UTF-8, JSON, and structural validation:
+there is no new schema or version. Empty reports, a leading encoding BOM,
+unknown fields, empty strings, CR/LF, literal FEFF, and JSON-escaped lone
+surrogates retain the existing report semantics. The command never trims,
+normalizes, repairs, reserializes, or edits saved data. It never opens the draft
+paths recorded in a report or imports/runs the draft codec, formatter, or batch
+command. It writes no files and uses no dependencies, services, or network.
+
+Exit **0** means a valid report was summarized, even if some or all occurrences
+failed (matching the validator, not the batch formatter). Exit **1** means the
+selected input could not be read or decoded/validated: stdout is empty and stderr
+identifies `stdin` or the quoted report path, the input `read`/`decode`
+stage, and the original error name/message. These input diagnostics are separate
+from the recorded failure-stage counts. Native filesystem wording depends on
+Node/the OS. More than one argument exits **2**, with empty stdout and usage on
+stderr before any input read. Output-stream failures remain native Node errors.
+
+Limits: one complete UTF-8 JSON document, not a draft, JSON Lines, or concatenated
+reports. The full report is held in memory; this is not an unbounded streaming
+tool. Interactive stdin waits for EOF. Acceptance checks structure only, not
+authenticity, freshness, postal validity, or whether saved successes would format
+now. There is no snapshot guarantee against concurrent input changes.
+
+Focused real-command and shared-decoder checks:
+
+```sh
+node --test summarize-address-report.test.js validate-address-report.test.js saved-batch-report.test.js
+```
+
+The summary tests invoke Node subprocesses for stdin/file parity, duplicate and
+per-stage counts, empty/all-failure reports, help, usage, literal filenames,
+representative invalid bytes/structures, and unchanged input bytes. Guarded
+subprocesses also check one selected-input read, no occurrence reads or
+formatter/draft imports, and no input reads for help/usage. Existing decoder
+coverage stays with the shared report suite; no browser behavior is changed.
+
+## Summarize explicitly named saved address reports
+
+With Node.js 22 or newer, run from the repository root:
+
+```sh
+node summarize-address-reports.js saved-batch-report-fixtures/success-report.json saved-batch-report-fixtures/mixed-report.json
+node summarize-address-reports.js saved-batch-report-fixtures/mixed-report.json saved-batch-report-fixtures/success-report.json saved-batch-report-fixtures/mixed-report.json
+node summarize-address-reports.js --help
+```
+
+This separate batch command requires at least one explicitly named report. Paths
+are literal and relative to the current working directory when relative. It
+reads each argument once, sequentially in argument order, including repeated
+filenames; it does not sort, deduplicate, expand globs, discover directories, or
+recurse. Stdin is never read, even with no arguments or an unreadable file. A lone
+`--help` prints help without reading input; use `./--help` for that file.
+In a multi-file invocation, `--help` is a literal path, as are `-`, `--`,
+and unknown option-looking names. Quote paths to prevent shell expansion.
+
+Following the existing batch/validator convention, stdout is one compact JSON
+object plus LF; ordinary input errors are results in that object, not stderr.
+The singular `summarize-address-report.js` command retains its text output,
+stdin support, diagnostics and exit behavior.
+
+- Top-level `total`, `succeeded` and `failed` count **report arguments**:
+  attempted, valid, and unreadable/invalid, respectively.
+- `results` contains one entry per argument, with one-based `position`,
+  `file` exactly as supplied, and `ok`. A valid entry has a `summary`;
+  an invalid/unreadable entry instead has `error: { stage, name, message }`.
+  Input stages are `read` (filesystem) or `decode` (UTF-8/JSON/structure).
+  Error names/messages are retained; native wording depends on Node/the OS.
+- Every `summary` has `total`, `succeeded`, `failed` and
+  `failureStages: { read, decode, format }`. These count **saved occurrences**,
+  not distinct draft paths. Only failed occurrences contribute to stage counts;
+  all three stages appear even when zero.
+- The top-level `summary` adds the valid entries only. Repeated report arguments
+  contribute repeatedly. Invalid/unreadable reports contribute no occurrences
+  or stages, not even the stage of their input error. If none are valid, all
+  summary counts are zero. Valid empty and all-failure reports remain valid.
+
+The first example exits **0**, with report counts `2/2/0`
+(attempted/valid/invalid) and this aggregate occurrence summary:
+
+```json
+{"total":9,"succeeded":5,"failed":4,"failureStages":{"read":1,"decode":1,"format":2}}
+```
+
+The repeated-filename example also exits **0**: report counts `3/3/0` and
+occurrence counts `15/7/8`, with stages `2/2/4` (read/decode/format).
+
+To exercise invalid and unreadable inputs followed by a valid report without
+modifying any existing report, use a new private fixture (do not overwrite one):
+
+```sh
+mkdir -p .local-batch-summary-20261031
+(set -C; printf 'not JSON\n' > .local-batch-summary-20261031/invalid-report.json)
+node summarize-address-reports.js .local-batch-summary-20261031/invalid-report.json saved-batch-report-fixtures/success-report.json
+# With absent-report.json absent:
+node summarize-address-reports.js .local-batch-summary-20261031/absent-report.json saved-batch-report-fixtures/success-report.json
+```
+
+Each command exits **1**, with report counts `2/1/1`, a first result carrying
+its `decode` or `read` error, and a valid second result. The overall summary
+is `3/3/0` with zero recorded failure stages. Later valid results never erase
+an earlier input failure. A structurally valid report with recorded failures
+still exits **0** when all inputs are valid, matching the validator rather than
+the draft formatter. No arguments exits **2**, with empty stdout and usage on
+stderr, even if valid data is piped in. Output-stream failures remain native Node
+errors; there is no recovery promise for unexpected runtime/resource failures.
+
+Raw bytes go directly to the unchanged `savedBatchReportCodec.decode(bytes)`;
+there is no new schema, repair, normalization, or validation policy. Both summary
+commands use `saved-batch-summary.js` for the original occurrence/stage counting
+policy. No draft paths are opened, no draft codec or formatter is imported or
+run, no saved strings are reproduced, and no files are written by the command.
+The viewer, decoder, saved input files and their literal data are unchanged.
+Batch summary output is a summary document, not a saved address report accepted
+by the viewer/validator. No dependencies, services, or network are required.
+
+Limits: each file must contain one complete UTF-8 JSON report, not JSON Lines or
+concatenated documents. Each full input is read/decoded in memory; only its
+summary is retained for the batch, but all per-file results and final serialized
+output are held in memory. This is not an unbounded streaming tool. OS argument
+limits and Node memory/string limits apply. Named special files may block in
+native reads; there is no timeout. Reads are independent, not an atomic snapshot:
+a repeated filename can observe changed bytes. Structural acceptance does not
+establish authenticity, freshness, postal validity, or current formatability.
+
+Focused maintained checks (no formatter run or browser proof):
+
+```sh
+node --test saved-batch-summary.test.js summarize-address-report.test.js summarize-address-reports.test.js validate-address-report.test.js
+```
+
+Like the singular summary suite, batch tests use `node:os.tmpdir()` (respecting
+`TMPDIR`) and remove their own temporary subdirectories. No repository scratch
+directory setup is required. The suite checks exact JSON and text output,
+report/occurrence count separation, valid/empty/all-failure reports,
+continuation after decode/read errors, repeats, literal arguments, ignored stdin,
+help/usage, and unchanged inputs. Guarded real subprocesses verify sequential raw
+reads/decodes and no occurrence reads, discovery or draft/formatter imports.
+Shared-decoder validation matrices remain in the existing report suite; they are
+not duplicated here. These checks do not establish other-platform compatibility.
+
 ## Validate one saved address report
 
 With Node.js 22 or newer, run from the repository root:
