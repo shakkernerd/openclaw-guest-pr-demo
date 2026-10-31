@@ -3,6 +3,8 @@
 (() => {
   const input = document.getElementById("report-file");
   const filter = document.getElementById("report-filter");
+  const query = document.getElementById("report-query");
+  const clearQuery = document.getElementById("clear-query");
   const status = document.getElementById("read-status");
   const attempted = document.getElementById("attempted-file");
   const attemptedName = document.getElementById("attempted-name");
@@ -19,6 +21,7 @@
   let downloadUrl = null;
   let renderedReport = null;
   let renderedFilter = null;
+  let renderedQuery = null;
 
   function clearExport() {
     if (downloadUrl !== null) URL.revokeObjectURL(downloadUrl);
@@ -62,15 +65,19 @@
     literal(attemptedName, latest.name === null ? "" : latest.name);
 
     // Status-only changes leave selectable accepted content in place. These
-    // references are render keys, not another accepted-data or filter owner.
-    if (current === renderedReport && viewer.filter === renderedFilter) return;
+    // references are render keys, not another accepted-data or projection owner.
+    if (current === renderedReport && viewer.filter === renderedFilter &&
+        viewer.query === renderedQuery) return;
     if (current !== renderedReport) {
       clearExport();
       exportButton.disabled = current === null;
     }
     renderedReport = current;
     renderedFilter = viewer.filter;
+    renderedQuery = viewer.query;
     filter.value = viewer.filter;
+    if (query.value !== viewer.query) query.value = viewer.query;
+    clearQuery.disabled = viewer.query === "";
     accepted.hidden = current === null;
     rows.replaceChildren();
     visible.textContent = "Visible occurrences: 0.";
@@ -86,11 +93,14 @@
       "; Succeeded: " + report.succeeded + "; Failed: " + report.failed + ".";
     const selected = viewer.rows;
     visible.textContent = "Visible occurrences: " + selected.length + " of " + report.total +
-      " (" + filter.options[filter.selectedIndex].textContent + ").";
+      " (" + filter.options[filter.selectedIndex].textContent +
+      (viewer.query === "" ? "" : "; search: " + JSON.stringify(viewer.query)) + ").";
     empty.hidden = selected.length !== 0;
     empty.textContent = report.total === 0
       ? "Accepted report is empty: it contains zero results."
-      : "No occurrences match this filter. The full report totals are unchanged.";
+      : viewer.query === ""
+        ? "No occurrences match this outcome filter. Choose All. The full report totals are unchanged."
+        : "No occurrences match this search and outcome filter. Clear the search or choose All. The full report totals are unchanged.";
     const fragment = document.createDocumentFragment();
     for (const result of selected) {
       const row = document.createElement("li");
@@ -121,6 +131,11 @@
   });
   input.addEventListener("cancel", () => { void viewer.selectFile(null); });
   filter.addEventListener("change", () => { viewer.setFilter(filter.value); });
+  query.addEventListener("input", () => { viewer.setQuery(query.value); });
+  clearQuery.addEventListener("click", () => {
+    viewer.setQuery("");
+    query.focus();
+  });
   exportButton.addEventListener("click", () => {
     if (!viewer.accepted) return;
     clearExport();

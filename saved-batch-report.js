@@ -97,6 +97,7 @@ const SavedBatchReport = (() => {
     #accepted = null;
     #status = Object.freeze({ kind: "idle", name: null, message: "No file selected." });
     #filter = "all";
+    #query = "";
     #generation = 0;
     #onChange;
 
@@ -107,6 +108,7 @@ const SavedBatchReport = (() => {
     get accepted() { return this.#accepted; }
     get status() { return this.#status; }
     get filter() { return this.#filter; }
+    get query() { return this.#query; }
 
     toCsv() {
       if (!this.#accepted) throw new Error("No accepted report to export.");
@@ -125,18 +127,34 @@ const SavedBatchReport = (() => {
 
     get rows() {
       if (!this.#accepted) return [];
-      const results = this.#accepted.report.results;
+      let results = this.#accepted.report.results;
       switch (this.#filter) {
-        case "all": return results;
-        case "success": return results.filter((result) => result.ok);
-        case "failure": return results.filter((result) => !result.ok);
-        default: return results.filter((result) => !result.ok && result.error.stage === this.#filter);
+        case "all": break;
+        case "success": results = results.filter((result) => result.ok); break;
+        case "failure": results = results.filter((result) => !result.ok); break;
+        default: results = results.filter((result) => !result.ok && result.error.stage === this.#filter);
       }
+      if (this.#query === "") return results;
+      const query = this.#query.toLowerCase();
+      // Match each saved field independently: no regex, trimming, tokenization,
+      // cross-field joins, or changes to the accepted report/CSV snapshot.
+      return results.filter((result) => {
+        const fields = result.ok
+          ? [result.file, result.formatted]
+          : [result.file, result.error.name, result.error.message];
+        return fields.some((value) => value.toLowerCase().includes(query));
+      });
     }
 
     setFilter(filter) {
       if (!filters.includes(filter)) throw new TypeError("Unknown report filter");
       this.#filter = filter;
+      this.#onChange(this);
+    }
+
+    setQuery(query) {
+      if (typeof query !== "string") throw new TypeError("Report query must be a string");
+      this.#query = query;
       this.#onChange(this);
     }
 
