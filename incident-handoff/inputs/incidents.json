@@ -1,0 +1,37 @@
+{
+  "fixture_id": "synthetic-incident-handoff-01",
+  "fictional": true,
+  "incidents": [
+    {
+      "id": "INC-105",
+      "service": "api",
+      "severity": "low",
+      "status": "open",
+      "owner": "",
+      "summary": "Synthetic dashboard label mismatch."
+    },
+    {
+      "id": "INC-200",
+      "service": "worker",
+      "severity": "high",
+      "status": "resolved",
+      "owner": "Pat (fictional)",
+      "summary": "Synthetic retry queue recovered."
+    },
+    {
+      "id": "INC-042",
+      "service": "worker",
+      "severity": "medium",
+      "status": "monitoring",
+      "owner": null,
+      "summary": "Synthetic queue lag remains under observation."
+    },
+    {
+      "id": "INC-007",
+      "service": "api",
+      "severity": "high",
+      "status": "open",
+      "summary": "Synthetic request failures need an assigned reviewer."
+    }
+  ]
+}
