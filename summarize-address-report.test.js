@@ -134,14 +134,16 @@ test("one literal path uses cwd; only bare --help is reserved", () => {
 
 // Instrument real child processes without changing production modules. Prohibit
 // other filesystem reads/imports and assert the selected input is read once.
+// Match module leaf names, not incidental substrings in checkout directories.
 function readGuard(input, expectedReads) {
   return '"use strict";\n' +
     'const assert = require("node:assert/strict");\n' +
     'const fs = require("node:fs");\n' +
     'const Module = require("node:module");\n' +
+    'const { basename } = require("node:path");\n' +
     'const load = Module._load;\n' +
     'Module._load = function (id, ...args) {\n' +
-    '  assert.ok(!/delivery-address|format-address-drafts/.test(id), "draft/formatter import: " + id);\n' +
+    '  assert.ok(!/delivery-address|format-address-drafts/.test(basename(id)), "draft/formatter import: " + id);\n' +
     '  return load.call(this, id, ...args);\n' +
     '};\n' +
     'const read = fs.readFileSync;\n' +
@@ -163,6 +165,18 @@ test("only the chosen report is read, not occurrence paths or draft/formatter mo
   const files = { "report.json": report, "DO-NOT-OPEN.json": "not a draft" };
   assertSummary(run(["report.json"], { files, guard: readGuard("report.json", 1) }), expected);
   assertSummary(run([], { stdin: report, files, guard: readGuard(0, 1) }), expected);
+});
+
+test("preload guard rejects real draft and formatter modules", () => {
+  for (const file of ["delivery-address.js", "delivery-address-draft.js", "format-address-drafts.js"]) {
+    // Resolve actual files without executing them; the child must reject the load.
+    const modulePath = require.resolve("./" + file);
+    const guard = readGuard(null, 0) + "require(" + JSON.stringify(modulePath) + ");";
+    const actual = run(["--help"], { guard });
+    assert.equal(actual.status, 1);
+    assert.equal(actual.stdout, "");
+    assert.ok(actual.stderr.includes("AssertionError [ERR_ASSERTION]: draft/formatter import: " + modulePath), actual.stderr);
+  }
 });
 
 test("help exits 0 and usage errors exit 2 before any input read", () => {
