@@ -1,1 +1,1 @@
-Delivery mode: standard
+Delivery mode: express
