@@ -1,0 +1,11 @@
+{
+  "name": "directory-manifest",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dependency-free directory inventories and verification",
+  "type": "commonjs",
+  "main": "index.js",
+  "bin": { "directory-manifest": "cli.js" },
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=22" }
+}
